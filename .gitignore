@@ -1,0 +1,25 @@
+# macOS
+.DS_Store
+
+# Xcode
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Xcode Server / SPM
+.swiftpm/
+.build/
+Packages/
+Package.resolved
+
+# Node (reference-vector generation only)
+node_modules/
+
+# Claude Code plugins
+.remember/
