@@ -10,7 +10,7 @@ import Foundation
 /// Distinct from `ColorSpace` because one space has several spellings: sRGB can be
 /// written as a hex triplet, a keyword, `rgb()`, or `color(srgb …)`, and those are
 /// not interchangeable in output.
-nonisolated enum CSSOutputFormat: Equatable, Sendable {
+nonisolated enum CSSOutputFormat: Hashable, Sendable {
     case hex
     case keyword
     case rgb
@@ -41,7 +41,7 @@ nonisolated enum CSSOutputFormat: Equatable, Sendable {
     /// Hex is 8-bit unsigned, so a negative channel simply has no spelling; a keyword
     /// is one of 148 fixed points. Both must be gamut-mapped regardless of policy.
     /// `rgb()` and friends, by contrast, accept out-of-range numbers syntactically.
-    var requiresGamutMapping: Bool {
+    var cannotRepresentOutOfGamut: Bool {
         switch self {
         case .hex, .keyword: true
         default: false
@@ -65,11 +65,11 @@ nonisolated struct CSSFormatOptions: Sendable, Equatable {
     /// not only for components explicitly authored as `none`.
     var noneForPowerlessComponents: Bool = false
 
-    nonisolated enum AlphaPolicy: Sendable, Equatable {
+    nonisolated enum AlphaPolicy: Sendable, Hashable {
         case whenNotOpaque, always, never
     }
 
-    nonisolated enum GamutPolicy: Sendable, Equatable {
+    nonisolated enum GamutPolicy: Sendable, Hashable {
         /// Map into the target's gamut so the output renders as shown.
         case map
         /// Keep out-of-range values wherever the syntax permits them. Faithful to the
@@ -127,6 +127,41 @@ nonisolated extension ColorValue {
             ?? "#000000"
     }
 
+    // MARK: - Gamut decision
+
+    /// Whether serializing as `format` moves the color to make it expressible.
+    ///
+    /// The single place that decision is made. `prepare(for:options:)` asks it to
+    /// choose between mapping and plain conversion, and the UI asks it to decide
+    /// whether to badge a value as gamut-mapped. Computing those separately would let
+    /// the badge disagree with the string it labels — a mismatch nothing would catch,
+    /// since both sides would still compile and still look plausible.
+    ///
+    /// The two callers differ only in `epsilon`, and deliberately so. Serialization
+    /// passes `0`, mapping on any excursion at all so the emitted number is clean
+    /// rather than `rgb(255.0191 0 0)`. The badge passes ``gamutNoiseTolerance``, so a
+    /// float artifact from a round trip through Lab is not reported to the user as an
+    /// out-of-gamut color. Badge-true therefore always implies mapping happened, and
+    /// badge-false implies any movement was smaller than a fifty-fifth of an 8-bit step.
+    func isGamutMapped(
+        as format: CSSOutputFormat,
+        options: CSSFormatOptions = .default,
+        epsilon: Double = 0
+    ) -> Bool {
+        guard format.cannotRepresentOutOfGamut || options.gamut == .map else { return false }
+        // `inGamut(of:)` already answers `true` for unbounded spaces, which have no
+        // gamut to leave, so Lab and XYZ fall out here without a special case.
+        return !inGamut(of: format.space, epsilon: epsilon)
+    }
+
+    /// Channel slack below which an out-of-gamut reading is float noise, not a color.
+    ///
+    /// Matches the reference implementation's tolerance. At `0.000075` of a 0–1
+    /// channel this is roughly 1/55th of an 8-bit step — far too small to be a color
+    /// anyone authored, and exactly the size of the residue left by converting
+    /// `#ff0000` to Lab and back.
+    static let gamutNoiseTolerance = 0.000075
+
     // MARK: - Preparation
 
     /// Converts into the target space, gamut-mapping when the format or policy
@@ -136,10 +171,9 @@ nonisolated extension ColorValue {
         options: CSSFormatOptions
     ) -> ColorValue {
         let target = format.space
-        let mustMap = format.requiresGamutMapping || options.gamut == .map
 
         var result: ColorValue
-        if mustMap && !target.isUnbounded && !inGamut(of: target) {
+        if isGamutMapped(as: format, options: options) {
             result = gamutMapped(to: target)
         } else {
             result = converted(to: target)
