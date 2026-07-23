@@ -1,0 +1,148 @@
+#!/usr/bin/env node
+// Emits the reference conversion fixture that ColorCore is validated against.
+//
+// The gamut-mapping method is passed EXPLICITLY rather than relying on the library
+// default: colorjs.io's default has changed across releases, and a fixture generated
+// with a different method than ColorCore implements produces disagreements that look
+// exactly like conversion bugs. Pinning the version and naming the method removes
+// both failure modes.
+
+import { writeFileSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+import Color from "colorjs.io";
+
+const here = dirname(fileURLToPath(import.meta.url));
+const version = JSON.parse(
+  readFileSync(join(here, "node_modules", "colorjs.io", "package.json"), "utf8"),
+).version;
+
+// Our ColorSpace raw value -> colorjs.io space id.
+const SPACES = {
+  srgb: "srgb",
+  hsl: "hsl",
+  hwb: "hwb",
+  "srgb-linear": "srgb-linear",
+  lab: "lab",
+  lch: "lch",
+  oklab: "oklab",
+  oklch: "oklch",
+  "display-p3": "p3",
+  "a98-rgb": "a98rgb",
+  "prophoto-rgb": "prophoto",
+  rec2020: "rec2020",
+  "xyz-d50": "xyz-d50",
+  "xyz-d65": "xyz-d65",
+};
+
+// Fail loudly if an id drifts, rather than silently testing the wrong space.
+for (const [ours, theirs] of Object.entries(SPACES)) {
+  const resolved = Color.spaces[theirs];
+  if (!resolved) throw new Error(`colorjs.io has no space "${theirs}" (for ${ours})`);
+}
+
+const clean = (coords) =>
+  coords.map((v) => (typeof v === "number" && Number.isFinite(v) ? v : null));
+
+// ---- Source colors ------------------------------------------------------
+const sources = [];
+
+// A dense sRGB grid: ordinary in-gamut colors, the bulk of real usage.
+const steps = [0, 0.25, 0.5, 0.75, 1];
+for (const r of steps)
+  for (const g of steps)
+    for (const b of steps) sources.push({ space: "srgb", coords: [r, g, b] });
+
+// Achromatic colors — these exercise the "hue is undefined" path in every
+// polar space, which is where naive implementations fabricate a hue.
+for (const v of [0, 0.05, 0.25, 0.5, 0.75, 0.95, 1])
+  sources.push({ space: "srgb", coords: [v, v, v] });
+
+// Near-boundary values, where the transfer functions switch between their
+// linear toe and their power segment.
+for (const v of [0.0031308, 0.0031309, 0.04044, 0.04045, 0.04046, 1 / 512, 16 / 512])
+  sources.push({ space: "srgb", coords: [v, v * 2, v / 2] });
+
+// Wide-gamut sources that are out of sRGB but valid in their own space.
+for (const [sp, coords] of [
+  ["p3", [1, 0, 0]],
+  ["p3", [0, 1, 0]],
+  ["p3", [0.5, 0.2, 0.9]],
+  ["rec2020", [1, 0, 0]],
+  ["rec2020", [0.5, 0.2, 0.7]],
+  ["a98rgb", [1, 0, 0]],
+  ["a98rgb", [0.3, 0.7, 0.2]],
+  ["prophoto", [1, 0, 0]],
+  ["prophoto", [0.4, 0.6, 0.8]],
+])
+  sources.push({ space: sp, coords });
+
+// OKLCH sources, including deliberately out-of-gamut chroma.
+for (const L of [0.1, 0.35, 0.62, 0.85])
+  for (const C of [0, 0.05, 0.15, 0.3, 0.4])
+    for (const H of [0, 45, 90, 150, 210, 285, 330])
+      sources.push({ space: "oklch", coords: [L, C, H] });
+
+// Lab sources with extreme a/b.
+for (const L of [10, 50, 90])
+  for (const a of [-120, -40, 0, 40, 120])
+    for (const b of [-120, 0, 120]) sources.push({ space: "lab", coords: [L, a, b] });
+
+// HSL/HWB round-trip sources.
+for (const h of [0, 30, 120, 240, 359])
+  for (const s of [0, 50, 100])
+    for (const l of [0, 25, 50, 75, 100]) sources.push({ space: "hsl", coords: [h, s, l] });
+for (const h of [0, 90, 200, 320])
+  for (const w of [0, 30, 60])
+    for (const b of [0, 30, 60, 80]) sources.push({ space: "hwb", coords: [h, w, b] });
+
+// ---- Conversions --------------------------------------------------------
+const conversions = [];
+for (const src of sources) {
+  const color = new Color(src.space, src.coords);
+  const from = Object.keys(SPACES).find((k) => SPACES[k] === src.space);
+  for (const [ours, theirs] of Object.entries(SPACES)) {
+    conversions.push({
+      from,
+      components: src.coords,
+      to: ours,
+      expected: clean(color.to(theirs).coords),
+    });
+  }
+}
+
+// ---- Gamut mapping ------------------------------------------------------
+// Method named explicitly; see the header note.
+const gamutTargets = ["srgb", "p3", "rec2020"];
+const gamutMapping = [];
+for (const src of sources) {
+  const color = new Color(src.space, src.coords);
+  const from = Object.keys(SPACES).find((k) => SPACES[k] === src.space);
+  for (const target of gamutTargets) {
+    const mapped = color.clone().toGamut({ space: target, method: "css" });
+    gamutMapping.push({
+      from,
+      components: src.coords,
+      target: Object.keys(SPACES).find((k) => SPACES[k] === target),
+      inGamut: color.inGamut(target, { epsilon: 0 }),
+      expected: clean(mapped.to(target).coords),
+    });
+  }
+}
+
+const fixture = {
+  generator: {
+    library: "colorjs.io",
+    version,
+    gamutMethod: "css",
+    note: "Generated by Tools/generate-fixtures.mjs — do not edit by hand.",
+  },
+  conversions,
+  gamutMapping,
+};
+
+const out = join(here, "..", "Color ToolkitTests", "Fixtures", "reference-vectors.json");
+writeFileSync(out, JSON.stringify(fixture));
+console.log(`conversions   ${conversions.length}`);
+console.log(`gamutMapping  ${gamutMapping.length}`);
+console.log(`written to    ${out}`);
