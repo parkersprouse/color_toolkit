@@ -20,6 +20,7 @@ struct ColorInputField: View {
                     TextField("#3b82f6", text: $store.inputText)
                         .textFieldStyle(.plain)
                         .font(.system(.title2, design: .monospaced))
+                        .accessibilityIdentifier("colorInput")
                         // Submitting is one of the moments a color is worth keeping,
                         // as opposed to the dozens of valid prefixes typed to reach it.
                         .onSubmit { store.remember() }

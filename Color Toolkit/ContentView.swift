@@ -58,10 +58,14 @@ struct OutputOptionsMenu: View {
             }
 
             Section("Precision") {
+                // Named levels rather than decimal counts, because precision is
+                // relative to each component's scale — "4 decimals" would be true of
+                // an OKLCH lightness and a lie about a hue in the same row.
                 Picker("Precision", selection: $store.formatOptions.precision) {
-                    ForEach(0...6, id: \.self) { places in
-                        Text(places == 0 ? "Whole numbers" : "\(places) decimals").tag(places)
-                    }
+                    Text("Compact").tag(2)
+                    Text("Normal").tag(4)
+                    Text("Fine").tag(6)
+                    Text("Maximum").tag(10)
                 }
                 .pickerStyle(.inline)
                 .labelsHidden()

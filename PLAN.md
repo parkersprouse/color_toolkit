@@ -1,16 +1,13 @@
 # Color Toolkit — Implementation Plan
 
-> **Status (2026-07-23): M0–M3 built.** 135 test cases green.
+> **Status (2026-07-23): M0–M3 built and reviewed.** 137 test cases green.
 > ColorCore is validated against **colorjs.io 0.7.0** (pinned exact) — 6,384
 > conversions and 1,368 gamut mappings — plus independent definitional anchors. The
 > CSS parser, serializer, and app shell are done. Next up: **M4 (eyedropper + global
 > hotkey)**.
 >
-> **M3 caveat: the UI has not been looked at.** It builds, launches without crashing
-> or logging errors, and its logic is unit-tested — but no screenshot was taken, so
-> layout, spacing, and menu-bar behavior are unverified. A `.window`-style
-> `MenuBarExtra` builds its content lazily, so `MenuBarPanel` in particular has never
-> been rendered. Eyeball it before building M4 on top.
+> The UI has now been seen, and two things came out of it — a fix to how precision
+> works, and the note on orphaned instances under **Running the app** below.
 >
 > M2 note: colorjs.io is the oracle for *conversions* but **not** for *parsing* — its
 > parser accepts `rgb(a b c)` as `rgb(none none none)` and tolerates commas in
@@ -40,6 +37,14 @@
 >   Computing them separately would let the badge lie about the value beside it.
 > - Hex is 8-bit quantized, so round-trip tests need a per-format tolerance: exact for
 >   decimal formats, ~0.005 ΔEOK for hex, one JND for anything gamut-mapped.
+> - **Precision is relative to each component's scale, not a flat decimal count.**
+>   Four decimals is right for an OKLCH lightness of `0.6231` and absurd for a hue of
+>   `217.2193`. `CSSFormatOptions.decimals(forFullScale:)` drops one decimal per power
+>   of ten above unit scale, so every component carries about the same number of
+>   meaningful digits.
+> - SwiftUI merges a `Button`'s children into one accessibility element, so conversion
+>   rows are reachable in XCUITest as **buttons** labeled `"hsl(), hsl(217.22 …)"` —
+>   there is no `StaticText` for the value.
 > - Each commit must build and test **standalone**, verified in a `git worktree` — a
 >   green run at HEAD does not prove the intermediate commits are bisectable.
 
@@ -275,6 +280,22 @@ Before asserting any gamut-containment claim, ask the reference rather than reas
 ```bash
 cd Tools && node -e "import('colorjs.io').then(({default:C}) => console.log(new C('oklch(0.9 0.3 140)').inGamut('rec2020')))"
 ```
+
+### Running the app
+
+The app owns a `MenuBarExtra`, so **every running instance puts an icon in the menu
+bar** — including one left behind by Xcode or by a UI test that did not terminate
+cleanly. The symptom is a second, identical menu bar icon that does not respond to
+clicks and survives quitting the app, because the app you quit was not the one that
+owns it. There is no ghost to clear; there is a process to find:
+
+```bash
+ps -Ao pid,lstart,command | grep "Color Toolkit.app" | grep -v grep
+```
+
+Kill the stale pid and the icon goes with it. The UI tests in
+[Color ToolkitUITests](Color%20ToolkitUITests/ConversionSmokeTests.swift) call
+`app.terminate()` in `tearDown` specifically so they cannot be the cause.
 
 ### Commit discipline
 

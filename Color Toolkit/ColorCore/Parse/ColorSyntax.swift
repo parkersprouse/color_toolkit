@@ -162,6 +162,17 @@ nonisolated struct ComponentGrammar: Sendable {
     /// Legacy `hsl()` requires percentages here; a bare number is invalid.
     var requiresPercentageInLegacy: Bool = false
 
+    /// The largest ordinary magnitude this component is written with, in its number
+    /// form. Drives how many decimals are worth printing — see
+    /// ``CSSFormatOptions/decimals(forFullScale:)``.
+    ///
+    /// Falls out of the two fields already here: `rgb()` stores 0–1 but writes 0–255,
+    /// so `1 / (1/255)` recovers the written scale, while Lab's `a` writes its stored
+    /// ±125 directly.
+    var fullScale: Double {
+        isAngle ? 360 : percentReference / numberScale
+    }
+
     static let angle = ComponentGrammar(isAngle: true)
 
     static func percent(_ reference: Double, requiredInLegacy: Bool = false) -> ComponentGrammar {

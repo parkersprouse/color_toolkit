@@ -262,8 +262,56 @@ struct CSSFormattingTests {
     @Test("Precision is honored and trailing zeros stripped")
     func precision() {
         let color = ColorValue(space: .oklch, 0.123456789, 0.198765, 200.5)
-        #expect(color.cssString(as: .oklch, options: CSSFormatOptions(precision: 2)) == "oklch(0.12 0.2 200.5)")
+        // Hue is on a 0–360 scale, so it loses two decimals relative to lightness.
+        // At precision 2 that leaves whole degrees — which is the point: `oklch(0.12
+        // 0.2 201)` is a coherent compact form, where 0.12 alongside 200.5 would be
+        // claiming three more significant digits for the hue than for the lightness.
+        #expect(color.cssString(as: .oklch, options: CSSFormatOptions(precision: 2)) == "oklch(0.12 0.2 201)")
         #expect(color.cssString(as: .oklch, options: CSSFormatOptions(precision: 5)) == "oklch(0.12346 0.19877 200.5)")
+    }
+
+    /// The defect this fixes: at a flat four decimals the panel reported a hue of
+    /// `217.2193` — a ten-thousandth of a degree, which is noise dressed as accuracy.
+    @Test("Precision follows each component's scale, not a flat decimal count")
+    func precisionIsRelativeToComponentScale() {
+        let blue = ColorValue.srgb8(59, 130, 246)
+
+        #expect(blue.cssString(as: .hsl) == "hsl(217.22 91.22% 59.8%)")
+        #expect(blue.cssString(as: .hwb) == "hwb(217.22 23.14% 3.53%)")
+        #expect(blue.cssString(as: .oklch) == "oklch(0.6231 0.188 259.81)")
+        #expect(blue.cssString(as: .oklab) == "oklab(0.6231 -0.0332 -0.1851)")
+        #expect(blue.cssString(as: .lch) == "lch(54.62% 66.37 277.59)")
+        #expect(blue.cssString(as: .lab) == "lab(54.62% 8.76 -65.79)")
+        // Unit-scale channels keep the full four.
+        #expect(blue.cssString(as: .color(.displayP3)) == "color(display-p3 0.3047 0.5035 0.9338)")
+    }
+
+    @Test(
+        "Decimals fall by one per power of ten above unit scale",
+        arguments: [
+            (fullScale: 1.0, expected: 4),     // oklch lightness, color() channels
+            (fullScale: 0.4, expected: 4),     // oklab a/b — clamped, never gains digits
+            (fullScale: 100.0, expected: 2),   // percentages
+            (fullScale: 125.0, expected: 2),   // lab a/b
+            (fullScale: 150.0, expected: 2),   // lch chroma
+            (fullScale: 255.0, expected: 2),   // rgb channels
+            (fullScale: 360.0, expected: 2),   // hue
+        ]
+    )
+    func decimalsForScale(fullScale: Double, expected: Int) {
+        #expect(CSSFormatOptions(precision: 4).decimals(forFullScale: fullScale) == expected)
+    }
+
+    @Test("Component grammars report the scale they are written on")
+    func grammarsKnowTheirScale() {
+        #expect(ColorGrammar.components(for: .rgb)[0].fullScale == 255)
+        #expect(ColorGrammar.components(for: .hsl)[0].fullScale == 360)
+        #expect(ColorGrammar.components(for: .hsl)[1].fullScale == 100)
+        #expect(ColorGrammar.components(for: .lab)[1].fullScale == 125)
+        #expect(ColorGrammar.components(for: .lch)[1].fullScale == 150)
+        #expect(ColorGrammar.components(for: .oklab)[1].fullScale == 0.4)
+        #expect(ColorGrammar.components(for: .oklch)[2].fullScale == 360)
+        #expect(ColorGrammar.components(for: .color)[0].fullScale == 1)
     }
 
     @Test("Alpha policy is honored")

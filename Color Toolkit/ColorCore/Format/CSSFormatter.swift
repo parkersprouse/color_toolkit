@@ -50,7 +50,9 @@ nonisolated enum CSSOutputFormat: Hashable, Sendable {
 }
 
 nonisolated struct CSSFormatOptions: Sendable, Equatable {
-    /// Maximum decimal places. Trailing zeros are stripped.
+    /// Decimal places for a component measured on a 0–1 scale. Trailing zeros are
+    /// stripped, and components on larger scales get proportionally fewer — see
+    /// ``decimals(forFullScale:)``.
     var precision: Int = 4
     /// Comma-separated output. Only valid for `rgb`/`hsl`; ignored elsewhere.
     var legacy: Bool = false
@@ -78,6 +80,28 @@ nonisolated struct CSSFormatOptions: Sendable, Equatable {
     }
 
     static let `default` = CSSFormatOptions()
+
+    /// Decimal places for a component whose values run up to `fullScale`.
+    ///
+    /// A flat decimal count is the wrong unit for CSS colors, because components do
+    /// not share a scale. Four decimals is right for an OKLCH lightness of `0.6231`
+    /// and ridiculous for a hue of `217.2193` — the hue is being reported to a
+    /// ten-thousandth of a degree, which no display can show and no eye can see. Both
+    /// numbers claim the same *absolute* accuracy while differing by three orders of
+    /// magnitude in what that accuracy means.
+    ///
+    /// So precision is defined relative to each component's own range: `precision`
+    /// decimals at unit scale, one fewer for each power of ten above it. At the
+    /// default of 4 that yields `oklch(0.6231 0.188 259.81)` and
+    /// `hsl(217.22 91.22% 59.8%)` — every component carried to about the same number
+    /// of meaningful digits.
+    func decimals(forFullScale fullScale: Double) -> Int {
+        guard fullScale > 0, fullScale.isFinite else { return precision }
+        let magnitude = Int(floor(log10(fullScale)))
+        // Never exceed `precision`: sub-unit components like OKLab's ±0.4 would
+        // otherwise gain digits, which is accuracy nobody asked for.
+        return min(max(precision - magnitude, 0), precision)
+    }
 }
 
 nonisolated extension ColorValue {
@@ -303,7 +327,7 @@ nonisolated extension ColorValue {
         options: CSSFormatOptions
     ) -> String {
         if grammar.isAngle {
-            return formatNumber(value, options: options)
+            return formatNumber(value, fullScale: grammar.fullScale, options: options)
         }
 
         // Percentage-only slots, plus rgb() when the caller asked for percentages.
@@ -315,10 +339,16 @@ nonisolated extension ColorValue {
 
         if forcePercentage {
             let percent = value / grammar.percentReference * 100
-            return formatNumber(percent, options: options) + "%"
+            // Written as a percentage, so the scale is 100 regardless of what the
+            // component stores natively.
+            return formatNumber(percent, fullScale: 100, options: options) + "%"
         }
 
-        return formatNumber(value / grammar.numberScale, options: options)
+        return formatNumber(
+            value / grammar.numberScale,
+            fullScale: grammar.fullScale,
+            options: options
+        )
     }
 
     private func shouldEmitAlpha(options: CSSFormatOptions) -> Bool {
@@ -337,16 +367,24 @@ nonisolated extension ColorValue {
         return formatNumber(alpha, options: options)
     }
 
-    private func formatNumber(_ value: Double, options: CSSFormatOptions) -> String {
+    /// - Parameter fullScale: the component's own range, so precision can be relative
+    ///   to it rather than absolute. Defaults to 1 for values already on a unit
+    ///   scale — alpha and the `color()` channels.
+    private func formatNumber(
+        _ value: Double,
+        fullScale: Double = 1,
+        options: CSSFormatOptions
+    ) -> String {
         guard value.isFinite else { return "0" }
 
-        let scale = pow(10.0, Double(options.precision))
-        let rounded = (value * scale).rounded() / scale
+        let decimals = options.decimals(forFullScale: fullScale)
+        let factor = pow(10.0, Double(decimals))
+        let rounded = (value * factor).rounded() / factor
 
         // Avoid "-0", which is valid CSS but reads as a bug.
         if rounded == 0 { return "0" }
 
-        var text = String(format: "%.\(options.precision)f", rounded)
+        var text = String(format: "%.\(decimals)f", rounded)
         if text.contains(".") {
             while text.hasSuffix("0") { text.removeLast() }
             if text.hasSuffix(".") { text.removeLast() }
