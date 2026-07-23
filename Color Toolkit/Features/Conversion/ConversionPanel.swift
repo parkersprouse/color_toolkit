@@ -1,0 +1,118 @@
+//
+//  ConversionPanel.swift
+//  Color Toolkit
+//
+
+import SwiftUI
+
+/// The current color written every way CSS allows, all at once.
+///
+/// Showing all of them simultaneously rather than behind a format picker is the whole
+/// point: the question is usually "what is this in oklch?", and a picker turns that
+/// into two interactions and hides the comparison that answers it.
+struct ConversionPanel: View {
+    @Environment(ColorStore.self) private var store
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 18) {
+                ForEach(FormatSection.all) { section in
+                    sectionView(section)
+                }
+            }
+            .padding(16)
+        }
+    }
+
+    private func sectionView(_ section: FormatSection) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(section.title)
+                    .font(.headline)
+                Text(section.subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+
+            VStack(spacing: 0) {
+                let rows = rows(for: section)
+                ForEach(Array(rows.enumerated()), id: \.element.id) { index, formatted in
+                    if index > 0 { Divider().padding(.leading, 10) }
+                    FormatRow(formatted: formatted)
+                }
+            }
+            .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 8))
+        }
+    }
+
+    private func rows(for section: FormatSection) -> [FormattedColor] {
+        guard let color = store.color else { return [] }
+        // `compactMap` drops formats that cannot name this color — in practice only
+        // `keyword`, which exists for 148 colors and no others.
+        return section.formats.compactMap {
+            color.formatted(as: $0, options: store.formatOptions)
+        }
+    }
+}
+
+/// One format, one value, one click to copy it.
+struct FormatRow: View {
+    @Environment(ColorStore.self) private var store
+    let formatted: FormattedColor
+
+    @State private var justCopied = false
+    @State private var isHovering = false
+    @State private var resetTask: Task<Void, Never>?
+
+    var body: some View {
+        Button(action: copy) {
+            HStack(spacing: 10) {
+                Text(formatted.format.title)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 132, alignment: .leading)
+
+                Text(formatted.css)
+                    .font(.system(.callout, design: .monospaced))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                if formatted.isGamutMapped {
+                    ColorBadge(text: "mapped")
+                        .help(
+                            "\(formatted.format.title) cannot express this color, so the value shown was brought into gamut by reducing chroma."
+                        )
+                }
+
+                Image(systemName: justCopied ? "checkmark" : "doc.on.doc")
+                    .font(.caption)
+                    .foregroundStyle(justCopied ? Color.green : Color.secondary)
+                    .opacity(justCopied || isHovering ? 1 : 0.35)
+                    .frame(width: 14)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            // Without this the row only responds where there is text, which makes the
+            // whitespace between the label and the value feel dead.
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(isHovering ? Color.primary.opacity(0.06) : .clear)
+        .onHover { isHovering = $0 }
+        .help("Copy \(formatted.css)")
+    }
+
+    private func copy() {
+        store.copy(formatted)
+        justCopied = true
+        // Cancel first, or copying twice in quick succession lets the earlier timer
+        // clear the checkmark while the later copy is still fresh.
+        resetTask?.cancel()
+        resetTask = Task {
+            try? await Task.sleep(for: .seconds(1.2))
+            guard !Task.isCancelled else { return }
+            justCopied = false
+        }
+    }
+}
