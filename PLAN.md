@@ -1,10 +1,11 @@
 # Color Toolkit — Implementation Plan
 
-> **Status (2026-07-23): M0–M4 complete, all four reviewed on the running app.**
-> 104 test functions / 162 executed cases green, including two XCUITest smoke tests
-> over the rendered panel. ColorCore is validated against **colorjs.io 0.7.0** (pinned
-> exact) — 6,384 conversions and 1,368 gamut mappings — plus independent definitional
-> anchors. Next up: **M5 (accessibility)**.
+> **Status (2026-07-23): M0–M5 complete except CVD simulation.** 125 test functions /
+> 186 executed cases green, including four XCUITest smoke tests over rendered panels.
+> ColorCore is validated against **colorjs.io 0.7.0** (pinned exact) — 6,384
+> conversions, 1,368 gamut mappings and 108 contrast pairs — plus independent
+> definitional anchors. Next up: **M6 (full-spectrum picker)**, with **M5b (CVD)**
+> waiting on a pinnable source for Machado's matrices.
 >
 > **M4's three untestable links are confirmed by hand**, each verified separately
 > because they fail independently: the menu bar shows ⌃⌥⌘C beside "Pick Color from
@@ -81,6 +82,29 @@
 >   return `noErr` on macOS 26.5 under `-swift-version 6`. The C callback reaches
 >   `@MainActor` via `MainActor.assumeIsolated` and needs no `userData` round trip,
 >   because a `shared` singleton is the same indirection without the unsafety.
+> - **colorjs.io is an oracle for APCA but only a cross-check for WCAG.** It does not
+>   implement WCAG's definition: luminance comes from XYZ-D65 Y, which uses the
+>   full-precision matrix row where WCAG's text specifies rounded coefficients, and it
+>   linearizes at 0.04045 where WCAG says 0.03928. Measured divergence is up to
+>   **1.97e-4 relative** over 20,000 random 8-bit pairs. WCAG correctness therefore
+>   rests on published anchors (21:1, 1:1) that hold under either definition, plus one
+>   discriminating pair that asserts the WCAG answer *and* asserts a mismatch with
+>   colorjs's — so silently adopting the reference's definition fails rather than passes.
+> - Two near-identical linearizations that must **never** be merged:
+>   `TransferFunctions` uses **0.04045** (sRGB, and what every conversion is validated
+>   against), `wcagRelativeLuminance` uses **0.03928**. They look like the same function
+>   with a typo. Note the famous discrepancy is *unobservable* on hex colors — no
+>   `k/255` lands between the thresholds — while the coefficient rounding nobody talks
+>   about affects every color including hex.
+> - Contrast maths gamut-maps before measuring. Not cosmetic: an out-of-sRGB color has
+>   negative components and `pow` of a negative is NaN, which propagates silently and
+>   surfaces as "nan:1". colorjs.io leaves this case explicitly unspecified.
+> - **A forgiving XCUITest selector is a test that cannot fail.** The first contrast UI
+>   test tried three queries and clicked whichever existed; it passed via an
+>   index-based fallback while the named query never matched. Replacing the chain with
+>   one named query plus a tree dump on failure exposed a real defect: a segmented
+>   `Picker` renders a `Label` icon-only and hands VoiceOver the **SF Symbol name**, so
+>   the switcher announced "arrow.left.arrow.right" instead of "Convert".
 > - A test that passes is not necessarily a test that tests anything. Both new `adopt`
 >   assertions were confirmed by **mutating `adopt` back to the old implementation and
 >   watching them fail** — which caught that the first draft of the precision test used
@@ -105,11 +129,13 @@ M0–M3 are built. The stock SwiftData template (`Item.swift`, the `NavigationSp
 | Parse | [CSSTokenizer.swift](Color%20Toolkit/ColorCore/Parse/CSSTokenizer.swift), [ColorSyntax.swift](Color%20Toolkit/ColorCore/Parse/ColorSyntax.swift), [CSSColorParser.swift](Color%20Toolkit/ColorCore/Parse/CSSColorParser.swift) |
 | Format | [CSSFormatter.swift](Color%20Toolkit/ColorCore/Format/CSSFormatter.swift), [FormatCatalog.swift](Color%20Toolkit/ColorCore/Format/FormatCatalog.swift) |
 | Shell | [ColorStore.swift](Color%20Toolkit/Features/Shell/ColorStore.swift), [MenuBarPanel.swift](Color%20Toolkit/Features/Shell/MenuBarPanel.swift), [ContentView.swift](Color%20Toolkit/ContentView.swift) |
+| Analysis | [WCAGContrast.swift](Color%20Toolkit/ColorCore/Analysis/WCAGContrast.swift), [APCAContrast.swift](Color%20Toolkit/ColorCore/Analysis/APCAContrast.swift) |
 | Conversion UI | [ColorInputField.swift](Color%20Toolkit/Features/Conversion/ColorInputField.swift), [ConversionPanel.swift](Color%20Toolkit/Features/Conversion/ConversionPanel.swift), [FormatPresentation.swift](Color%20Toolkit/Features/Conversion/FormatPresentation.swift) |
+| Contrast UI | [ContrastPanel.swift](Color%20Toolkit/Features/Contrast/ContrastPanel.swift) |
 | Design system | [ColorSwatch.swift](Color%20Toolkit/DesignSystem/ColorSwatch.swift), [ColorValue+SwiftUI.swift](Color%20Toolkit/DesignSystem/ColorValue+SwiftUI.swift) |
 | Services | [Clipboard.swift](Color%20Toolkit/Services/Clipboard.swift), [ScreenSampler.swift](Color%20Toolkit/Services/ScreenSampler.swift), [GlobalHotKey.swift](Color%20Toolkit/Services/GlobalHotKey.swift) |
 
-`ColorCore/Analysis/`, `ColorCore/Transform/`, and `Persistence/` exist as empty folders awaiting M5, M7, and M9.
+`ColorCore/Transform/` and `Persistence/` exist as empty folders awaiting M7 and M9.
 
 Key facts about the project, established during exploration and still current:
 
@@ -249,11 +275,19 @@ Round-trip tests: parse → serialize → parse must be idempotent.
 
 *Done, and confirmed on the running app.* The app is sandboxed (`com.apple.security.app-sandbox`) with **no** screen-recording entitlement, and the loupe works anyway with no permission prompt — confirming `NSColorSampler` runs out of process rather than capturing the screen itself. Carbon hot keys likewise prompt for nothing.
 
-### M5 — Accessibility
+### ✅ M5 — Accessibility (contrast)
 
-- **WCAG 2.2:** relative luminance (`0.2126R + 0.7152G + 0.0722B` on linearized sRGB), ratio `(L₁+0.05)/(L₂+0.05)`. Use WCAG's linearization threshold **`0.03928`**, not sRGB's `0.04045` — a known spec discrepancy; matching WCAG is what makes results agree with compliance tools. Report AA/AAA × normal/large, plus the 3:1 non-text threshold (1.4.11).
-- **APCA:** the W3-published algorithm. Note it is **polarity-dependent** (dark-on-light ≠ light-on-dark) and returns a signed `Lc`; pair with the font-size/weight lookup table.
-- **CVD simulation:** Machado et al. (2009) severity-parameterized LMS matrices for protan/deutan/tritan, applied as a live preview filter over any swatch or palette.
+- **WCAG 2.2** — [WCAGContrast.swift](Color%20Toolkit/ColorCore/Analysis/WCAGContrast.swift). Spec-literal `0.03928`, AA/AAA × normal/large, plus 1.4.11's 3:1 non-text threshold.
+- **APCA** — [APCAContrast.swift](Color%20Toolkit/ColorCore/Analysis/APCAContrast.swift). Transcribed from colorjs.io 0.7.0's implementation of **0.0.98G**, matching to 1e-9 across 108 pairs in both polarities.
+- **UI** — [ContrastPanel.swift](Color%20Toolkit/Features/Contrast/ContrastPanel.swift), reached by a tool switcher in the toolbar. The store now holds a *pair* of colors via `ColorField`, so the background gets the foreground's editing behavior rather than a second implementation of it.
+
+**No APCA pass/fail badges.** Its readability levels (Lc 90/75/60/45/30) could not be verified against a pinned source the way the algorithm was, and a threshold this app cannot stand behind has no business wearing a checkmark next to WCAG's, which it can. The panel shows the signed `Lc` and its polarity, nothing more.
+
+### M5b — Accessibility (CVD simulation) — *deferred, needs a source*
+
+Machado et al. (2009) severity-parameterized LMS matrices for protan/deutan/tritan, as a live preview filter over any swatch or palette.
+
+**Blocked on provenance, not difficulty.** It is 33 published 3×3 matrices, and colorjs.io implements no CVD and exposes no cone-fundamental LMS space — `cam16` and `jzazbz` carry their own LMS, neither of which is the Hunt-Pointer-Estevez basis Machado and Viénot use. Transcribing 33 matrices from recall is the Bradford failure mode at scale. Resolve by pinning a dependency that carries the tables and generating Swift from it, exactly as `generate-constants.mjs` does — then this is a short milestone.
 
 ### M6 — Full-spectrum picker
 
@@ -295,7 +329,7 @@ Storing the space ID + raw components (instead of a serialized CSS string or `Da
 Per milestone:
 
 - **M1/M2 (core):** `xcodebuild test` — parameterized tests against the colorjs.io fixture; round-trip idempotency; gamut-mapping boundary cases (`L≥1` → white, `L≤0` → black, in-gamut colors unchanged).
-- **M5:** assert known pairs against published values — e.g. `#000` on `#fff` = 21:1, and WCAG's own worked examples. APCA against the reference implementation's test table.
+- **M5:** two different standards of proof, because the oracle only covers one of them. **APCA** is validated against colorjs.io directly (`node Tools/generate-contrast-fixtures.mjs`) at 1e-9, both polarities — real external validation, since the Swift is transcribed from that package. **WCAG** cannot be, because colorjs.io implements a different definition; correctness there comes from anchors that hold under any variant (`#000` on `#fff` = 21:1, a color against itself = 1:1) plus one pair chosen to *disagree* between the definitions, asserted both ways round.
 - **M3/M4/M6–M9 (UI):** run the app and verify interactively. Spot-check conversions against a browser's DevTools color picker, which implements the same spec — a fast, honest end-to-end sanity check.
 
 The scheme is shared and works from the command line:
