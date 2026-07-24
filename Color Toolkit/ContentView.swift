@@ -11,20 +11,30 @@ struct ContentView: View {
     @Environment(ColorStore.self) private var store
 
     var body: some View {
-        VStack(spacing: 0) {
+        @Bindable var store = store
+
+        return VStack(spacing: 0) {
+            // Above the switcher deliberately: the input field belongs to no tool.
+            // Every tool is a different question asked about the same color, so moving
+            // it inside a tab would imply each one has a color of its own.
             ColorInputField()
                 .padding(16)
 
             Divider()
 
-            if store.color != nil {
-                ConversionPanel()
-            } else {
-                ContentUnavailableView(
-                    "No color yet",
-                    systemImage: "eyedropper.halffull",
-                    description: Text("Type a CSS color above and every other format appears here.")
-                )
+            switch store.tool {
+            case .convert:
+                if store.color != nil {
+                    ConversionPanel()
+                } else {
+                    ContentUnavailableView(
+                        "No color yet",
+                        systemImage: "eyedropper.halffull",
+                        description: Text("Type a CSS color above and every other format appears here.")
+                    )
+                }
+            case .contrast:
+                ContrastPanel()
             }
         }
         .frame(minWidth: 520, minHeight: 460)
@@ -32,6 +42,22 @@ struct ContentView: View {
         // first, because neither scene is guaranteed to be on screen.
         .task { store.activateGlobalShortcut() }
         .toolbar {
+            ToolbarItem(placement: .principal) {
+                // Text, not `Label`. A segmented control renders a `Label` icon-only
+                // and then hands VoiceOver the SF Symbol name — the picker literally
+                // announced "arrow.left.arrow.right" instead of "Convert". Two words
+                // are also plainer than two glyphs for a switcher nobody has seen
+                // before: neither an arrow pair nor a half-filled circle says which
+                // tool it is.
+                Picker("Tool", selection: $store.tool) {
+                    ForEach(Tool.allCases) { tool in
+                        Text(tool.title).tag(tool)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+            }
             ToolbarItem {
                 OutputOptionsMenu()
             }

@@ -42,6 +42,68 @@ enum ParsedInput: Equatable {
     }
 }
 
+/// One editable color: the text, and whatever it currently parses to.
+///
+/// Extracted when contrast arrived, because the app went from editing one color to
+/// editing a pair and will keep going — harmony bases, palette entries. A value type
+/// rather than a class so that mutating it counts as mutating the store's own stored
+/// property, which is what `@Observable` watches; a nested reference type would need
+/// its own observation and would silently fail to notify anything.
+struct ColorField {
+    /// The source of truth while editing, never rewritten from the parsed value.
+    /// Canonicalizing mid-edit would move the cursor out from under someone halfway
+    /// through typing `oklch(`.
+    var text: String {
+        didSet {
+            guard text != oldValue else { return }
+            reparse()
+        }
+    }
+
+    private(set) var parsed: ParsedInput = .empty
+
+    /// The most recent text that parsed. Retained across invalid edits on purpose:
+    /// without it everything downstream blanks out between `#3b82f` and `#3b82f6`,
+    /// which reads as the app breaking rather than as feedback.
+    private(set) var color: ColorValue?
+
+    init(text: String) {
+        // Assignment during initialization does not fire `didSet`, so the first parse
+        // is explicit.
+        self.text = text
+        reparse()
+    }
+
+    private mutating func reparse() {
+        parsed = ParsedInput(text)
+        switch parsed {
+        case .parsed(let result): color = result.color
+        case .empty: color = nil
+        case .failed: break  // keep showing the last good color
+        }
+    }
+}
+
+/// Which panel the main window is showing.
+///
+/// The input field sits above this and belongs to no tool in particular — it is the
+/// app's spine, and every tool is a different question asked about the same color.
+enum Tool: String, CaseIterable, Identifiable, Sendable {
+    case convert
+    case contrast
+
+    var id: String { rawValue }
+
+    /// Also the accessibility label, because the switcher shows text rather than
+    /// icons — see the note in `ContentView`.
+    var title: String {
+        switch self {
+        case .convert: "Convert"
+        case .contrast: "Contrast"
+        }
+    }
+}
+
 /// A color the user has already worked with, plus the text that produced it.
 ///
 /// The text is stored alongside the value so that clicking a recent returns you to
@@ -63,57 +125,58 @@ struct RecentColor: Identifiable, Hashable, Sendable {
 @Observable
 final class ColorStore {
 
-    /// What the user typed.
-    ///
-    /// The text is the source of truth while editing, never rewritten from the parsed
-    /// value. Canonicalizing mid-edit would move the cursor out from under someone
-    /// halfway through typing `oklch(`.
-    ///
-    /// Computed over private storage rather than declared with a `didSet`, because
-    /// `@Observable` rewrites stored properties into computed ones and cannot carry
-    /// property observers through that transformation.
-    var inputText: String {
-        get { storedInput }
-        set {
-            guard newValue != storedInput else { return }
-            storedInput = newValue
-            reparse()
-        }
-    }
+    /// The color everything is about: the one being converted, sampled, and copied.
+    private var foreground: ColorField
 
-    private var storedInput: String = ""
+    /// The color contrast is measured against. Separate from `foreground` because
+    /// contrast is the first question this app asks that needs two colors at once.
+    private var background: ColorField
 
     /// How every format in the panel is serialized.
     var formatOptions = CSSFormatOptions()
 
-    private(set) var parsed: ParsedInput = .empty
-
-    /// The most recent color that parsed successfully.
-    ///
-    /// Retained across invalid edits on purpose: without it the entire conversion
-    /// panel blanks out between `#3b82f` and `#3b82f6`, which makes typing feel
-    /// broken. Cleared only when the field is emptied.
-    private(set) var color: ColorValue?
+    /// Which panel the main window is showing.
+    var tool: Tool = .convert
 
     private(set) var recents: [RecentColor] = []
 
     /// Enough to be useful, few enough to stay scannable in a menu-bar panel.
     private static let recentLimit = 12
 
-    init(initialInput: String = "#3b82f6") {
-        storedInput = initialInput
-        reparse()
+    init(initialInput: String = "#3b82f6", initialBackground: String = "#ffffff") {
+        foreground = ColorField(text: initialInput)
+        background = ColorField(text: initialBackground)
     }
 
     // MARK: - Editing
 
-    private func reparse() {
-        parsed = ParsedInput(inputText)
-        switch parsed {
-        case .parsed(let result): color = result.color
-        case .empty: color = nil
-        case .failed: break  // keep showing the last good color
-        }
+    /// What the user typed. Forwarded to ``ColorField`` so the two fields cannot drift
+    /// apart in behavior — the background gets live parsing, retained-last-good, and
+    /// no mid-edit canonicalization for free rather than by a second implementation.
+    var inputText: String {
+        get { foreground.text }
+        set { foreground.text = newValue }
+    }
+
+    var parsed: ParsedInput { foreground.parsed }
+    var color: ColorValue? { foreground.color }
+
+    var backgroundText: String {
+        get { background.text }
+        set { background.text = newValue }
+    }
+
+    var backgroundParsed: ParsedInput { background.parsed }
+    var backgroundColor: ColorValue? { background.color }
+
+    /// Exchanges foreground and background, text and all.
+    ///
+    /// Worth a button because APCA is asymmetric: dark-on-light and light-on-dark are
+    /// different results, and swapping is how you see both without retyping either.
+    func swapForegroundAndBackground() {
+        let outgoing = foreground.text
+        foreground.text = background.text
+        background.text = outgoing
     }
 
     /// Replaces the input with a color chosen elsewhere — a recent, the eyedropper,

@@ -194,6 +194,56 @@ struct ColorStoreTests {
         #expect(abs(readBack.alpha - 0.4) < 1e-9)
     }
 
+    // MARK: - Background
+
+    /// The point of extracting `ColorField`: the background gets live parsing and the
+    /// retained-last-good behavior for free rather than from a second implementation
+    /// that could drift from the first.
+    @Test("The background parses independently of the foreground")
+    func backgroundParsesIndependently() throws {
+        let store = ColorStore(initialInput: "#000000", initialBackground: "rebeccapurple")
+
+        #expect(store.color == ColorValue.srgb8(0, 0, 0))
+        #expect(store.backgroundColor == ColorValue.srgb8(102, 51, 153))
+
+        store.backgroundText = "oklch(0.7 0.15 250)"
+        #expect(store.backgroundColor?.space == .oklch)
+        #expect(store.color == ColorValue.srgb8(0, 0, 0), "editing the background moved the foreground")
+    }
+
+    @Test("An invalid background edit keeps the last good background")
+    func backgroundRetainsLastGoodColor() {
+        let store = ColorStore(initialInput: "#000000", initialBackground: "#ffffff")
+        store.backgroundText = "#fff"
+        store.backgroundText = "#ff"
+
+        #expect(store.backgroundParsed.error != nil)
+        #expect(store.backgroundColor == ColorValue.srgb8(255, 255, 255))
+    }
+
+    /// Swapping matters because APCA is asymmetric — the two directions genuinely
+    /// score differently, and this is how you see both without retyping either.
+    @Test("Swapping exchanges both colors, text and all")
+    func swapExchangesBothColors() {
+        let store = ColorStore(initialInput: "rebeccapurple", initialBackground: "#ffffff")
+        store.swapForegroundAndBackground()
+
+        #expect(store.inputText == "#ffffff")
+        #expect(store.backgroundText == "rebeccapurple")
+        #expect(store.color == ColorValue.srgb8(255, 255, 255))
+        #expect(store.backgroundColor == ColorValue.srgb8(102, 51, 153))
+    }
+
+    @Test("Swapping twice is the identity")
+    func swapIsItsOwnInverse() {
+        let store = ColorStore(initialInput: "oklch(0.7 0.15 250)", initialBackground: "#fef08a")
+        store.swapForegroundAndBackground()
+        store.swapForegroundAndBackground()
+
+        #expect(store.inputText == "oklch(0.7 0.15 250)")
+        #expect(store.backgroundText == "#fef08a")
+    }
+
     // MARK: - Output
 
     @Test("Format options flow through to every row")
