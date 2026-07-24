@@ -35,8 +35,28 @@ struct Color_ToolkitApp: App {
             MenuBarPanel()
                 .environment(store)
         } label: {
-            Image(systemName: "eyedropper.halffull")
+            MenuBarLabel()
+                .environment(store)
         }
         .menuBarExtraStyle(.window)
+    }
+}
+
+/// The menu bar icon, which doubles as the only feedback a global capture gets.
+///
+/// Pressing the shortcut from another app shows the loupe, takes a click, and then —
+/// without this — nothing visible happens, because the app that captured the color is
+/// not the one the user is looking at. A brief checkmark on the icon says the color
+/// landed, needs no notification permission, and costs no window.
+struct MenuBarLabel: View {
+    @Environment(ColorStore.self) private var store
+
+    var body: some View {
+        Image(systemName: store.justCaptured ? "checkmark.circle.fill" : "eyedropper.halffull")
+            // One of two places the shortcut is claimed. Both are needed and neither is
+            // redundant: this view exists unless the user hides the menu bar item, the
+            // window's exists unless the window is closed, and `activateGlobalShortcut`
+            // is idempotent so whichever appears first wins.
+            .task { store.activateGlobalShortcut() }
     }
 }

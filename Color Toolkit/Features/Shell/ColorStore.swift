@@ -181,4 +181,74 @@ final class ColorStore {
         Clipboard.copy(formatted.css)
         remember()
     }
+
+    // MARK: - Screen sampling
+
+    /// True for a moment after a sample lands, so the menu bar can acknowledge a
+    /// capture the user made while looking at some other app entirely.
+    private(set) var justCaptured = false
+
+    private var captureResetTask: Task<Void, Never>?
+
+    /// Shows the loupe and adopts whatever pixel the user clicks.
+    ///
+    /// - Parameter alsoCopy: Put the result on the clipboard too. True for the global
+    ///   hot key, whose entire point is capturing a color while another app is
+    ///   frontmost — filling a text field nobody can see would accomplish nothing.
+    ///   False for the in-app button, where the field is right there and clobbering
+    ///   the clipboard would be presumptuous.
+    /// - Returns: Whether a color was captured; `false` if the user cancelled.
+    @discardableResult
+    func sampleFromScreen(alsoCopy: Bool = false) async -> Bool {
+        guard let sampled = await ScreenSampler.sample() else { return false }
+
+        adopt(sampled)
+        remember()
+
+        if alsoCopy, let color {
+            // The user's precision, not `.lossless`: this string is going somewhere
+            // else to be read by a person, so it should look like the values the rest
+            // of the app shows. Only the stored text has to survive a round trip.
+            Clipboard.copy(
+                color.cssStringOrHex(
+                    as: color.spelling(preferring: .hex),
+                    options: formatOptions
+                )
+            )
+        }
+
+        acknowledgeCapture()
+        return true
+    }
+
+    private func acknowledgeCapture() {
+        justCaptured = true
+        captureResetTask?.cancel()
+        captureResetTask = Task {
+            try? await Task.sleep(for: .seconds(1.5))
+            guard !Task.isCancelled else { return }
+            justCaptured = false
+        }
+    }
+
+    // MARK: - Global shortcut
+
+    /// Whether the system accepted the sampling hot key. Shown in the menu bar panel,
+    /// because a shortcut advertised but not registered is worse than none offered.
+    private(set) var globalShortcutIsActive = false
+
+    /// Claims the system-wide sampling shortcut, once.
+    ///
+    /// Idempotent because it is called from both scenes: neither is guaranteed to
+    /// exist — the window can be closed, and the menu bar item can be hidden — so
+    /// whichever appears first registers and the other no-ops. Deliberately *not*
+    /// called from `init`, so tests can build a store without claiming a chord
+    /// system-wide.
+    func activateGlobalShortcut() {
+        guard !globalShortcutIsActive else { return }
+        globalShortcutIsActive = GlobalHotKeyCenter.shared.register(.sampleColor) { [weak self] in
+            guard let self else { return }
+            Task { await self.sampleFromScreen(alsoCopy: true) }
+        }
+    }
 }

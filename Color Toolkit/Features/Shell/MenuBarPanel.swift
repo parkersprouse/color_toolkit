@@ -128,6 +128,18 @@ struct MenuBarPanel: View {
 
     private var actions: some View {
         VStack(spacing: 1) {
+            // The shortcut is shown only once the system has actually accepted it.
+            // Advertising a chord that was never registered is worse than offering
+            // none: the user presses it, nothing happens, and the app looks broken.
+            MenuBarRow(
+                title: "Pick Color from Screen",
+                systemImage: "eyedropper",
+                shortcut: store.globalShortcutIsActive
+                    ? GlobalShortcut.sampleColor.displayString
+                    : nil
+            ) {
+                Task { await store.sampleFromScreen(alsoCopy: true) }
+            }
             MenuBarRow(title: "Open Color Toolkit", systemImage: "macwindow") {
                 // A `.window`-style MenuBarExtra does not front the app on its own, so
                 // without this the window opens behind whatever you were looking at.
@@ -146,17 +158,30 @@ struct MenuBarPanel: View {
 struct MenuBarRow: View {
     let title: String
     let systemImage: String
+    /// Shown right-aligned, the way a real menu item shows its equivalent. `nil` when
+    /// the row has no shortcut, or when the one it would name is not actually live.
+    var shortcut: String?
     let action: () -> Void
 
     @State private var isHovering = false
 
     var body: some View {
         Button(action: action) {
-            Label(title, systemImage: systemImage)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 5)
-                .contentShape(Rectangle())
+            HStack(spacing: 8) {
+                Label(title, systemImage: systemImage)
+                Spacer(minLength: 12)
+                if let shortcut {
+                    Text(shortcut)
+                        // Not `.secondary`: the row inverts to white on hover, and a
+                        // hierarchical style would keep this grey against the accent
+                        // colour. Opacity dims it relative to whatever it inherits.
+                        .opacity(0.65)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .background(

@@ -28,6 +28,9 @@ struct ContentView: View {
             }
         }
         .frame(minWidth: 520, minHeight: 460)
+        // See `MenuBarLabel` — the shortcut is claimed from whichever scene appears
+        // first, because neither scene is guaranteed to be on screen.
+        .task { store.activateGlobalShortcut() }
         .toolbar {
             ToolbarItem {
                 OutputOptionsMenu()

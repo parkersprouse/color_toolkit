@@ -1,11 +1,15 @@
 # Color Toolkit — Implementation Plan
 
-> **Status (2026-07-23): M0–M3 complete, UI reviewed.** 148 test cases green,
-> including two XCUITest smoke tests over the rendered panel.
-> ColorCore is validated against **colorjs.io 0.7.0** (pinned exact) — 6,384
-> conversions and 1,368 gamut mappings — plus independent definitional anchors. The
-> CSS parser, serializer, and app shell are done. Next up: **M4 (eyedropper + global
-> hotkey)**.
+> **Status (2026-07-23): M0–M3 complete and reviewed; M4 built.** 104 test functions
+> / 162 executed cases green, including two XCUITest smoke tests over the rendered
+> panel. ColorCore is validated against **colorjs.io 0.7.0** (pinned exact) — 6,384
+> conversions and 1,368 gamut mappings — plus independent definitional anchors.
+>
+> **M4 has one thing left that no test can do:** the loupe needs a live click. The
+> `NSColor` bridge, the Carbon registration lifecycle, and the lossless adoption path
+> are all unit-tested, but `NSColorSampler.sample()` puts a magnifier on screen and
+> blocks until a human picks a pixel. Until someone presses ⌃⌥⌘C and clicks, "the
+> sampler works under the sandbox" is a well-supported expectation, not a measurement.
 >
 > Three things came out of looking at the running app: precision is now relative to
 > each component's scale, long values wrap instead of truncating mid-number, and the
@@ -49,6 +53,32 @@
 >   there is no `StaticText` for the value.
 > - Each commit must build and test **standalone**, verified in a `git worktree` — a
 >   green run at HEAD does not prove the intermediate commits are bisectable.
+> - **`NSColor.usingColorSpace(.sRGB)` clips, silently.** Handed Display P3 red it
+>   returns `1, 0, 0` — identical to plain sRGB red, no error, no signal. That one call
+>   is why most Mac eyedroppers lie about vivid colors. Sampled colors are read into
+>   **linear extended sRGB** instead (sRGB primaries, no transfer function, components
+>   free to leave 0–1), which lands directly on `ColorSpace.srgbLinear`.
+> - **ColorSync is not the CSS spec.** It converts through the display's ICC profile,
+>   whose primaries differ slightly from CSS Color 4's idealized matrices. Measured
+>   against colorjs.io: same-primaries agrees to ΔEOK 3.6e-8, cross-primaries (P3 →
+>   sRGB) to 3.4e-5. Both far under a 0.02 JND, but a sampled color is only as exact as
+>   the system's color management — assert against it with a tolerance, not zero.
+> - **Storage precision and display precision are different settings.** `ColorStore`
+>   keeps *text* as its source of truth, so an adopted color is serialized and
+>   immediately re-parsed; anything the spelling rounds or gamut-maps is gone for good.
+>   `adopt` therefore uses `CSSFormatOptions.lossless` and
+>   `ColorValue.spelling(preferring:)` — never the user's chosen precision, which
+>   governs only what panels show. Writing a P3 sample as hex would have re-introduced
+>   the clipping bug one layer below the bridge that just prevented it.
+> - Carbon `RegisterEventHotKey` / `InstallEventHandler` still compile, link, and
+>   return `noErr` on macOS 26.5 under `-swift-version 6`. The C callback reaches
+>   `@MainActor` via `MainActor.assumeIsolated` and needs no `userData` round trip,
+>   because a `shared` singleton is the same indirection without the unsafety.
+> - A test that passes is not necessarily a test that tests anything. Both new `adopt`
+>   assertions were confirmed by **mutating `adopt` back to the old implementation and
+>   watching them fail** — which caught that the first draft of the precision test used
+>   a P3 color that happened to be exactly `#3b82f6`, so hex round-tripped it perfectly
+>   and the test proved nothing.
 
 ## Context
 
@@ -70,7 +100,7 @@ M0–M3 are built. The stock SwiftData template (`Item.swift`, the `NavigationSp
 | Shell | [ColorStore.swift](Color%20Toolkit/Features/Shell/ColorStore.swift), [MenuBarPanel.swift](Color%20Toolkit/Features/Shell/MenuBarPanel.swift), [ContentView.swift](Color%20Toolkit/ContentView.swift) |
 | Conversion UI | [ColorInputField.swift](Color%20Toolkit/Features/Conversion/ColorInputField.swift), [ConversionPanel.swift](Color%20Toolkit/Features/Conversion/ConversionPanel.swift), [FormatPresentation.swift](Color%20Toolkit/Features/Conversion/FormatPresentation.swift) |
 | Design system | [ColorSwatch.swift](Color%20Toolkit/DesignSystem/ColorSwatch.swift), [ColorValue+SwiftUI.swift](Color%20Toolkit/DesignSystem/ColorValue+SwiftUI.swift) |
-| Services | [Clipboard.swift](Color%20Toolkit/Services/Clipboard.swift) |
+| Services | [Clipboard.swift](Color%20Toolkit/Services/Clipboard.swift), [ScreenSampler.swift](Color%20Toolkit/Services/ScreenSampler.swift), [GlobalHotKey.swift](Color%20Toolkit/Services/GlobalHotKey.swift) |
 
 `ColorCore/Analysis/`, `ColorCore/Transform/`, and `Persistence/` exist as empty folders awaiting M5, M7, and M9.
 
@@ -203,14 +233,14 @@ Round-trip tests: parse → serialize → parse must be idempotent.
 
 *Done and visually reviewed at every precision level.*
 
-### M4 — Eyedropper + global hotkey
+### 🔶 M4 — Eyedropper + global hotkey
 
-- **Eyedropper:** `NSColorSampler.sample()`. Sandbox-safe, no permission prompt.
-  - *Caveat to handle explicitly:* the returned `NSColor` is in the **display's** color space. On a P3 display, naively calling `usingColorSpace(.sRGB)` clips wide-gamut pixels. Read in Display P3 / extended sRGB and let the user choose the interpretation — for an accuracy tool this is a feature, not a detail.
-- **Global hotkey:** use Carbon `RegisterEventHotKey`. It works in a sandboxed app **without** any permission prompt, whereas `NSEvent.addGlobalMonitorForEvents(matching: .keyDown)` requires the user to grant Input Monitoring/Accessibility in System Settings. A `MenuBarExtra` keyboard shortcut alone only fires when the app is frontmost, which defeats the purpose.
-  - *Budget concurrency time here.* This is the one spot where Swift 6 strict concurrency costs real effort: Carbon's event handler is a C callback with a context pointer and no async boundary, so getting it back onto `@MainActor` safely takes care. `NSColorSampler`'s completion handler is main-actor too. Isolate both behind a small `Sendable` service facade so the friction stays in one file.
+- **Eyedropper:** [ScreenSampler](Color%20Toolkit/Services/ScreenSampler.swift) wraps `NSColorSampler`. Colors are read in **linear extended sRGB**, never `.sRGB` — see the finding above; the bridge is pure and `nonisolated` so it can be tested without the loupe.
+- **Global hotkey:** [GlobalHotKey](Color%20Toolkit/Services/GlobalHotKey.swift) — Carbon `RegisterEventHotKey`, ⌃⌥⌘C. Three modifiers deliberately: ⇧⌘C and ⌥⌘C are already claimed (Digital Color Meter, Finder's "Copy as Pathname"), and a global hot key *wins* over the frontmost app's, so a collision silently breaks something the user relies on.
+- **The two entry points do different things.** The in-app button fills the field and leaves the clipboard alone. The hot key also **copies**, because its whole point is capturing a color while another app is frontmost — filling an invisible text field would accomplish nothing. The menu bar icon flashes a checkmark, which is the only feedback a global capture can get without a notification permission.
+- The shortcut is claimed from whichever scene appears first (`activateGlobalShortcut` is idempotent). Neither scene is guaranteed: the window can be closed, the menu bar item can be hidden.
 
-Sampled colors land in [ColorStore](Color%20Toolkit/Features/Shell/ColorStore.swift) via `adopt(_:as:)`, which already exists for exactly this.
+*Built and unit-tested. Not yet confirmed by a live click — see the status note at the top.* The app is sandboxed (`com.apple.security.app-sandbox`) with **no** screen-recording entitlement, which is consistent with the sampler running out of process; if that were wrong, the loupe would fail on first use.
 
 ### M5 — Accessibility
 
@@ -253,7 +283,7 @@ Storing the space ID + raw components (instead of a serialized CSS string or `Da
 
 ## Verification
 
-**Do this first, before building picker UI on top of it:** empirically confirm `NSColorSampler` works under the sandbox on this machine — a throwaway button calling `sample()`, verifying no permission prompt appears and that a known on-screen pixel returns the expected value on both an sRGB and a P3 display. Everything in M4 depends on that assumption holding.
+**M4's outstanding check:** press ⌃⌥⌘C from another app and click a pixel of known color. That single interaction confirms three things no test can — the sandbox permits the loupe, no permission prompt appears, and the sampled value round-trips to the color that was on screen. Everything else in M4 is covered by [ScreenSamplerTests](Color%20ToolkitTests/ScreenSamplerTests.swift) and [GlobalHotKeyTests](Color%20ToolkitTests/GlobalHotKeyTests.swift).
 
 Per milestone:
 
@@ -298,6 +328,21 @@ ps -Ao pid,lstart,command | grep "Color Toolkit.app" | grep -v grep
 Kill the stale pid and the icon goes with it. The UI tests in
 [Color ToolkitUITests](Color%20ToolkitUITests/ConversionSmokeTests.swift) call
 `app.terminate()` in `tearDown` specifically so they cannot be the cause.
+
+**If `kill -9` does not work**, the instance is held by a debugger — a leftover test
+host still attached to `debugserver`. `ps` shows it as state `SX`, where `X` means
+traced. Seen once during M4: a UI test failed at `app.launch()` with *"Failed to
+terminate me.parkersprouse.color-toolkit"*, and `sample` on the stuck process showed
+its main thread frozen mid-`_AXXMIGAddNotification`. That stack is a red herring — a
+traced process shows identical frames in every sample because it is not running at
+all. Find the debugger and kill that first:
+
+```bash
+ps -Ao pid,ppid,stat,command | grep -E "debugserver|Color Toolkit.app" | grep -v grep
+```
+
+The run was clean on retry, so this is a flake in the unit-test-host → UI-test
+handoff rather than anything in the app. Re-run before investigating.
 
 ### Commit discipline
 

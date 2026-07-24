@@ -26,12 +26,37 @@ struct ColorInputField: View {
                         .onSubmit { store.remember() }
                     Divider()
                 }
+
+                eyedropper
             }
 
             status
                 .font(.callout)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    // MARK: - Eyedropper
+
+    /// Samples a pixel into the field. Does **not** touch the clipboard — the field is
+    /// right here, and the global shortcut is the variant that copies.
+    private var eyedropper: some View {
+        Button {
+            Task { await store.sampleFromScreen() }
+        } label: {
+            Image(systemName: "eyedropper")
+                .font(.title3)
+                .frame(width: 26, height: 26)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .accessibilityIdentifier("eyedropper")
+        .accessibilityLabel("Pick a color from the screen")
+        .help(
+            store.globalShortcutIsActive
+                ? "Pick a color from the screen. Works from any app with \(GlobalShortcut.sampleColor.displayString)."
+                : "Pick a color from the screen."
+        )
     }
 
     // MARK: - Swatch
