@@ -2,14 +2,16 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-A native macOS color toolkit for web development: parse and convert every CSS Color 4
-format, with an eyedropper, a menu bar panel, and accessibility/transform tooling
-planned. Swift 6, SwiftUI, no third-party runtime dependencies.
+A native macOS color toolkit for web development. Built: CSS Color 4 parsing and
+conversion across 14 spaces, a menu bar panel, a screen eyedropper with a global
+shortcut, and WCAG 2.2 / APCA contrast checking. Planned: a full-spectrum picker,
+transforms and harmonies, CSS export, saved projects. Swift 6, SwiftUI, no
+third-party runtime dependencies.
 
-**[PLAN.md](PLAN.md) is the source of truth** for the roadmap, milestone status, and
-the reasoning behind every decision recorded below. This file is the operational
-layer — what to run and what will break. When the two overlap, PLAN.md has the
-argument; read it before making a design call.
+**[PLAN.md](PLAN.md) is the source of truth** for milestone status, what is deferred
+and why, and the reasoning behind every decision recorded below. This file is the
+operational layer — what to run and what will break. When the two overlap, PLAN.md
+has the argument; read it before making a design call.
 
 ## Commands
 
@@ -56,9 +58,10 @@ is installed. Match the surrounding style by hand.
 exact at 0.7.0** (`Tools/package.json`) and is the conversion oracle.
 
 ```bash
-node Tools/generate-constants.mjs      # → ColorCore/Spaces/Matrices.swift, NamedColors.swift
-node Tools/generate-fixtures.mjs       # → Color ToolkitTests/Fixtures/reference-vectors.json
-node Tools/generate-parse-fixtures.mjs # → Color ToolkitTests/Fixtures/parse-vectors.json
+node Tools/generate-constants.mjs         # → ColorCore/Spaces/Matrices.swift, NamedColors.swift
+node Tools/generate-fixtures.mjs          # → Fixtures/reference-vectors.json
+node Tools/generate-parse-fixtures.mjs    # → Fixtures/parse-vectors.json
+node Tools/generate-contrast-fixtures.mjs # → Fixtures/contrast-vectors.json
 ```
 
 Ask the oracle rather than reasoning about gamuts:
@@ -73,11 +76,13 @@ Layered so the numeric core stays independently testable and UI-free:
 
 - **`ColorCore/`** — pure value types, no AppKit, no SwiftUI. `ColorValue` +
   `ColorSpace`, 14 spaces routed through XYZ D65, CSS Color 4 §13 gamut mapping,
-  a hand-written recursive-descent CSS parser, and a serializer.
+  a hand-written recursive-descent CSS parser, a serializer, and `Analysis/`
+  (WCAG 2.2 and APCA contrast).
 - **`Features/Shell/ColorStore.swift`** — `@MainActor @Observable`, one instance
-  injected into both scenes (menu bar + window).
-- **`Features/`, `DesignSystem/`** — SwiftUI. `Services/` wraps AppKit (pasteboard,
-  `NSColorSampler`, Carbon hot keys).
+  injected into both scenes (menu bar + window). Holds a *pair* of `ColorField`s
+  (foreground + background) and which `Tool` the window is showing.
+- **`Features/`, `DesignSystem/`** — SwiftUI, one folder per tool. `Services/` wraps
+  AppKit (pasteboard, `NSColorSampler`, Carbon hot keys).
 
 ### Invariants that cause immediate breakage
 
@@ -102,6 +107,18 @@ Layered so the numeric core stays independently testable and UI-free:
   core test reaching into the UI for a display string is a smell.
 - Precision is relative to each component's scale, not a flat decimal count — see
   `CSSFormatOptions.decimals(forFullScale:)`.
+- **Two sRGB linearizations exist and must never be merged.** `TransferFunctions`
+  uses **0.04045** (sRGB, what every conversion is validated against);
+  `wcagRelativeLuminance` uses **0.03928** (WCAG's text). They look like the same
+  function with a typo; merging them silently makes contrast results non-conformant.
+- colorjs.io is a true oracle for conversions and APCA, but **only a cross-check for
+  WCAG** — it implements a different definition. Never tighten the WCAG fixture
+  tolerance to make a test pass.
+- Contrast maths gamut-maps before measuring, because `pow` of a negative component
+  is NaN and an out-of-sRGB color has them.
+- New tool panels: add a `Tool` case, a folder under `Features/`, and a branch in
+  `ContentView`. Keep spec facts in ColorCore and wording in the panel — see
+  `RequirementPresentation`.
 
 ### Testing
 
@@ -112,6 +129,9 @@ the accessibility-tree conventions before writing UI tests.
 
 - A green test is not a test that tests anything. Confirm a new regression test
   **fails against the unfixed code** before trusting it.
+- **Never write a fallback chain of XCUITest queries.** One named query, and dump
+  `app.debugDescription` on failure. A chain that silently matches on index is a test
+  that cannot fail — one hid a picker announcing its SF Symbol name to VoiceOver.
 - Never write to the real pasteboard from a test.
 - Every running instance owns its own `MenuBarExtra` icon, so an orphaned process
   looks like a duplicate app. See *Running the app* in PLAN.md for the diagnosis.

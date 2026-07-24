@@ -1,11 +1,19 @@
 # Color Toolkit — Implementation Plan
 
-> **Status (2026-07-23): M0–M5 complete except CVD simulation.** 125 test functions /
-> 186 executed cases green, including four XCUITest smoke tests over rendered panels.
-> ColorCore is validated against **colorjs.io 0.7.0** (pinned exact) — 6,384
-> conversions, 1,368 gamut mappings and 108 contrast pairs — plus independent
-> definitional anchors. Next up: **M6 (full-spectrum picker)**, with **M5b (CVD)**
-> waiting on a pinnable source for Machado's matrices.
+> **Status (2026-07-23): M0–M5 complete except CVD simulation, every milestone
+> reviewed on the running app.** 125 test functions / 186 executed cases green,
+> including four XCUITest smoke tests over rendered panels. ColorCore is validated
+> against **colorjs.io 0.7.0** (pinned exact) — 6,384 conversions, 1,368 gamut
+> mappings and 108 contrast pairs — plus independent definitional anchors. Next up:
+> **M6 (full-spectrum picker)**, with **M5b (CVD)** waiting on a pinnable source for
+> Machado's matrices.
+>
+> The contrast panel was checked against the reference from its own screenshots:
+> `#ffffff` on `#3b82f6` renders 3.68:1 / Lc −69.4, and swapped, 3.68:1 / Lc +63.9 —
+> all four exact. That pair is also the clearest demonstration of why both algorithms
+> are shown at once. WCAG returns the *same* ratio and the *same* five pass/fail
+> verdicts for both directions; APCA separates them by 5.5 points, because white on
+> blue genuinely reads better than blue on white.
 >
 > **M4's three untestable links are confirmed by hand**, each verified separately
 > because they fail independently: the menu bar shows ⌃⌥⌘C beside "Pick Color from
@@ -282,6 +290,8 @@ Round-trip tests: parse → serialize → parse must be idempotent.
 - **UI** — [ContrastPanel.swift](Color%20Toolkit/Features/Contrast/ContrastPanel.swift), reached by a tool switcher in the toolbar. The store now holds a *pair* of colors via `ColorField`, so the background gets the foreground's editing behavior rather than a second implementation of it.
 
 **No APCA pass/fail badges.** Its readability levels (Lc 90/75/60/45/30) could not be verified against a pinned source the way the algorithm was, and a threshold this app cannot stand behind has no business wearing a checkmark next to WCAG's, which it can. The panel shows the signed `Lc` and its polarity, nothing more.
+
+Two things came out of reviewing the screenshots. Nothing in this panel is dimmer than `.secondary` — `.tertiary` explanatory text is dim enough to fail the very check running inches above it, and a contrast tool that ships low-contrast text has undermined its own advice. And APCA's polarity is described comparatively ("lighter text on a darker background") rather than absolutely, because calling `#3b82f6` a dark background out loud reads as a bug even though the sign is right.
 
 ### M5b — Accessibility (CVD simulation) — *deferred, needs a source*
 

@@ -134,7 +134,9 @@ struct ContrastPanel: View {
             Text(item.title)
             Text(item.requirement.criterion)
                 .font(.caption)
-                .foregroundStyle(.tertiary)
+                // See the note in `apca` — nothing in this panel is dimmer than
+                // secondary, on principle.
+                .foregroundStyle(.secondary)
             Spacer()
             Text(String(format: "%g:1", item.requirement.minimumRatio))
                 .font(.system(.callout, design: .monospaced))
@@ -162,21 +164,27 @@ struct ContrastPanel: View {
             // against a pinned source the way the algorithm itself was, and a
             // threshold this app cannot stand behind has no business wearing a
             // checkmark next to WCAG's, which it can.
+            // Comparative, not absolute. APCA measures a signed lightness *difference*,
+            // so a mid-blue background is "darker" only relative to white text — and
+            // calling #3b82f6 a dark background out loud reads as a bug.
             Text(
                 lc == 0
                     ? "Below the algorithm's reporting floor — too little contrast to score."
                     : (lc > 0
-                        ? "Dark text on a light background."
-                        : "Light text on a dark background.")
+                        ? "Darker text on a lighter background."
+                        : "Lighter text on a darker background.")
             )
             .font(.callout)
             .foregroundStyle(.secondary)
 
+            // `.secondary`, not `.tertiary`. Tertiary is dim enough to fail the very
+            // check running six inches above it, and a contrast tool that ships
+            // low-contrast text has undermined its own advice.
             Text(
                 "Draft algorithm (0.0.98G), not part of WCAG. Unlike a ratio, Lc is direction-dependent — swap the colors and the number changes."
             )
             .font(.caption)
-            .foregroundStyle(.tertiary)
+            .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
         }
     }
