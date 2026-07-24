@@ -1,13 +1,15 @@
 # Color Toolkit — Implementation Plan
 
-> **Status (2026-07-23): M0–M3 built and reviewed.** 137 test cases green.
+> **Status (2026-07-23): M0–M3 complete, UI reviewed.** 148 test cases green,
+> including two XCUITest smoke tests over the rendered panel.
 > ColorCore is validated against **colorjs.io 0.7.0** (pinned exact) — 6,384
 > conversions and 1,368 gamut mappings — plus independent definitional anchors. The
 > CSS parser, serializer, and app shell are done. Next up: **M4 (eyedropper + global
 > hotkey)**.
 >
-> The UI has now been seen, and two things came out of it — a fix to how precision
-> works, and the note on orphaned instances under **Running the app** below.
+> Three things came out of looking at the running app: precision is now relative to
+> each component's scale, long values wrap instead of truncating mid-number, and the
+> note on orphaned instances under **Running the app** below.
 >
 > M2 note: colorjs.io is the oracle for *conversions* but **not** for *parsing* — its
 > parser accepts `rgb(a b c)` as `rgb(none none none)` and tolerates commas in
@@ -199,7 +201,7 @@ Round-trip tests: parse → serialize → parse must be idempotent.
 
 `MenuBarExtra` + main window. Text input that live-parses any supported format, and a conversion panel rendering the color in **all** formats simultaneously with per-format copy buttons and out-of-gamut badges. Menu bar shows recent colors and a "copy as ▸" submenu.
 
-*Built, but see the UI caveat at the top — nothing has visually verified it.*
+*Done and visually reviewed at every precision level.*
 
 ### M4 — Eyedropper + global hotkey
 
