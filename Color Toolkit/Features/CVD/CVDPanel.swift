@@ -75,10 +75,12 @@ struct CVDPanel: View {
                         .foregroundStyle(.secondary)
                         .accessibilityIdentifier("cvdSeverity")
                 }
-                Slider(value: $store.cvdSeverity, in: 0...1) {
-                    Text("Severity")
-                }
-                .accessibilityIdentifier("cvdSeveritySlider")
+                // No label closure: macOS renders it as visible text, and the
+                // headline above already names this control.
+                Slider(value: $store.cvdSeverity, in: 0...1)
+                    .labelsHidden()
+                    .accessibilityLabel("Severity")
+                    .accessibilityIdentifier("cvdSeveritySlider")
             }
         }
     }
