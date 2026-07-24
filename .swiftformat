@@ -1,7 +1,9 @@
---acronyms ID,URL,UUID
+--exclude Color Toolkit/ColorCore/Spaces/Matrices.swift,Color Toolkit/ColorCore/Spaces/NamedColors.swift,Color Toolkit/ColorCore/Analysis/CVDMatrices.swift
+
+--acronyms
 --allman false
 --allow-partial-wrapping true
---anonymous-for-each convert
+--anonymous-for-each ignore
 --asset-literals visual-width
 --async-capturing 
 --before-marks 
@@ -98,7 +100,7 @@
 --suite-name-format preserve
 --tab-width 2
 --test-case-access-control internal
---test-case-name-format raw-identifiers
+--test-case-name-format preserve
 --throw-capturing 
 --timezone system
 --trailing-closures 
@@ -128,4 +130,4 @@
 --xcode-indentation disabled
 --xctest-symbols 
 --yoda-swap always
---enable organizeDeclarations,preferContains,preferMinOverSorted,singlePropertyPerLine
+--enable organizeDeclarations,singlePropertyPerLine

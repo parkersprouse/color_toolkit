@@ -48,9 +48,58 @@ xcodebuild -project "Color Toolkit.xcodeproj" -scheme "Color Toolkit" -destinati
 ```
 
 One test: append the function name — `-only-testing:"Color ToolkitTests/ColorStoreTests/adoptWritesInput()"`.
+It is the Swift **function** name, not the `@Test("…")` display string.
 
-**No linter or formatter is configured**, and neither `swiftlint` nor `swift-format`
-is installed. Match the surrounding style by hand.
+The scheme is versioned at `Color Toolkit.xcodeproj/xcshareddata/xcschemes/`, so every
+command above works from a fresh clone. It used to live only in gitignored
+`xcuserdata/`, where deleting it made all of them fail with *"does not contain a scheme
+named Color Toolkit"* — do not move it back.
+
+### Formatting
+
+**SwiftFormat is the formatter** — the `swiftformat` CLI plus the Xcode extension,
+configured by `.swiftformat` (and `.swift-version`, which is `6.3.3`). Indentation is
+**2 spaces**; the config also enables `organizeDeclarations`, so it will move
+declarations and insert `// MARK:` headers.
+
+Formatting is **its own commit, always after the work it reformats**:
+
+1. Finish the work and commit it, unformatted.
+2. Then run `swiftformat .` from the repo root.
+3. Check the result, then commit the formatted files as a **separate** follow-up commit.
+
+Never fold the two together. The reformat touches thousands of lines across dozens of
+files, and a mixed commit buries the real change inside it; separate commits mean
+`git diff` against step 1 is exactly the formatter's work and `git revert` undoes it
+cleanly.
+
+Four settings in `.swiftformat` are load-bearing, and each is there because the
+default did damage. Do not "tidy" them back:
+
+- **`--exclude` covers the three generated files** (`Spaces/Matrices.swift`,
+  `Spaces/NamedColors.swift`, `Analysis/CVDMatrices.swift`). Their generators emit
+  4-space, no-trailing-comma output, so without the exclusion regenerating reverts the
+  formatting and the next `swiftformat .` re-applies it — churn with no end state.
+- **`--test-case-name-format preserve`**, not the `raw-identifiers` default. That
+  default rewrites `@Test("A name") func someTest()` into ``func `A name`()``, and when
+  two tests **in the same file** share a display string it converts only the first —
+  the second silently loses its description and gets its camelCase split instead
+  (`outOfGamutDoesNotProduceNaN` → `` `out of gamut does not produce na N` ``).
+  `ContrastTests.swift` has exactly that shape, one test per suite.
+- **`--acronyms` is empty**, not the `ID,URL,UUID` default. It is a *rename* rule, and
+  renames are the one thing here the compiler cannot check: `Codable` derives its keys
+  from property names, and this project decodes four JSON fixture files. A future
+  `sourceUrl` → `sourceURL` would break decoding at runtime with a green build.
+- **`preferContains` and `preferMinOverSorted` are not enabled**, and
+  `--anonymous-for-each` is `ignore`. All three rewrite *runtime behaviour*, not
+  layout — `sorted(by:).first` → `min(by:)` differs on tie-breaking, and `return`
+  inside `forEach` continues the loop where `return` inside `for in` leaves the
+  function.
+
+The rest of the config is compile-checked — reordering, indentation, MARK insertion,
+`pattern-let`, `conditional-assignment`, `singlePropertyPerLine` — so a green build is
+sufficient proof for it. The discriminating question when adding a rule is not "how
+aggressive is it" but **can the compiler catch it if it is wrong**.
 
 ### Reference tooling
 
@@ -226,3 +275,10 @@ before stacking the next one:
 ```bash
 git worktree add -q --detach /tmp/wt <sha> && cd /tmp/wt && xcodebuild -project "Color Toolkit.xcodeproj" -scheme "Color Toolkit" -destination 'platform=macOS' -derivedDataPath /tmp/dd test
 ```
+
+Commit the work **before** running `swiftformat .`, and commit the formatting on its
+own afterward — see *Formatting*. That ordering is what makes the pre-formatted state
+recoverable if the reformat goes wrong, and it is also the only way to change a
+formatter setting safely: `preserve`-style options mean *leave what is there alone*, so
+they cannot undo a conversion that is already in the working tree. Restore the sources
+first (`git restore -- '*.swift'`), then reformat.
