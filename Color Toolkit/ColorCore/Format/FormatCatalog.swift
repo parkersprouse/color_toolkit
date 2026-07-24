@@ -67,4 +67,26 @@ nonisolated extension ColorValue {
     func allFormats(options: CSSFormatOptions = .default) -> [FormattedColor] {
         CSSOutputFormat.catalog.compactMap { formatted(as: $0, options: options) }
     }
+
+    /// A format that can write this color down without throwing part of it away —
+    /// `format` itself when it suffices, and a wide-gamut fallback when it does not.
+    ///
+    /// Needed anywhere a color becomes text that will later be read back. Hex is the
+    /// natural preference and the right answer for almost everything, but it is 8-bit
+    /// sRGB: asking it to spell a Display P3 sample forces a gamut map, and the color
+    /// that comes back is not the color that went in.
+    ///
+    /// The decision comes from ``isGamutMapped(as:options:epsilon:)`` — the same
+    /// predicate that decides whether a row wears a "mapped" badge — rather than a
+    /// second rule of its own. One predicate means the badge and this can never
+    /// disagree about whether a format is lossy for a given color.
+    func spelling(preferring format: CSSOutputFormat) -> CSSOutputFormat {
+        isGamutMapped(as: format, options: .lossless, epsilon: Self.gamutNoiseTolerance)
+            // Display P3 rather than the sampler's own `srgb-linear`: it is what a web
+            // author actually writes for wide colors, its components stay inside 0–1
+            // for anything a P3 screen can show, and `preserve` keeps even the rare
+            // beyond-P3 value intact instead of clamping it.
+            ? .color(.displayP3)
+            : format
+    }
 }

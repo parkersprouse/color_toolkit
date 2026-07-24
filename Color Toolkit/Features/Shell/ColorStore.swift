@@ -122,9 +122,22 @@ final class ColorStore {
         inputText = recent.text
     }
 
-    /// Adopts a color that has no authored text of its own, writing it in `format`.
-    func adopt(_ newColor: ColorValue, as format: CSSOutputFormat = .hex) {
-        inputText = newColor.cssStringOrHex(as: format, options: formatOptions)
+    /// Adopts a color that has no authored text of its own — an eyedropper sample, a
+    /// picker result — writing it in `format` where `format` can carry it.
+    ///
+    /// The subtlety is that this store keeps *text* as its source of truth, so the
+    /// string written here is immediately parsed back into a new `ColorValue`. Any
+    /// rounding or gamut mapping in the spelling is therefore permanent: naively
+    /// writing a Display P3 sample as hex would map it into sRGB on the way in, and
+    /// the color the rest of the app sees would be one the screen never showed. Hence
+    /// ``ColorValue/spelling(preferring:)`` to choose the format and
+    /// ``CSSFormatOptions/lossless`` to choose the digits — neither of which is the
+    /// user's display precision, which governs only what panels show.
+    func adopt(_ newColor: ColorValue, preferring format: CSSOutputFormat = .hex) {
+        inputText = newColor.cssStringOrHex(
+            as: newColor.spelling(preferring: format),
+            options: .lossless
+        )
     }
 
     // MARK: - Recents

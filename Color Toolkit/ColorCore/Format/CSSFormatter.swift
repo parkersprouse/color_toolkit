@@ -81,6 +81,20 @@ nonisolated struct CSSFormatOptions: Sendable, Equatable {
 
     static let `default` = CSSFormatOptions()
 
+    /// Serialization detailed enough to survive a round trip back through the parser.
+    ///
+    /// Storage precision and display precision are different concerns and must not
+    /// share a setting. A panel showing `oklch(0.62 0.19 259.81)` has rounded a value
+    /// it will re-derive from the original next frame; a *stored* string that rounds
+    /// has destroyed the original. Anything adopted into the input field — an
+    /// eyedropper sample, a picker result — takes this instead of the user's chosen
+    /// precision, which governs only what is shown.
+    ///
+    /// `preserve` matters as much as the digits: a sample from a P3 display sits
+    /// outside sRGB, and mapping it into gamut on the way in would discard the very
+    /// wideness worth capturing.
+    static let lossless = CSSFormatOptions(precision: 10, gamut: .preserve)
+
     /// Decimal places for a component whose values run up to `fullScale`.
     ///
     /// A flat decimal count is the wrong unit for CSS colors, because components do

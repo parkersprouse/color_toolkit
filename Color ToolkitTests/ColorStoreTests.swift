@@ -138,6 +138,62 @@ struct ColorStoreTests {
         #expect(store.color == ColorValue.srgb8(59, 130, 246))
     }
 
+    /// The trap `adopt` has to dodge. This store keeps *text* as its source of truth,
+    /// so an adopted color is serialized and immediately parsed back — and hex is
+    /// 8-bit sRGB. Spelling a P3 sample as hex would gamut-map it on the way in and
+    /// hand back a color the screen never showed, undoing the entire point of reading
+    /// the pixel in a wide space to begin with.
+    @Test("Adopting a wide-gamut color does not quietly flatten it into sRGB")
+    func adoptPreservesWideGamut() throws {
+        let store = ColorStore(initialInput: "")
+        let p3Red = ColorValue(space: .displayP3, 1, 0, 0)
+        store.adopt(p3Red)
+
+        let readBack = try #require(store.color)
+        #expect(readBack.exceedsSRGB, "the trip through text flattened the color")
+        #expect(readBack.deltaEOK(to: p3Red) < 1e-9)
+
+        // The obvious spelling, shown next to the working one. Hex has to gamut-map to
+        // exist at all, and what comes back is a color the display never showed.
+        let asHex = try #require(p3Red.cssString(as: .hex))
+        let viaHex = try CSSColorParser.parse(asHex).color
+        #expect(!viaHex.exceedsSRGB)
+        #expect(viaHex.deltaEOK(to: p3Red) > 0.01)
+    }
+
+    /// Display precision and storage precision are separate settings for a reason: a
+    /// panel that rounds re-derives from the original next frame, while a stored
+    /// string that rounds has destroyed it.
+    @Test("Adoption ignores the display precision the user picked")
+    func adoptIgnoresDisplayPrecision() throws {
+        let store = ColorStore(initialInput: "")
+        store.formatOptions.precision = 2  // "Compact"
+
+        // Deliberately outside sRGB, so adoption takes the `color(display-p3 …)`
+        // branch where precision is actually expressible — a color hex could spell
+        // would round-trip through 8-bit integers and prove nothing about digits.
+        // colorjs.io 0.7.0 puts these coordinates out of sRGB, and confirms that
+        // rounding them to two decimals costs ΔEOK 0.00124 — a difference this
+        // assertion is six orders of magnitude tighter than.
+        let sampled = ColorValue(space: .displayP3, 0.9876543210, 0.1234567891, 0.0246813579)
+        store.adopt(sampled)
+
+        let readBack = try #require(store.color)
+        #expect(readBack.exceedsSRGB)
+        #expect(readBack.deltaEOK(to: sampled) < 1e-9)
+    }
+
+    /// Alpha is the component most easily lost, because the default alpha policy omits
+    /// it whenever a color is opaque.
+    @Test("Adopting keeps partial alpha")
+    func adoptKeepsAlpha() throws {
+        let store = ColorStore(initialInput: "")
+        store.adopt(ColorValue(space: .srgb, 1, 0, 0, alpha: 0.4))
+
+        let readBack = try #require(store.color)
+        #expect(abs(readBack.alpha - 0.4) < 1e-9)
+    }
+
     // MARK: - Output
 
     @Test("Format options flow through to every row")
