@@ -4,8 +4,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A native macOS color toolkit for web development. Built: CSS Color 4 parsing and
 conversion across 14 spaces, a menu bar panel, a screen eyedropper with a global
-shortcut, and WCAG 2.2 / APCA contrast checking. Planned: a full-spectrum picker,
-transforms and harmonies, CSS export, saved projects. Swift 6, SwiftUI, no
+shortcut, WCAG 2.2 / APCA contrast checking, and a gamut-aware HSV/OKLCH picker.
+Planned: transforms and harmonies, CSS export, saved projects. Swift 6, SwiftUI, no
 third-party runtime dependencies.
 
 **[PLAN.md](PLAN.md) is the source of truth** for milestone status, what is deferred
@@ -76,8 +76,9 @@ Layered so the numeric core stays independently testable and UI-free:
 
 - **`ColorCore/`** — pure value types, no AppKit, no SwiftUI. `ColorValue` +
   `ColorSpace`, 14 spaces routed through XYZ D65, CSS Color 4 §13 gamut mapping,
-  a hand-written recursive-descent CSS parser, a serializer, and `Analysis/`
-  (WCAG 2.2 and APCA contrast).
+  a hand-written recursive-descent CSS parser, a serializer, `Analysis/`
+  (WCAG 2.2 and APCA contrast), and `Convert/GamutBoundary.swift` (how much chroma
+  a lightness and hue have left).
 - **`Features/Shell/ColorStore.swift`** — `@MainActor @Observable`, one instance
   injected into both scenes (menu bar + window). Holds a *pair* of `ColorField`s
   (foreground + background) and which `Tool` the window is showing.
@@ -116,6 +117,21 @@ Layered so the numeric core stays independently testable and UI-free:
   tolerance to make a test pass.
 - Contrast maths gamut-maps before measuring, because `pow` of a negative component
   is NaN and an out-of-sRGB color has them.
+- **`GamutBoundary.maxChroma` and `gamutMapped` answer different questions and are
+  meant to disagree.** §13 clips when clipping costs under a JND, so it maps blue to
+  `#0000ff` at chroma `0.3132` while the boundary sits at `0.2656`. The picker's curve
+  must match the **badge** (`inGamut`), never the mapper. Both facts are pinned by
+  tests — do not "reconcile" them.
+- **Never pass `gamutNoiseTolerance` to a chroma search.** It is 7.5e-5 of a *channel*;
+  at `L = 0` that buys 0.041 of *chroma*. The boundary is strict, the badge forgiving.
+- **HSV is not a `ColorSpace` case and must not become one** — CSS has no `hsv()`, so
+  a case would leak into the parser, serializer, catalog and every `allCases` loop.
+  It is `ColorCore/Convert/HSV.swift`, a coordinate on the side.
+- The picker's axes are the source of truth during interaction, not the store. It
+  writes on every change and re-seeds only when the field's text differs from what it
+  last wrote — a boolean "am I writing" flag does not work, because observation fires
+  after the synchronous reparse. Each mode writes a format that can hold its output:
+  `oklch()` at `.lossless`, or hex for HSV.
 - New tool panels: add a `Tool` case, a folder under `Features/`, and a branch in
   `ContentView`. Keep spec facts in ColorCore and wording in the panel — see
   `RequirementPresentation`.
@@ -133,6 +149,14 @@ the accessibility-tree conventions before writing UI tests.
   `app.debugDescription` on failure. A chain that silently matches on index is a test
   that cannot fail — one hid a picker announcing its SF Symbol name to VoiceOver.
 - Never write to the real pasteboard from a test.
+- **`.accessibilityIdentifier` on a `Text` publishes the string as the element's
+  `value`, not its `label`.** `element.label` returns `""` and the assertion reports a
+  mismatch against nothing.
+- Wait on **hittability**, not existence, before clicking something a tool switch may
+  have moved — switching panels resizes the window, and a click already in flight
+  lands where the control used to be.
+- A `GeometryReader` square inside a `ScrollView` claims the whole unbounded height
+  proposal. Size it from *width*, which is bounded.
 - Every running instance owns its own `MenuBarExtra` icon, so an orphaned process
   looks like a duplicate app. See *Running the app* in PLAN.md for the diagnosis.
 

@@ -1,12 +1,18 @@
 # Color Toolkit — Implementation Plan
 
-> **Status (2026-07-23): M0–M5 complete except CVD simulation, every milestone
-> reviewed on the running app.** 125 test functions / 186 executed cases green,
-> including four XCUITest smoke tests over rendered panels. ColorCore is validated
+> **Status (2026-07-24): M0–M6 complete except CVD simulation, every milestone
+> reviewed on the running app.** 162 test functions / 254 executed cases green,
+> including seven XCUITest smoke tests over rendered panels. ColorCore is validated
 > against **colorjs.io 0.7.0** (pinned exact) — 6,384 conversions, 1,368 gamut
 > mappings and 108 contrast pairs — plus independent definitional anchors. Next up:
-> **M6 (full-spectrum picker)**, with **M5b (CVD)** waiting on a pinnable source for
-> Machado's matrices.
+> **M7 (transforms and harmonies)**, with **M5b (CVD)** waiting on a pinnable source
+> for Machado's matrices.
+>
+> M6's boundary readouts were checked against the reference from the panel's own
+> screenshots: at `L 0.7 h 140` the panel says sRGB allows `0.2253` and the oracle
+> agrees exactly; at `L 0.6231 h 259.8` it says `0.2037` against the oracle's `0.2038`
+> — one search step, and deliberately on the inside, since the search returns a chroma
+> that *is* in gamut rather than one merely near it.
 >
 > The contrast panel was checked against the reference from its own screenshots:
 > `#ffffff` on `#3b82f6` renders 3.68:1 / Lc −69.4, and swapped, 3.68:1 / Lc +63.9 —
@@ -113,6 +119,44 @@
 >   one named query plus a tree dump on failure exposed a real defect: a segmented
 >   `Picker` renders a `Label` icon-only and hands VoiceOver the **SF Symbol name**, so
 >   the switcher announced "arrow.left.arrow.right" instead of "Convert".
+> - **The sRGB gamut is not star-shaped about the neutral axis in OKLCH, and blue is
+>   the counterexample.** Walking chroma outward at blue's own lightness and hue, sRGB
+>   red goes negative at `0.2656`, bottoms out at **−0.009** near `0.29` — three orders
+>   of magnitude past float noise, so this is the shape of the gamut and not rounding —
+>   and returns to zero only as the ray grazes the blue vertex at `0.3132`. The in-gamut
+>   set is genuinely two pieces. Bisection reports the first exit and misses the far
+>   sliver, which is what to want: the band between is outside sRGB, and drawing the
+>   second island would present a stripe of unreachable colors as reachable. 3,420
+>   lightness/hue pairs found no other disconnected ray.
+> - **"Where does the gamut end" and "where does gamut mapping land" are different
+>   questions.** §13 takes a clipped result whenever clipping costs under a JND, and at
+>   a cube corner it costs nothing — so it maps blue's coordinates to `#0000ff` at full
+>   chroma `0.3132` while the boundary sits at `0.2656`. Deriving the picker's curve
+>   from the mapper would put the cursor inside the line for colors the badge calls out
+>   of gamut. The curve must agree with the **badge**, and does.
+> - **A channel tolerance is not a chroma tolerance.** `gamutNoiseTolerance` is 7.5e-5
+>   *of a channel*; OKLab's cube root turns that into **0.041 of chroma at `L = 0`**, so
+>   handing the badge's constant to the boundary search looks like consistency and is a
+>   unit error — the curve bulges to a visible width at pure black, which has no chroma
+>   at all. The curve is strict, the badge stays forgiving, and they differ only over
+>   colors indistinguishable from black.
+> - **A picker cannot read its own writes.** The store keeps text as its source of
+>   truth, so every drag tick would serialize and re-parse — and the round trip loses
+>   exactly what a picker must not: a gray comes back with no hue, so the strip snaps to
+>   red one frame after saturation reaches zero. The axes lead and the store follows,
+>   guarded by comparing the returned text against the last text written. A boolean "I
+>   am writing" flag is the tempting version and the wrong one: the store reparses
+>   synchronously but observation fires later, so the flag is already clear by the time
+>   the callback lands.
+> - **A `GeometryReader` square inside a `ScrollView` takes the whole unbounded height
+>   proposal.** The window opened 948pt tall, and the resize moved the mode switcher out
+>   from under a click already in flight — surfacing as "Not hittable", which reads like
+>   an accessibility problem and is a layout one. Size such a thing from *width*, which
+>   is bounded and cannot feed back into itself.
+> - **`.accessibilityIdentifier` on a SwiftUI `Text` publishes the string as the
+>   element's `value`, leaving `label` empty.** XCUITest assertions on `.label` then
+>   compare against `""` and report a mismatch with nothing, which points at the panel
+>   rather than at the query. Only `app.debugDescription` says so.
 > - A test that passes is not necessarily a test that tests anything. Both new `adopt`
 >   assertions were confirmed by **mutating `adopt` back to the old implementation and
 >   watching them fail** — which caught that the first draft of the precision test used
@@ -133,13 +177,14 @@ M0–M3 are built. The stock SwiftData template (`Item.swift`, the `NavigationSp
 |---|---|
 | Core model | [ColorValue.swift](Color%20Toolkit/ColorCore/ColorValue.swift), [ColorSpace.swift](Color%20Toolkit/ColorCore/ColorSpace.swift) |
 | Spaces | [Matrices.swift](Color%20Toolkit/ColorCore/Spaces/Matrices.swift) and [NamedColors.swift](Color%20Toolkit/ColorCore/Spaces/NamedColors.swift) (**generated**), [TransferFunctions.swift](Color%20Toolkit/ColorCore/Spaces/TransferFunctions.swift), [ColorMatrix.swift](Color%20Toolkit/ColorCore/Spaces/ColorMatrix.swift) |
-| Convert | [Conversion.swift](Color%20Toolkit/ColorCore/Convert/Conversion.swift), [GamutMapping.swift](Color%20Toolkit/ColorCore/Convert/GamutMapping.swift) |
+| Convert | [Conversion.swift](Color%20Toolkit/ColorCore/Convert/Conversion.swift), [GamutMapping.swift](Color%20Toolkit/ColorCore/Convert/GamutMapping.swift), [GamutBoundary.swift](Color%20Toolkit/ColorCore/Convert/GamutBoundary.swift), [HSV.swift](Color%20Toolkit/ColorCore/Convert/HSV.swift) |
 | Parse | [CSSTokenizer.swift](Color%20Toolkit/ColorCore/Parse/CSSTokenizer.swift), [ColorSyntax.swift](Color%20Toolkit/ColorCore/Parse/ColorSyntax.swift), [CSSColorParser.swift](Color%20Toolkit/ColorCore/Parse/CSSColorParser.swift) |
 | Format | [CSSFormatter.swift](Color%20Toolkit/ColorCore/Format/CSSFormatter.swift), [FormatCatalog.swift](Color%20Toolkit/ColorCore/Format/FormatCatalog.swift) |
 | Shell | [ColorStore.swift](Color%20Toolkit/Features/Shell/ColorStore.swift), [MenuBarPanel.swift](Color%20Toolkit/Features/Shell/MenuBarPanel.swift), [ContentView.swift](Color%20Toolkit/ContentView.swift) |
 | Analysis | [WCAGContrast.swift](Color%20Toolkit/ColorCore/Analysis/WCAGContrast.swift), [APCAContrast.swift](Color%20Toolkit/ColorCore/Analysis/APCAContrast.swift) |
 | Conversion UI | [ColorInputField.swift](Color%20Toolkit/Features/Conversion/ColorInputField.swift), [ConversionPanel.swift](Color%20Toolkit/Features/Conversion/ConversionPanel.swift), [FormatPresentation.swift](Color%20Toolkit/Features/Conversion/FormatPresentation.swift) |
 | Contrast UI | [ContrastPanel.swift](Color%20Toolkit/Features/Contrast/ContrastPanel.swift) |
+| Picker UI | [PickerState.swift](Color%20Toolkit/Features/Picker/PickerState.swift), [PickerPlane.swift](Color%20Toolkit/Features/Picker/PickerPlane.swift), [PickerPanel.swift](Color%20Toolkit/Features/Picker/PickerPanel.swift) |
 | Design system | [ColorSwatch.swift](Color%20Toolkit/DesignSystem/ColorSwatch.swift), [ColorValue+SwiftUI.swift](Color%20Toolkit/DesignSystem/ColorValue+SwiftUI.swift) |
 | Services | [Clipboard.swift](Color%20Toolkit/Services/Clipboard.swift), [ScreenSampler.swift](Color%20Toolkit/Services/ScreenSampler.swift), [GlobalHotKey.swift](Color%20Toolkit/Services/GlobalHotKey.swift) |
 
@@ -299,9 +344,44 @@ Machado et al. (2009) severity-parameterized LMS matrices for protan/deutan/trit
 
 **Blocked on provenance, not difficulty.** It is 33 published 3×3 matrices, and colorjs.io implements no CVD and exposes no cone-fundamental LMS space — `cam16` and `jzazbz` carry their own LMS, neither of which is the Hunt-Pointer-Estevez basis Machado and Viénot use. Transcribing 33 matrices from recall is the Bradford failure mode at scale. Resolve by pinning a dependency that carries the tables and generating Swift from it, exactly as `generate-constants.mjs` does — then this is a short milestone.
 
-### M6 — Full-spectrum picker
+### ✅ M6 — Full-spectrum picker
 
-Its own milestone — a gamut-aware perceptual picker is substantial work. Canvas-rendered, with **two modes**: a familiar HSV square+hue-strip, and an **OKLCH mode** (L/C/h) that draws the sRGB gamut boundary so it's visible when chroma is being clipped. Alpha slider over a checkerboard.
+Canvas-rendered, with **two modes**: a familiar HSV square + hue strip, and an **OKLCH
+mode** (L/C/h) that draws the sRGB gamut boundary so it's visible when chroma is being
+clipped. Alpha slider over a checkerboard. The display's own edge is drawn dashed
+beside sRGB's — nested, and verified nested: 20,000 random sRGB colors all fall inside
+Display P3 while 9,626 of 20,000 P3 colors fall outside sRGB.
+
+- **[GamutBoundary.swift](Color%20Toolkit/ColorCore/Convert/GamutBoundary.swift)** —
+  `maxChroma(lightness:hue:in:)` and the sampled curve, in ColorCore because it is a
+  numeric fact. Bisects the same `inGamut` predicate the badge uses, so the drawn line
+  and the badge are one claim. See the blue counterexample and the tolerance note above
+  — both are pinned by tests precisely so they are not "fixed".
+- **HSV is deliberately not a `ColorSpace` case.** CSS has no `hsv()`, so a case would
+  need excluding by hand from the parser, serializer, catalog and every `allCases` loop,
+  and the first one missed would offer a format no browser accepts. It is a coordinate
+  on the side ([HSV.swift](Color%20Toolkit/ColorCore/Convert/HSV.swift)) wrapping the
+  sRGB↔HSV conversions that already existed to route HWB.
+- **[PickerState.swift](Color%20Toolkit/Features/Picker/PickerState.swift)** holds the
+  axes as a plain value type, testable without SwiftUI — which is what let the write
+  loop, the hue-preservation rule and the format choice all be asserted directly.
+- **Each mode writes in a format that can hold what it produced**: `oklch()` at
+  `.lossless` for OKLCH, hex for HSV. Mutating the format to hex fails seven
+  assertions, including two chroma values `1e-4` apart collapsing to the same
+  `#3b82f6`.
+- **Switching modes does not write.** Looking at a color in other axes is not editing
+  it; rewriting `#3b82f6` as `oklch(…)` for having glanced at the other tab would be
+  presumptuous. It does *carry* the field's color across, which is what stops HSV from
+  narrowing a wide color merely by having been the tab the panel opened on.
+
+**No numeric entry fields.** The shared input field above already accepts any CSS
+color, so L/C/h boxes would be a second way to type the same thing. The readout is
+read-only and earns its place differently: HSV has no CSS spelling anywhere else in the
+app, and the sRGB chroma still available at this lightness and hue is the panel's
+actual payload — it turns "this looks vivid" into "this is 0.19 of a possible 0.21".
+It is also the only assertable surface a `Canvas` can offer a UI test.
+
+*Done, and reviewed on the running app from its own screenshots.*
 
 ### M7 — Transform + harmony tools
 
@@ -340,7 +420,8 @@ Per milestone:
 
 - **M1/M2 (core):** `xcodebuild test` — parameterized tests against the colorjs.io fixture; round-trip idempotency; gamut-mapping boundary cases (`L≥1` → white, `L≤0` → black, in-gamut colors unchanged).
 - **M5:** two different standards of proof, because the oracle only covers one of them. **APCA** is validated against colorjs.io directly (`node Tools/generate-contrast-fixtures.mjs`) at 1e-9, both polarities — real external validation, since the Swift is transcribed from that package. **WCAG** cannot be, because colorjs.io implements a different definition; correctness there comes from anchors that hold under any variant (`#000` on `#fff` = 21:1, a color against itself = 1:1) plus one pair chosen to *disagree* between the definitions, asserted both ways round.
-- **M3/M4/M6–M9 (UI):** run the app and verify interactively. Spot-check conversions against a browser's DevTools color picker, which implements the same spec — a fast, honest end-to-end sanity check.
+- **M6:** the plane is a `Canvas`, so nothing about the pixels reaches the accessibility tree — the numeric readout is the assertable surface, and the boundary figures it prints were checked against the oracle from the panel's own screenshots. See [PickerSmokeTests](Color%20ToolkitUITests/PickerSmokeTests.swift).
+- **M3/M4/M7–M9 (UI):** run the app and verify interactively. Spot-check conversions against a browser's DevTools color picker, which implements the same spec — a fast, honest end-to-end sanity check.
 
 The scheme is shared and works from the command line:
 
