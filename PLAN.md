@@ -1,15 +1,19 @@
 # Color Toolkit — Implementation Plan
 
-> **Status (2026-07-23): M0–M3 complete and reviewed; M4 built.** 104 test functions
-> / 162 executed cases green, including two XCUITest smoke tests over the rendered
-> panel. ColorCore is validated against **colorjs.io 0.7.0** (pinned exact) — 6,384
-> conversions and 1,368 gamut mappings — plus independent definitional anchors.
+> **Status (2026-07-23): M0–M4 complete, all four reviewed on the running app.**
+> 104 test functions / 162 executed cases green, including two XCUITest smoke tests
+> over the rendered panel. ColorCore is validated against **colorjs.io 0.7.0** (pinned
+> exact) — 6,384 conversions and 1,368 gamut mappings — plus independent definitional
+> anchors. Next up: **M5 (accessibility)**.
 >
-> **M4 has one thing left that no test can do:** the loupe needs a live click. The
-> `NSColor` bridge, the Carbon registration lifecycle, and the lossless adoption path
-> are all unit-tested, but `NSColorSampler.sample()` puts a magnifier on screen and
-> blocks until a human picks a pixel. Until someone presses ⌃⌥⌘C and clicks, "the
-> sampler works under the sandbox" is a well-supported expectation, not a measurement.
+> **M4's three untestable links are confirmed by hand**, each verified separately
+> because they fail independently: the menu bar shows ⌃⌥⌘C beside "Pick Color from
+> Screen" (so the OS accepted the registration and a scene's `.task` fired), the chord
+> raises the loupe from another app (so the key is captured and the C callback reaches
+> the main actor), and the picked color lands in both the field and the clipboard (so
+> the sandbox permits the sampler and the bridge works end to end). No permission
+> prompt appeared at any point — `NSColorSampler` and Carbon hot keys are both
+> confirmed sandbox-safe on macOS 26.5.
 >
 > Three things came out of looking at the running app: precision is now relative to
 > each component's scale, long values wrap instead of truncating mid-number, and the
@@ -236,14 +240,14 @@ Round-trip tests: parse → serialize → parse must be idempotent.
 
 *Done and visually reviewed at every precision level.*
 
-### 🔶 M4 — Eyedropper + global hotkey
+### ✅ M4 — Eyedropper + global hotkey
 
 - **Eyedropper:** [ScreenSampler](Color%20Toolkit/Services/ScreenSampler.swift) wraps `NSColorSampler`. Colors are read in **linear extended sRGB**, never `.sRGB` — see the finding above; the bridge is pure and `nonisolated` so it can be tested without the loupe.
 - **Global hotkey:** [GlobalHotKey](Color%20Toolkit/Services/GlobalHotKey.swift) — Carbon `RegisterEventHotKey`, ⌃⌥⌘C. Three modifiers deliberately: ⇧⌘C and ⌥⌘C are already claimed (Digital Color Meter, Finder's "Copy as Pathname"), and a global hot key *wins* over the frontmost app's, so a collision silently breaks something the user relies on.
 - **The two entry points do different things.** The in-app button fills the field and leaves the clipboard alone. The hot key also **copies**, because its whole point is capturing a color while another app is frontmost — filling an invisible text field would accomplish nothing. The menu bar icon flashes a checkmark, which is the only feedback a global capture can get without a notification permission.
 - The shortcut is claimed from whichever scene appears first (`activateGlobalShortcut` is idempotent). Neither scene is guaranteed: the window can be closed, the menu bar item can be hidden.
 
-*Built and unit-tested. Not yet confirmed by a live click — see the status note at the top.* The app is sandboxed (`com.apple.security.app-sandbox`) with **no** screen-recording entitlement, which is consistent with the sampler running out of process; if that were wrong, the loupe would fail on first use.
+*Done, and confirmed on the running app.* The app is sandboxed (`com.apple.security.app-sandbox`) with **no** screen-recording entitlement, and the loupe works anyway with no permission prompt — confirming `NSColorSampler` runs out of process rather than capturing the screen itself. Carbon hot keys likewise prompt for nothing.
 
 ### M5 — Accessibility
 
@@ -286,7 +290,7 @@ Storing the space ID + raw components (instead of a serialized CSS string or `Da
 
 ## Verification
 
-**M4's outstanding check:** press ⌃⌥⌘C from another app and click a pixel of known color. That single interaction confirms three things no test can — the sandbox permits the loupe, no permission prompt appears, and the sampled value round-trips to the color that was on screen. Everything else in M4 is covered by [ScreenSamplerTests](Color%20ToolkitTests/ScreenSamplerTests.swift) and [GlobalHotKeyTests](Color%20ToolkitTests/GlobalHotKeyTests.swift).
+**A feature reached through a system loupe or a global chord has links no test can touch**, and they fail independently — so check them separately rather than as one gesture. For M4 that was: (1) does the menu bar show the chord, proving the OS accepted the registration and a scene's `.task` fired; (2) does the chord raise the loupe from *another* app, proving the key is captured and the C callback reaches the main actor; (3) does the picked color reach the field and the clipboard, proving the sandbox and the bridge. All three passed. Everything either side of them is covered by [ScreenSamplerTests](Color%20ToolkitTests/ScreenSamplerTests.swift) and [GlobalHotKeyTests](Color%20ToolkitTests/GlobalHotKeyTests.swift).
 
 Per milestone:
 
