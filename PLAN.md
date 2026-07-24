@@ -1,20 +1,16 @@
 # Color Toolkit — Implementation Plan
 
-> **Status (2026-07-24): M0–M6 complete and reviewed on the running app; M5b (CVD)
-> now implemented, its long-standing provenance block resolved.** ColorCore is
-> validated against **colorjs.io 0.7.0** (pinned exact) — 6,384 conversions, 1,368
-> gamut mappings and 108 contrast pairs — plus independent definitional anchors, and
-> now **405 CVD vectors** over Machado's Table 1. Next up: **M7 (transforms and
-> harmonies)**.
+> **Status (2026-07-24): M0–M6 and M5b (CVD) complete, every milestone reviewed on the
+> running app and the full suite green.** ColorCore is validated against **colorjs.io
+> 0.7.0** (pinned exact) — 6,384 conversions, 1,368 gamut mappings and 108 contrast
+> pairs — plus independent definitional anchors, and now **405 CVD vectors** over
+> Machado's Table 1. Next up: **M7 (transforms and harmonies)**.
 >
-> **M5b caveat — automated suite still to be run.** The CVD work was authored in a
-> Linux environment with no Xcode toolchain. The panel has since been **reviewed on the
-> running app** and its output spot-checked by eye — pure red simulates to olive under
-> protanomaly, green to yellow under deuteranomaly, the signature of a correct
-> linear-RGB pipeline — so the build and the simulation are confirmed. What remains is a
-> full `xcodebuild test` run to confirm the unit and UI suite green; the numeric
-> provenance that was the actual blocker is independently verified (see the finding
-> below).
+> M5b's matrices were confirmed against three independent copies of Machado's Table 1
+> (see the finding below), and the panel was reviewed on the running app: pure red
+> simulates to olive under protanomaly and green to yellow under deuteranomaly — the
+> signature of a correct linear-RGB pipeline, which a gamma-space application would miss
+> by ~0.26.
 >
 > M6's boundary readouts were checked against the reference from the panel's own
 > screenshots: at `L 0.7 h 140` the panel says sRGB allows `0.2253` and the oracle
