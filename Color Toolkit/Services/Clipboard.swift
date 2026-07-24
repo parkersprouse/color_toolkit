@@ -12,14 +12,14 @@ import AppKit
 /// additional representation instead of replacing the old one, so paste can return a
 /// stale color. Having exactly one call site makes that impossible to forget.
 enum Clipboard {
-    static func copy(_ string: String) {
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(string, forType: .string)
-    }
+  /// The pasteboard's current text, if it holds any.
+  static var text: String? {
+    NSPasteboard.general.string(forType: .string)
+  }
 
-    /// The pasteboard's current text, if it holds any.
-    static var text: String? {
-        NSPasteboard.general.string(forType: .string)
-    }
+  static func copy(_ string: String) {
+    let pasteboard = NSPasteboard.general
+    pasteboard.clearContents()
+    pasteboard.setString(string, forType: .string)
+  }
 }

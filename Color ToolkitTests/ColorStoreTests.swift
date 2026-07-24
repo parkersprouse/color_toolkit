@@ -3,10 +3,9 @@
 //  Color ToolkitTests
 //
 
+@testable import Color_Toolkit
 import Foundation
 import Testing
-
-@testable import Color_Toolkit
 
 /// - Note: Nothing here calls ``ColorStore/copy(_:)``. It writes to the real system
 ///   pasteboard, and a test suite has no business clobbering whatever the person
@@ -14,251 +13,250 @@ import Testing
 @MainActor
 @Suite("Color store")
 struct ColorStoreTests {
+  @Test("Starts on a parsed color")
+  func initialState() throws {
+    let store = ColorStore(initialInput: "rebeccapurple")
+    let color = try #require(store.color)
 
-    @Test("Starts on a parsed color")
-    func initialState() throws {
-        let store = ColorStore(initialInput: "rebeccapurple")
-        let color = try #require(store.color)
+    #expect(color == ColorValue.srgb8(102, 51, 153))
+    #expect(store.parsed.error == nil)
+    #expect(store.recents.isEmpty)
+  }
 
-        #expect(color == ColorValue.srgb8(102, 51, 153))
-        #expect(store.parsed.error == nil)
-        #expect(store.recents.isEmpty)
+  @Test("Empty input clears the color")
+  func emptyInputClears() {
+    let store = ColorStore(initialInput: "red")
+    store.inputText = "   "
+
+    #expect(store.color == nil)
+    #expect(store.parsed == .empty)
+  }
+
+  /// The behavior that makes live parsing bearable. Every prefix of `#3b82f6` is
+  /// typed on the way to it, and most of them are invalid; blanking the whole
+  /// conversion panel on each one reads as the app breaking, not as feedback.
+  @Test("An invalid edit keeps the last good color on screen")
+  func invalidEditRetainsLastColor() throws {
+    let store = ColorStore(initialInput: "#3b82f6")
+    let before = try #require(store.color)
+
+    store.inputText = "#3b82f"
+
+    #expect(store.color == before)
+    #expect(store.parsed.error != nil)
+  }
+
+  @Test("Warnings surface without failing the parse")
+  func warningsAreReported() {
+    let store = ColorStore(initialInput: "oklch(0.7, 0.15, 250)")
+
+    #expect(store.color != nil)
+    #expect(store.parsed.error == nil)
+    #expect(store.parsed.warnings == [.commasInModernFunction("oklch")])
+  }
+
+  // MARK: - Recents
+
+  @Test("Remembering keeps the authored text, not a canonical form")
+  func recentsPreserveAuthoredText() throws {
+    let store = ColorStore(initialInput: "rebeccapurple")
+    store.remember()
+
+    let recent = try #require(store.recents.first)
+    #expect(recent.text == "rebeccapurple")
+    #expect(recent.color == ColorValue.srgb8(102, 51, 153))
+  }
+
+  @Test("The same color moves to the front instead of piling up")
+  func recentsDedupeByValue() {
+    let store = ColorStore(initialInput: "red")
+    store.remember()
+    store.inputText = "blue"
+    store.remember()
+    // A different spelling of a color already in the list.
+    store.inputText = "#ff0000"
+    store.remember()
+
+    #expect(store.recents.count == 2)
+    #expect(store.recents.first?.text == "#ff0000")
+  }
+
+  /// Colors are deduplicated by value, and a value carries its space. `rgb()` and
+  /// `hsl()` describe the same pixel but are not the same authored color — which
+  /// space a color lives in is exactly what this app refuses to discard.
+  @Test("The same pixel in two spaces stays two entries")
+  func recentsKeepSpaceDistinction() {
+    let store = ColorStore(initialInput: "rgb(255 0 0)")
+    store.remember()
+    store.inputText = "hsl(0 100% 50%)"
+    store.remember()
+
+    #expect(store.recents.count == 2)
+  }
+
+  @Test("Recents are capped")
+  func recentsAreCapped() {
+    let store = ColorStore(initialInput: "red")
+    for value in 0 ..< 40 {
+      store.inputText = "rgb(\(value) 0 0)"
+      store.remember()
     }
 
-    @Test("Empty input clears the color")
-    func emptyInputClears() {
-        let store = ColorStore(initialInput: "red")
-        store.inputText = "   "
+    #expect(store.recents.count == 12)
+    // Newest first.
+    #expect(store.recents.first?.text == "rgb(39 0 0)")
+  }
 
-        #expect(store.color == nil)
-        #expect(store.parsed == .empty)
-    }
+  @Test("Nothing invalid reaches recents")
+  func invalidInputIsNotRemembered() {
+    let store = ColorStore(initialInput: "not-a-color")
+    store.remember()
 
-    /// The behavior that makes live parsing bearable. Every prefix of `#3b82f6` is
-    /// typed on the way to it, and most of them are invalid; blanking the whole
-    /// conversion panel on each one reads as the app breaking, not as feedback.
-    @Test("An invalid edit keeps the last good color on screen")
-    func invalidEditRetainsLastColor() throws {
-        let store = ColorStore(initialInput: "#3b82f6")
-        let before = try #require(store.color)
+    #expect(store.recents.isEmpty)
+  }
 
-        store.inputText = "#3b82f"
+  @Test("Choosing a recent restores the text that made it")
+  func usingARecentRestoresItsText() {
+    let store = ColorStore(initialInput: "oklch(0.7 0.15 250)")
+    store.remember()
+    store.inputText = "red"
 
-        #expect(store.color == before)
-        #expect(store.parsed.error != nil)
-    }
+    store.use(store.recents[0])
 
-    @Test("Warnings surface without failing the parse")
-    func warningsAreReported() throws {
-        let store = ColorStore(initialInput: "oklch(0.7, 0.15, 250)")
+    #expect(store.inputText == "oklch(0.7 0.15 250)")
+    #expect(store.color?.space == .oklch)
+  }
 
-        #expect(store.color != nil)
-        #expect(store.parsed.error == nil)
-        #expect(store.parsed.warnings == [.commasInModernFunction("oklch")])
-    }
+  @Test("Adopting a color writes it into the field")
+  func adoptWritesInput() {
+    let store = ColorStore(initialInput: "")
+    store.adopt(.srgb8(59, 130, 246))
 
-    // MARK: - Recents
+    #expect(store.inputText == "#3b82f6")
+    #expect(store.color == ColorValue.srgb8(59, 130, 246))
+  }
 
-    @Test("Remembering keeps the authored text, not a canonical form")
-    func recentsPreserveAuthoredText() throws {
-        let store = ColorStore(initialInput: "rebeccapurple")
-        store.remember()
+  /// The trap `adopt` has to dodge. This store keeps *text* as its source of truth,
+  /// so an adopted color is serialized and immediately parsed back — and hex is
+  /// 8-bit sRGB. Spelling a P3 sample as hex would gamut-map it on the way in and
+  /// hand back a color the screen never showed, undoing the entire point of reading
+  /// the pixel in a wide space to begin with.
+  @Test("Adopting a wide-gamut color does not quietly flatten it into sRGB")
+  func adoptPreservesWideGamut() throws {
+    let store = ColorStore(initialInput: "")
+    let p3Red = ColorValue(space: .displayP3, 1, 0, 0)
+    store.adopt(p3Red)
 
-        let recent = try #require(store.recents.first)
-        #expect(recent.text == "rebeccapurple")
-        #expect(recent.color == ColorValue.srgb8(102, 51, 153))
-    }
+    let readBack = try #require(store.color)
+    #expect(readBack.exceedsSRGB, "the trip through text flattened the color")
+    #expect(readBack.deltaEOK(to: p3Red) < 1e-9)
 
-    @Test("The same color moves to the front instead of piling up")
-    func recentsDedupeByValue() {
-        let store = ColorStore(initialInput: "red")
-        store.remember()
-        store.inputText = "blue"
-        store.remember()
-        // A different spelling of a color already in the list.
-        store.inputText = "#ff0000"
-        store.remember()
+    // The obvious spelling, shown next to the working one. Hex has to gamut-map to
+    // exist at all, and what comes back is a color the display never showed.
+    let asHex = try #require(p3Red.cssString(as: .hex))
+    let viaHex = try CSSColorParser.parse(asHex).color
+    #expect(!viaHex.exceedsSRGB)
+    #expect(viaHex.deltaEOK(to: p3Red) > 0.01)
+  }
 
-        #expect(store.recents.count == 2)
-        #expect(store.recents.first?.text == "#ff0000")
-    }
+  /// Display precision and storage precision are separate settings for a reason: a
+  /// panel that rounds re-derives from the original next frame, while a stored
+  /// string that rounds has destroyed it.
+  @Test("Adoption ignores the display precision the user picked")
+  func adoptIgnoresDisplayPrecision() throws {
+    let store = ColorStore(initialInput: "")
+    store.formatOptions.precision = 2 // "Compact"
 
-    /// Colors are deduplicated by value, and a value carries its space. `rgb()` and
-    /// `hsl()` describe the same pixel but are not the same authored color — which
-    /// space a color lives in is exactly what this app refuses to discard.
-    @Test("The same pixel in two spaces stays two entries")
-    func recentsKeepSpaceDistinction() {
-        let store = ColorStore(initialInput: "rgb(255 0 0)")
-        store.remember()
-        store.inputText = "hsl(0 100% 50%)"
-        store.remember()
+    // Deliberately outside sRGB, so adoption takes the `color(display-p3 …)`
+    // branch where precision is actually expressible — a color hex could spell
+    // would round-trip through 8-bit integers and prove nothing about digits.
+    // colorjs.io 0.7.0 puts these coordinates out of sRGB, and confirms that
+    // rounding them to two decimals costs ΔEOK 0.00124 — a difference this
+    // assertion is six orders of magnitude tighter than.
+    let sampled = ColorValue(space: .displayP3, 0.9876543210, 0.1234567891, 0.0246813579)
+    store.adopt(sampled)
 
-        #expect(store.recents.count == 2)
-    }
+    let readBack = try #require(store.color)
+    #expect(readBack.exceedsSRGB)
+    #expect(readBack.deltaEOK(to: sampled) < 1e-9)
+  }
 
-    @Test("Recents are capped")
-    func recentsAreCapped() {
-        let store = ColorStore(initialInput: "red")
-        for value in 0..<40 {
-            store.inputText = "rgb(\(value) 0 0)"
-            store.remember()
-        }
+  /// Alpha is the component most easily lost, because the default alpha policy omits
+  /// it whenever a color is opaque.
+  @Test("Adopting keeps partial alpha")
+  func adoptKeepsAlpha() throws {
+    let store = ColorStore(initialInput: "")
+    store.adopt(ColorValue(space: .srgb, 1, 0, 0, alpha: 0.4))
 
-        #expect(store.recents.count == 12)
-        // Newest first.
-        #expect(store.recents.first?.text == "rgb(39 0 0)")
-    }
+    let readBack = try #require(store.color)
+    #expect(abs(readBack.alpha - 0.4) < 1e-9)
+  }
 
-    @Test("Nothing invalid reaches recents")
-    func invalidInputIsNotRemembered() {
-        let store = ColorStore(initialInput: "not-a-color")
-        store.remember()
+  // MARK: - Background
 
-        #expect(store.recents.isEmpty)
-    }
+  /// The point of extracting `ColorField`: the background gets live parsing and the
+  /// retained-last-good behavior for free rather than from a second implementation
+  /// that could drift from the first.
+  @Test("The background parses independently of the foreground")
+  func backgroundParsesIndependently() {
+    let store = ColorStore(initialInput: "#000000", initialBackground: "rebeccapurple")
 
-    @Test("Choosing a recent restores the text that made it")
-    func usingARecentRestoresItsText() {
-        let store = ColorStore(initialInput: "oklch(0.7 0.15 250)")
-        store.remember()
-        store.inputText = "red"
+    #expect(store.color == ColorValue.srgb8(0, 0, 0))
+    #expect(store.backgroundColor == ColorValue.srgb8(102, 51, 153))
 
-        store.use(store.recents[0])
+    store.backgroundText = "oklch(0.7 0.15 250)"
+    #expect(store.backgroundColor?.space == .oklch)
+    #expect(store.color == ColorValue.srgb8(0, 0, 0), "editing the background moved the foreground")
+  }
 
-        #expect(store.inputText == "oklch(0.7 0.15 250)")
-        #expect(store.color?.space == .oklch)
-    }
+  @Test("An invalid background edit keeps the last good background")
+  func backgroundRetainsLastGoodColor() {
+    let store = ColorStore(initialInput: "#000000", initialBackground: "#ffffff")
+    store.backgroundText = "#fff"
+    store.backgroundText = "#ff"
 
-    @Test("Adopting a color writes it into the field")
-    func adoptWritesInput() {
-        let store = ColorStore(initialInput: "")
-        store.adopt(.srgb8(59, 130, 246))
+    #expect(store.backgroundParsed.error != nil)
+    #expect(store.backgroundColor == ColorValue.srgb8(255, 255, 255))
+  }
 
-        #expect(store.inputText == "#3b82f6")
-        #expect(store.color == ColorValue.srgb8(59, 130, 246))
-    }
+  /// Swapping matters because APCA is asymmetric — the two directions genuinely
+  /// score differently, and this is how you see both without retyping either.
+  @Test("Swapping exchanges both colors, text and all")
+  func swapExchangesBothColors() {
+    let store = ColorStore(initialInput: "rebeccapurple", initialBackground: "#ffffff")
+    store.swapForegroundAndBackground()
 
-    /// The trap `adopt` has to dodge. This store keeps *text* as its source of truth,
-    /// so an adopted color is serialized and immediately parsed back — and hex is
-    /// 8-bit sRGB. Spelling a P3 sample as hex would gamut-map it on the way in and
-    /// hand back a color the screen never showed, undoing the entire point of reading
-    /// the pixel in a wide space to begin with.
-    @Test("Adopting a wide-gamut color does not quietly flatten it into sRGB")
-    func adoptPreservesWideGamut() throws {
-        let store = ColorStore(initialInput: "")
-        let p3Red = ColorValue(space: .displayP3, 1, 0, 0)
-        store.adopt(p3Red)
+    #expect(store.inputText == "#ffffff")
+    #expect(store.backgroundText == "rebeccapurple")
+    #expect(store.color == ColorValue.srgb8(255, 255, 255))
+    #expect(store.backgroundColor == ColorValue.srgb8(102, 51, 153))
+  }
 
-        let readBack = try #require(store.color)
-        #expect(readBack.exceedsSRGB, "the trip through text flattened the color")
-        #expect(readBack.deltaEOK(to: p3Red) < 1e-9)
+  @Test("Swapping twice is the identity")
+  func swapIsItsOwnInverse() {
+    let store = ColorStore(initialInput: "oklch(0.7 0.15 250)", initialBackground: "#fef08a")
+    store.swapForegroundAndBackground()
+    store.swapForegroundAndBackground()
 
-        // The obvious spelling, shown next to the working one. Hex has to gamut-map to
-        // exist at all, and what comes back is a color the display never showed.
-        let asHex = try #require(p3Red.cssString(as: .hex))
-        let viaHex = try CSSColorParser.parse(asHex).color
-        #expect(!viaHex.exceedsSRGB)
-        #expect(viaHex.deltaEOK(to: p3Red) > 0.01)
-    }
+    #expect(store.inputText == "oklch(0.7 0.15 250)")
+    #expect(store.backgroundText == "#fef08a")
+  }
 
-    /// Display precision and storage precision are separate settings for a reason: a
-    /// panel that rounds re-derives from the original next frame, while a stored
-    /// string that rounds has destroyed it.
-    @Test("Adoption ignores the display precision the user picked")
-    func adoptIgnoresDisplayPrecision() throws {
-        let store = ColorStore(initialInput: "")
-        store.formatOptions.precision = 2  // "Compact"
+  // MARK: - Output
 
-        // Deliberately outside sRGB, so adoption takes the `color(display-p3 …)`
-        // branch where precision is actually expressible — a color hex could spell
-        // would round-trip through 8-bit integers and prove nothing about digits.
-        // colorjs.io 0.7.0 puts these coordinates out of sRGB, and confirms that
-        // rounding them to two decimals costs ΔEOK 0.00124 — a difference this
-        // assertion is six orders of magnitude tighter than.
-        let sampled = ColorValue(space: .displayP3, 0.9876543210, 0.1234567891, 0.0246813579)
-        store.adopt(sampled)
+  @Test("Format options flow through to every row")
+  func formatOptionsApply() throws {
+    let store = ColorStore(initialInput: "#ffcc00")
+    store.formatOptions.uppercaseHex = true
+    store.formatOptions.collapseHex = true
 
-        let readBack = try #require(store.color)
-        #expect(readBack.exceedsSRGB)
-        #expect(readBack.deltaEOK(to: sampled) < 1e-9)
-    }
+    let hex = try #require(store.formats.first { $0.format == .hex })
+    #expect(hex.css == "#FC0")
+  }
 
-    /// Alpha is the component most easily lost, because the default alpha policy omits
-    /// it whenever a color is opaque.
-    @Test("Adopting keeps partial alpha")
-    func adoptKeepsAlpha() throws {
-        let store = ColorStore(initialInput: "")
-        store.adopt(ColorValue(space: .srgb, 1, 0, 0, alpha: 0.4))
-
-        let readBack = try #require(store.color)
-        #expect(abs(readBack.alpha - 0.4) < 1e-9)
-    }
-
-    // MARK: - Background
-
-    /// The point of extracting `ColorField`: the background gets live parsing and the
-    /// retained-last-good behavior for free rather than from a second implementation
-    /// that could drift from the first.
-    @Test("The background parses independently of the foreground")
-    func backgroundParsesIndependently() throws {
-        let store = ColorStore(initialInput: "#000000", initialBackground: "rebeccapurple")
-
-        #expect(store.color == ColorValue.srgb8(0, 0, 0))
-        #expect(store.backgroundColor == ColorValue.srgb8(102, 51, 153))
-
-        store.backgroundText = "oklch(0.7 0.15 250)"
-        #expect(store.backgroundColor?.space == .oklch)
-        #expect(store.color == ColorValue.srgb8(0, 0, 0), "editing the background moved the foreground")
-    }
-
-    @Test("An invalid background edit keeps the last good background")
-    func backgroundRetainsLastGoodColor() {
-        let store = ColorStore(initialInput: "#000000", initialBackground: "#ffffff")
-        store.backgroundText = "#fff"
-        store.backgroundText = "#ff"
-
-        #expect(store.backgroundParsed.error != nil)
-        #expect(store.backgroundColor == ColorValue.srgb8(255, 255, 255))
-    }
-
-    /// Swapping matters because APCA is asymmetric — the two directions genuinely
-    /// score differently, and this is how you see both without retyping either.
-    @Test("Swapping exchanges both colors, text and all")
-    func swapExchangesBothColors() {
-        let store = ColorStore(initialInput: "rebeccapurple", initialBackground: "#ffffff")
-        store.swapForegroundAndBackground()
-
-        #expect(store.inputText == "#ffffff")
-        #expect(store.backgroundText == "rebeccapurple")
-        #expect(store.color == ColorValue.srgb8(255, 255, 255))
-        #expect(store.backgroundColor == ColorValue.srgb8(102, 51, 153))
-    }
-
-    @Test("Swapping twice is the identity")
-    func swapIsItsOwnInverse() {
-        let store = ColorStore(initialInput: "oklch(0.7 0.15 250)", initialBackground: "#fef08a")
-        store.swapForegroundAndBackground()
-        store.swapForegroundAndBackground()
-
-        #expect(store.inputText == "oklch(0.7 0.15 250)")
-        #expect(store.backgroundText == "#fef08a")
-    }
-
-    // MARK: - Output
-
-    @Test("Format options flow through to every row")
-    func formatOptionsApply() throws {
-        let store = ColorStore(initialInput: "#ffcc00")
-        store.formatOptions.uppercaseHex = true
-        store.formatOptions.collapseHex = true
-
-        let hex = try #require(store.formats.first { $0.format == .hex })
-        #expect(hex.css == "#FC0")
-    }
-
-    @Test("No color means no rows")
-    func noColorMeansNoFormats() {
-        let store = ColorStore(initialInput: "")
-        #expect(store.formats.isEmpty)
-    }
+  @Test("No color means no rows")
+  func noColorMeansNoFormats() {
+    let store = ColorStore(initialInput: "")
+    #expect(store.formats.isEmpty)
+  }
 }

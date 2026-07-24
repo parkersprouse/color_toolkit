@@ -12,34 +12,50 @@ import Observation
 /// something wrong" want opposite treatment in the UI: one is a hint, the other is an
 /// error.
 enum ParsedInput: Equatable {
-    case empty
-    case failed(ParseError)
-    case parsed(ParseResult)
+  case empty
+  case failed(ParseError)
+  case parsed(ParseResult)
 
-    init(_ text: String) {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            self = .empty
-            return
-        }
-        do {
-            self = .parsed(try CSSColorParser.parse(trimmed))
-        } catch {
-            self = .failed(error)
-        }
-    }
+  // MARK: Lifecycle
 
-    var color: ColorValue? {
-        if case .parsed(let result) = self { result.color } else { nil }
+  init(_ text: String) {
+    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else {
+      self = .empty
+      return
     }
+    do {
+      self = try .parsed(CSSColorParser.parse(trimmed))
+    } catch {
+      self = .failed(error)
+    }
+  }
 
-    var error: ParseError? {
-        if case .failed(let error) = self { error } else { nil }
-    }
+  // MARK: Internal
 
-    var warnings: [ParseWarning] {
-        if case .parsed(let result) = self { result.warnings } else { [] }
+  var color: ColorValue? {
+    if case let .parsed(result) = self {
+      result.color
+    } else {
+      nil
     }
+  }
+
+  var error: ParseError? {
+    if case let .failed(error) = self {
+      error
+    } else {
+      nil
+    }
+  }
+
+  var warnings: [ParseWarning] {
+    if case let .parsed(result) = self {
+      result.warnings
+    } else {
+      []
+    }
+  }
 }
 
 /// One editable color: the text, and whatever it currently parses to.
@@ -50,38 +66,44 @@ enum ParsedInput: Equatable {
 /// property, which is what `@Observable` watches; a nested reference type would need
 /// its own observation and would silently fail to notify anything.
 struct ColorField {
-    /// The source of truth while editing, never rewritten from the parsed value.
-    /// Canonicalizing mid-edit would move the cursor out from under someone halfway
-    /// through typing `oklch(`.
-    var text: String {
-        didSet {
-            guard text != oldValue else { return }
-            reparse()
-        }
+  // MARK: Lifecycle
+
+  init(text: String) {
+    // Assignment during initialization does not fire `didSet`, so the first parse
+    // is explicit.
+    self.text = text
+    reparse()
+  }
+
+  // MARK: Internal
+
+  private(set) var parsed: ParsedInput = .empty
+
+  /// The most recent text that parsed. Retained across invalid edits on purpose:
+  /// without it everything downstream blanks out between `#3b82f` and `#3b82f6`,
+  /// which reads as the app breaking rather than as feedback.
+  private(set) var color: ColorValue?
+
+  /// The source of truth while editing, never rewritten from the parsed value.
+  /// Canonicalizing mid-edit would move the cursor out from under someone halfway
+  /// through typing `oklch(`.
+  var text: String {
+    didSet {
+      guard text != oldValue else { return }
+      reparse()
     }
+  }
 
-    private(set) var parsed: ParsedInput = .empty
+  // MARK: Private
 
-    /// The most recent text that parsed. Retained across invalid edits on purpose:
-    /// without it everything downstream blanks out between `#3b82f` and `#3b82f6`,
-    /// which reads as the app breaking rather than as feedback.
-    private(set) var color: ColorValue?
-
-    init(text: String) {
-        // Assignment during initialization does not fire `didSet`, so the first parse
-        // is explicit.
-        self.text = text
-        reparse()
+  private mutating func reparse() {
+    parsed = ParsedInput(text)
+    switch parsed {
+    case let .parsed(result): color = result.color
+    case .empty: color = nil
+    case .failed: break // keep showing the last good color
     }
-
-    private mutating func reparse() {
-        parsed = ParsedInput(text)
-        switch parsed {
-        case .parsed(let result): color = result.color
-        case .empty: color = nil
-        case .failed: break  // keep showing the last good color
-        }
-    }
+  }
 }
 
 /// Which panel the main window is showing.
@@ -89,32 +111,36 @@ struct ColorField {
 /// The input field sits above this and belongs to no tool in particular — it is the
 /// app's spine, and every tool is a different question asked about the same color.
 enum Tool: String, CaseIterable, Identifiable, Sendable {
-    case convert
-    /// Between the other two deliberately: choosing a color comes before asking what
-    /// it converts to or whether it is readable.
-    case pick
-    /// After picking, because it takes a color as its input rather than producing one
-    /// from nothing, and before the two accessibility tools, because the colors it
-    /// derives are the ones you then go and check.
-    case transform
-    case contrast
-    /// After contrast, because both are accessibility questions about the same color —
-    /// "can it be read" and "can it be told apart".
-    case cvd
+  case convert
+  /// Between the other two deliberately: choosing a color comes before asking what
+  /// it converts to or whether it is readable.
+  case pick
+  /// After picking, because it takes a color as its input rather than producing one
+  /// from nothing, and before the two accessibility tools, because the colors it
+  /// derives are the ones you then go and check.
+  case transform
+  case contrast
+  /// After contrast, because both are accessibility questions about the same color —
+  /// "can it be read" and "can it be told apart".
+  case cvd
 
-    var id: String { rawValue }
+  // MARK: Internal
 
-    /// Also the accessibility label, because the switcher shows text rather than
-    /// icons — see the note in `ContentView`.
-    var title: String {
-        switch self {
-        case .convert: "Convert"
-        case .pick: "Pick"
-        case .transform: "Transform"
-        case .contrast: "Contrast"
-        case .cvd: "CVD"
-        }
+  var id: String {
+    rawValue
+  }
+
+  /// Also the accessibility label, because the switcher shows text rather than
+  /// icons — see the note in `ContentView`.
+  var title: String {
+    switch self {
+    case .convert: "Convert"
+    case .pick: "Pick"
+    case .transform: "Transform"
+    case .contrast: "Contrast"
+    case .cvd: "CVD"
     }
+  }
 }
 
 /// A color the user has already worked with, plus the text that produced it.
@@ -123,10 +149,12 @@ enum Tool: String, CaseIterable, Identifiable, Sendable {
 /// *your* spelling. Re-deriving it from the `ColorValue` would hand back a
 /// canonicalized form, quietly rewriting `rebeccapurple` as `#663399`.
 struct RecentColor: Identifiable, Hashable, Sendable {
-    let color: ColorValue
-    let text: String
+  let color: ColorValue
+  let text: String
 
-    var id: String { text }
+  var id: String {
+    text
+  }
 }
 
 /// Shared state for the whole app: what is being edited, and what came before.
@@ -137,226 +165,241 @@ struct RecentColor: Identifiable, Hashable, Sendable {
 @MainActor
 @Observable
 final class ColorStore {
+  // MARK: Lifecycle
 
-    /// The color everything is about: the one being converted, sampled, and copied.
-    private var foreground: ColorField
+  init(initialInput: String = "#3b82f6", initialBackground: String = "#ffffff") {
+    foreground = ColorField(text: initialInput)
+    background = ColorField(text: initialBackground)
+  }
 
-    /// The color contrast is measured against. Separate from `foreground` because
-    /// contrast is the first question this app asks that needs two colors at once.
-    private var background: ColorField
+  // MARK: Internal
 
-    /// How every format in the panel is serialized.
-    var formatOptions = CSSFormatOptions()
+  /// How every format in the panel is serialized.
+  var formatOptions = CSSFormatOptions()
 
-    /// Which panel the main window is showing.
-    var tool: Tool = .convert
+  /// Which panel the main window is showing.
+  var tool: Tool = .convert
 
-    /// Which axes the picker is showing.
-    ///
-    /// Here rather than in the panel because leaving the tool and coming back tears the
-    /// panel's own state down. Its *axes* should be rebuilt — the color may have moved
-    /// while the tool was away — but the choice of axes is a preference about how you
-    /// like to pick, and losing it every time is the kind of small rudeness that adds up.
-    var pickerMode: PickerMode = .hsv
+  /// Which axes the picker is showing.
+  ///
+  /// Here rather than in the panel because leaving the tool and coming back tears the
+  /// panel's own state down. Its *axes* should be rebuilt — the color may have moved
+  /// while the tool was away — but the choice of axes is a preference about how you
+  /// like to pick, and losing it every time is the kind of small rudeness that adds up.
+  var pickerMode: PickerMode = .hsv
 
-    /// Which deficiency the CVD panel is simulating, and how severely. On the store for
-    /// the same reason as ``pickerMode``: leaving the tool tears the panel down, and the
-    /// deficiency you were inspecting is a preference worth keeping across the trip. The
-    /// default is deuteranomaly at full severity — the most common deficiency, shown at
-    /// the endpoint where the effect is clearest.
-    var cvdDeficiency: ColorVisionDeficiency = .deuteranomaly
-    var cvdSeverity: Double = 1
+  /// Which deficiency the CVD panel is simulating, and how severely. On the store for
+  /// the same reason as ``pickerMode``: leaving the tool tears the panel down, and the
+  /// deficiency you were inspecting is a preference worth keeping across the trip. The
+  /// default is deuteranomaly at full severity — the most common deficiency, shown at
+  /// the endpoint where the effect is clearest.
+  var cvdDeficiency: ColorVisionDeficiency = .deuteranomaly
+  var cvdSeverity: Double = 1
 
-    /// What the transform panel is deriving, and how.
-    ///
-    /// On the store for the same reason as ``pickerMode`` and ``cvdDeficiency``: these
-    /// are preferences about how you like to work, and leaving the tool tears the panel
-    /// down. The panel's *pending* adjustment deliberately does **not** live here — see
-    /// the note in `TransformPanel`. A half-dialed slider is an unfinished edit, not a
-    /// preference, and finding one still applied after a trip through another tool would
-    /// mean the panel was showing a color the field does not contain.
-    var harmony: Harmony = .triad
-    var harmonyOptions = HarmonyOptions.default
-    var shadeRamp = ShadeRamp.default
+  /// What the transform panel is deriving, and how.
+  ///
+  /// On the store for the same reason as ``pickerMode`` and ``cvdDeficiency``: these
+  /// are preferences about how you like to work, and leaving the tool tears the panel
+  /// down. The panel's *pending* adjustment deliberately does **not** live here — see
+  /// the note in `TransformPanel`. A half-dialed slider is an unfinished edit, not a
+  /// preference, and finding one still applied after a trip through another tool would
+  /// mean the panel was showing a color the field does not contain.
+  var harmony: Harmony = .triad
+  var harmonyOptions = HarmonyOptions.default
+  var shadeRamp = ShadeRamp.default
 
-    /// Which bar the contrast solver aims at. AA body text is the one nearly every
-    /// audit actually checks.
-    var contrastTarget: ContrastRequirement = .aaNormalText
+  /// Which bar the contrast solver aims at. AA body text is the one nearly every
+  /// audit actually checks.
+  var contrastTarget: ContrastRequirement = .aaNormalText
 
-    private(set) var recents: [RecentColor] = []
+  private(set) var recents: [RecentColor] = []
 
-    /// Enough to be useful, few enough to stay scannable in a menu-bar panel.
-    private static let recentLimit = 12
+  // MARK: - Screen sampling
 
-    init(initialInput: String = "#3b82f6", initialBackground: String = "#ffffff") {
-        foreground = ColorField(text: initialInput)
-        background = ColorField(text: initialBackground)
+  /// True for a moment after a sample lands, so the menu bar can acknowledge a
+  /// capture the user made while looking at some other app entirely.
+  private(set) var justCaptured = false
+
+  // MARK: - Global shortcut
+
+  /// Whether the system accepted the sampling hot key. Shown in the menu bar panel,
+  /// because a shortcut advertised but not registered is worse than none offered.
+  private(set) var globalShortcutIsActive = false
+
+  // MARK: - Editing
+
+  /// What the user typed. Forwarded to ``ColorField`` so the two fields cannot drift
+  /// apart in behavior — the background gets live parsing, retained-last-good, and
+  /// no mid-edit canonicalization for free rather than by a second implementation.
+  var inputText: String {
+    get { foreground.text }
+    set { foreground.text = newValue }
+  }
+
+  var parsed: ParsedInput {
+    foreground.parsed
+  }
+
+  var color: ColorValue? {
+    foreground.color
+  }
+
+  var backgroundText: String {
+    get { background.text }
+    set { background.text = newValue }
+  }
+
+  var backgroundParsed: ParsedInput {
+    background.parsed
+  }
+
+  var backgroundColor: ColorValue? {
+    background.color
+  }
+
+  // MARK: - Output
+
+  /// Every format for the current color, or nothing if the field has no valid color.
+  var formats: [FormattedColor] {
+    color?.allFormats(options: formatOptions) ?? []
+  }
+
+  /// Exchanges foreground and background, text and all.
+  ///
+  /// Worth a button because APCA is asymmetric: dark-on-light and light-on-dark are
+  /// different results, and swapping is how you see both without retyping either.
+  func swapForegroundAndBackground() {
+    let outgoing = foreground.text
+    foreground.text = background.text
+    background.text = outgoing
+  }
+
+  /// Replaces the input with a color chosen elsewhere — a recent, the eyedropper,
+  /// or the picker.
+  func use(_ recent: RecentColor) {
+    inputText = recent.text
+  }
+
+  /// Adopts a color that has no authored text of its own — an eyedropper sample, a
+  /// picker result — writing it in `format` where `format` can carry it.
+  ///
+  /// The subtlety is that this store keeps *text* as its source of truth, so the
+  /// string written here is immediately parsed back into a new `ColorValue`. Any
+  /// rounding or gamut mapping in the spelling is therefore permanent: naively
+  /// writing a Display P3 sample as hex would map it into sRGB on the way in, and
+  /// the color the rest of the app sees would be one the screen never showed. Hence
+  /// ``ColorValue/spelling(preferring:)`` to choose the format and
+  /// ``CSSFormatOptions/lossless`` to choose the digits — neither of which is the
+  /// user's display precision, which governs only what panels show.
+  func adopt(_ newColor: ColorValue, preferring format: CSSOutputFormat = .hex) {
+    inputText = newColor.cssStringOrHex(
+      as: newColor.spelling(preferring: format),
+      options: .lossless,
+    )
+  }
+
+  // MARK: - Recents
+
+  /// Files the current color under recents.
+  ///
+  /// Called at deliberate moments — submitting the field, copying a value, sampling
+  /// the screen — rather than on every keystroke. Live-parsing means every prefix of
+  /// what you type parses too, so an eager version would fill the list with the
+  /// accidental colors between `#f` and `#f0a`.
+  func remember() {
+    guard let color else { return }
+    let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !text.isEmpty else { return }
+
+    // Exact-value dedupe, so `red` and `#f00` collapse but `rgb(255 0 0)` and
+    // `hsl(0 100% 50%)` stay separate — they are the same pixel but different
+    // authored colors, and which space a color lives in is the thing this app
+    // refuses to throw away.
+    recents.removeAll { $0.color == color }
+    recents.insert(RecentColor(color: color, text: text), at: 0)
+    if recents.count > Self.recentLimit {
+      recents.removeLast(recents.count - Self.recentLimit)
+    }
+  }
+
+  func clearRecents() {
+    recents.removeAll()
+  }
+
+  /// Copies one serialization and files the color under recents, since reaching for
+  /// a value is the clearest signal that you intend to use it.
+  func copy(_ formatted: FormattedColor) {
+    Clipboard.copy(formatted.css)
+    remember()
+  }
+
+  /// Shows the loupe and adopts whatever pixel the user clicks.
+  ///
+  /// - Parameter alsoCopy: Put the result on the clipboard too. True for the global
+  ///   hot key, whose entire point is capturing a color while another app is
+  ///   frontmost — filling a text field nobody can see would accomplish nothing.
+  ///   False for the in-app button, where the field is right there and clobbering
+  ///   the clipboard would be presumptuous.
+  /// - Returns: Whether a color was captured; `false` if the user cancelled.
+  @discardableResult
+  func sampleFromScreen(alsoCopy: Bool = false) async -> Bool {
+    guard let sampled = await ScreenSampler.sample() else { return false }
+
+    adopt(sampled)
+    remember()
+
+    if alsoCopy, let color {
+      // The user's precision, not `.lossless`: this string is going somewhere
+      // else to be read by a person, so it should look like the values the rest
+      // of the app shows. Only the stored text has to survive a round trip.
+      Clipboard.copy(
+        color.cssStringOrHex(
+          as: color.spelling(preferring: .hex),
+          options: formatOptions,
+        ),
+      )
     }
 
-    // MARK: - Editing
+    acknowledgeCapture()
+    return true
+  }
 
-    /// What the user typed. Forwarded to ``ColorField`` so the two fields cannot drift
-    /// apart in behavior — the background gets live parsing, retained-last-good, and
-    /// no mid-edit canonicalization for free rather than by a second implementation.
-    var inputText: String {
-        get { foreground.text }
-        set { foreground.text = newValue }
+  /// Claims the system-wide sampling shortcut, once.
+  ///
+  /// Idempotent because it is called from both scenes: neither is guaranteed to
+  /// exist — the window can be closed, and the menu bar item can be hidden — so
+  /// whichever appears first registers and the other no-ops. Deliberately *not*
+  /// called from `init`, so tests can build a store without claiming a chord
+  /// system-wide.
+  func activateGlobalShortcut() {
+    guard !globalShortcutIsActive else { return }
+    globalShortcutIsActive = GlobalHotKeyCenter.shared.register(.sampleColor) { [weak self] in
+      guard let self else { return }
+      Task { await self.sampleFromScreen(alsoCopy: true) }
     }
+  }
 
-    var parsed: ParsedInput { foreground.parsed }
-    var color: ColorValue? { foreground.color }
+  // MARK: Private
 
-    var backgroundText: String {
-        get { background.text }
-        set { background.text = newValue }
+  /// Enough to be useful, few enough to stay scannable in a menu-bar panel.
+  private static let recentLimit = 12
+
+  /// The color everything is about: the one being converted, sampled, and copied.
+  private var foreground: ColorField
+
+  /// The color contrast is measured against. Separate from `foreground` because
+  /// contrast is the first question this app asks that needs two colors at once.
+  private var background: ColorField
+
+  private var captureResetTask: Task<Void, Never>?
+
+  private func acknowledgeCapture() {
+    justCaptured = true
+    captureResetTask?.cancel()
+    captureResetTask = Task {
+      try? await Task.sleep(for: .seconds(1.5))
+      guard !Task.isCancelled else { return }
+      justCaptured = false
     }
-
-    var backgroundParsed: ParsedInput { background.parsed }
-    var backgroundColor: ColorValue? { background.color }
-
-    /// Exchanges foreground and background, text and all.
-    ///
-    /// Worth a button because APCA is asymmetric: dark-on-light and light-on-dark are
-    /// different results, and swapping is how you see both without retyping either.
-    func swapForegroundAndBackground() {
-        let outgoing = foreground.text
-        foreground.text = background.text
-        background.text = outgoing
-    }
-
-    /// Replaces the input with a color chosen elsewhere — a recent, the eyedropper,
-    /// or the picker.
-    func use(_ recent: RecentColor) {
-        inputText = recent.text
-    }
-
-    /// Adopts a color that has no authored text of its own — an eyedropper sample, a
-    /// picker result — writing it in `format` where `format` can carry it.
-    ///
-    /// The subtlety is that this store keeps *text* as its source of truth, so the
-    /// string written here is immediately parsed back into a new `ColorValue`. Any
-    /// rounding or gamut mapping in the spelling is therefore permanent: naively
-    /// writing a Display P3 sample as hex would map it into sRGB on the way in, and
-    /// the color the rest of the app sees would be one the screen never showed. Hence
-    /// ``ColorValue/spelling(preferring:)`` to choose the format and
-    /// ``CSSFormatOptions/lossless`` to choose the digits — neither of which is the
-    /// user's display precision, which governs only what panels show.
-    func adopt(_ newColor: ColorValue, preferring format: CSSOutputFormat = .hex) {
-        inputText = newColor.cssStringOrHex(
-            as: newColor.spelling(preferring: format),
-            options: .lossless
-        )
-    }
-
-    // MARK: - Recents
-
-    /// Files the current color under recents.
-    ///
-    /// Called at deliberate moments — submitting the field, copying a value, sampling
-    /// the screen — rather than on every keystroke. Live-parsing means every prefix of
-    /// what you type parses too, so an eager version would fill the list with the
-    /// accidental colors between `#f` and `#f0a`.
-    func remember() {
-        guard let color else { return }
-        let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
-
-        // Exact-value dedupe, so `red` and `#f00` collapse but `rgb(255 0 0)` and
-        // `hsl(0 100% 50%)` stay separate — they are the same pixel but different
-        // authored colors, and which space a color lives in is the thing this app
-        // refuses to throw away.
-        recents.removeAll { $0.color == color }
-        recents.insert(RecentColor(color: color, text: text), at: 0)
-        if recents.count > Self.recentLimit {
-            recents.removeLast(recents.count - Self.recentLimit)
-        }
-    }
-
-    func clearRecents() {
-        recents.removeAll()
-    }
-
-    // MARK: - Output
-
-    /// Every format for the current color, or nothing if the field has no valid color.
-    var formats: [FormattedColor] {
-        color?.allFormats(options: formatOptions) ?? []
-    }
-
-    /// Copies one serialization and files the color under recents, since reaching for
-    /// a value is the clearest signal that you intend to use it.
-    func copy(_ formatted: FormattedColor) {
-        Clipboard.copy(formatted.css)
-        remember()
-    }
-
-    // MARK: - Screen sampling
-
-    /// True for a moment after a sample lands, so the menu bar can acknowledge a
-    /// capture the user made while looking at some other app entirely.
-    private(set) var justCaptured = false
-
-    private var captureResetTask: Task<Void, Never>?
-
-    /// Shows the loupe and adopts whatever pixel the user clicks.
-    ///
-    /// - Parameter alsoCopy: Put the result on the clipboard too. True for the global
-    ///   hot key, whose entire point is capturing a color while another app is
-    ///   frontmost — filling a text field nobody can see would accomplish nothing.
-    ///   False for the in-app button, where the field is right there and clobbering
-    ///   the clipboard would be presumptuous.
-    /// - Returns: Whether a color was captured; `false` if the user cancelled.
-    @discardableResult
-    func sampleFromScreen(alsoCopy: Bool = false) async -> Bool {
-        guard let sampled = await ScreenSampler.sample() else { return false }
-
-        adopt(sampled)
-        remember()
-
-        if alsoCopy, let color {
-            // The user's precision, not `.lossless`: this string is going somewhere
-            // else to be read by a person, so it should look like the values the rest
-            // of the app shows. Only the stored text has to survive a round trip.
-            Clipboard.copy(
-                color.cssStringOrHex(
-                    as: color.spelling(preferring: .hex),
-                    options: formatOptions
-                )
-            )
-        }
-
-        acknowledgeCapture()
-        return true
-    }
-
-    private func acknowledgeCapture() {
-        justCaptured = true
-        captureResetTask?.cancel()
-        captureResetTask = Task {
-            try? await Task.sleep(for: .seconds(1.5))
-            guard !Task.isCancelled else { return }
-            justCaptured = false
-        }
-    }
-
-    // MARK: - Global shortcut
-
-    /// Whether the system accepted the sampling hot key. Shown in the menu bar panel,
-    /// because a shortcut advertised but not registered is worse than none offered.
-    private(set) var globalShortcutIsActive = false
-
-    /// Claims the system-wide sampling shortcut, once.
-    ///
-    /// Idempotent because it is called from both scenes: neither is guaranteed to
-    /// exist — the window can be closed, and the menu bar item can be hidden — so
-    /// whichever appears first registers and the other no-ops. Deliberately *not*
-    /// called from `init`, so tests can build a store without claiming a chord
-    /// system-wide.
-    func activateGlobalShortcut() {
-        guard !globalShortcutIsActive else { return }
-        globalShortcutIsActive = GlobalHotKeyCenter.shared.register(.sampleColor) { [weak self] in
-            guard let self else { return }
-            Task { await self.sampleFromScreen(alsoCopy: true) }
-        }
-    }
+  }
 }

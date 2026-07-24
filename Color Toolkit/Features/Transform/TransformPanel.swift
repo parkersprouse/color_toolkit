@@ -19,577 +19,585 @@ import SwiftUI
 /// is the opposite: an unfinished edit, and finding it still applied on the way back
 /// would mean this panel was previewing a color the input field does not contain.
 struct TransformPanel: View {
-    @Environment(ColorStore.self) private var store
+  // MARK: Internal
 
-    /// Reset by ``apply(_:)``, because an adjustment is relative: leaving the sliders up
-    /// after adopting their result would compound the same nudge on every click.
-    @State private var adjustment = OKLCHAdjustment.identity
-    @State private var curve = LightnessCurve.identity
-
-    /// How far the contrast section has pushed the color away from the background.
-    /// Panel state for the same reason as `adjustment` — an unfinished edit.
-    @State private var push = 0.0
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                if let color = store.color {
-                    adjustSection(color)
-                    Divider()
-                    harmonySection(color)
-                    Divider()
-                    rampSection(color)
-                    Divider()
-                    legibilitySection(color)
-                } else {
-                    ContentUnavailableView(
-                        "No color yet",
-                        systemImage: "dial.medium",
-                        description: Text(
-                            "Type a CSS color above and everything derived from it appears here."
-                        )
-                    )
-                    .frame(maxWidth: .infinity)
-                }
-            }
-            .padding(16)
+  var body: some View {
+    ScrollView {
+      VStack(alignment: .leading, spacing: 24) {
+        if let color = store.color {
+          adjustSection(color)
+          Divider()
+          harmonySection(color)
+          Divider()
+          rampSection(color)
+          Divider()
+          legibilitySection(color)
+        } else {
+          ContentUnavailableView(
+            "No color yet",
+            systemImage: "dial.medium",
+            description: Text(
+              "Type a CSS color above and everything derived from it appears here.",
+            ),
+          )
+          .frame(maxWidth: .infinity)
         }
+      }
+      .padding(16)
     }
+  }
 
-    // MARK: - Adjust
+  // MARK: Private
 
-    /// The color as the sliders currently describe it. Curve after adjustment, because
-    /// the curve is about where a lightness sits on the scale and the adjustment is what
-    /// decides that.
-    private func adjusted(_ color: ColorValue) -> ColorValue {
-        curve.applied(to: adjustment.applied(to: color))
+  @Environment(ColorStore.self) private var store
+
+  /// Reset by ``apply(_:)``, because an adjustment is relative: leaving the sliders up
+  /// after adopting their result would compound the same nudge on every click.
+  @State private var adjustment = OKLCHAdjustment.identity
+  @State private var curve = LightnessCurve.identity
+
+  /// How far the contrast section has pushed the color away from the background.
+  /// Panel state for the same reason as `adjustment` — an unfinished edit.
+  @State private var push = 0.0
+
+  /// The curve's caption, which has to explain a slider whose units nobody knows.
+  private var curveCaption: String {
+    if curve.isIdentity {
+      return "no bend"
     }
+    return curve.strength > 0
+      ? String(format: "punchier · γ %.2f", curve.gamma)
+      : String(format: "flatter · γ %.2f", curve.gamma)
+  }
 
-    private func adjustSection(_ color: ColorValue) -> some View {
-        let result = adjusted(color)
-        let isPending = !adjustment.isIdentity || !curve.isIdentity
+  private func adjustSection(_ color: ColorValue) -> some View {
+    let result = adjusted(color)
+    let isPending = !adjustment.isIdentity || !curve.isIdentity
 
-        return VStack(alignment: .leading, spacing: 12) {
-            sectionHeading(
-                "Adjust",
-                note: "Relative, so it composes: the picker already sets L, C and h outright."
-            )
+    return VStack(alignment: .leading, spacing: 12) {
+      sectionHeading(
+        "Adjust",
+        note: "Relative, so it composes: the picker already sets L, C and h outright.",
+      )
 
-            slider(
-                "Lightness",
-                value: Binding(
-                    get: { adjustment.lightnessDelta },
-                    set: { adjustment.lightnessDelta = $0 }
-                ),
-                range: -0.5...0.5,
-                caption: signed(adjustment.lightnessDelta, decimals: 3)
-            )
-            slider(
-                "Chroma",
-                value: Binding(
-                    get: { adjustment.chromaScale },
-                    set: { adjustment.chromaScale = $0 }
-                ),
-                range: 0...2,
-                caption: String(format: "×%.2f", adjustment.chromaScale)
-            )
-            slider(
-                "Hue",
-                value: Binding(
-                    get: { adjustment.hueRotation },
-                    set: { adjustment.hueRotation = $0 }
-                ),
-                range: -180...180,
-                caption: signed(adjustment.hueRotation, decimals: 0) + "°"
-            )
-            slider(
-                "Curve",
-                value: Binding(get: { curve.strength }, set: { curve.strength = $0 }),
-                range: -1...1,
-                caption: curveCaption
-            )
+      slider(
+        "Lightness",
+        value: Binding(
+          get: { adjustment.lightnessDelta },
+          set: { adjustment.lightnessDelta = $0 },
+        ),
+        range: -0.5 ... 0.5,
+        caption: signed(adjustment.lightnessDelta, decimals: 3),
+      )
+      slider(
+        "Chroma",
+        value: Binding(
+          get: { adjustment.chromaScale },
+          set: { adjustment.chromaScale = $0 },
+        ),
+        range: 0 ... 2,
+        caption: String(format: "×%.2f", adjustment.chromaScale),
+      )
+      slider(
+        "Hue",
+        value: Binding(
+          get: { adjustment.hueRotation },
+          set: { adjustment.hueRotation = $0 },
+        ),
+        range: -180 ... 180,
+        caption: signed(adjustment.hueRotation, decimals: 0) + "°",
+      )
+      slider(
+        "Curve",
+        value: Binding(get: { curve.strength }, set: { curve.strength = $0 }),
+        range: -1 ... 1,
+        caption: curveCaption,
+      )
 
-            HStack(alignment: .center, spacing: 14) {
-                labeledSwatch(color, caption: "Now")
-                Image(systemName: "arrow.right").foregroundStyle(.secondary)
-                labeledSwatch(result, caption: isPending ? "Adjusted" : "Unchanged")
+      HStack(alignment: .center, spacing: 14) {
+        labeledSwatch(color, caption: "Now")
+        Image(systemName: "arrow.right").foregroundStyle(.secondary)
+        labeledSwatch(result, caption: isPending ? "Adjusted" : "Unchanged")
 
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(css(result))
-                        .font(.system(.callout, design: .monospaced))
-                        .textSelection(.enabled)
-                        .accessibilityIdentifier("transformAdjusted")
-                    if !result.inGamut(of: .srgb) {
-                        ColorBadge(text: "outside sRGB")
-                    }
-                }
-                Spacer()
-            }
-
-            HStack(spacing: 10) {
-                Button("Apply") { apply(result) }
-                    .disabled(!isPending)
-                    .accessibilityIdentifier("transformApply")
-                Button("Reset") {
-                    adjustment = .identity
-                    curve = .identity
-                }
-                .disabled(!isPending)
-            }
-        }
-    }
-
-    /// The curve's caption, which has to explain a slider whose units nobody knows.
-    private var curveCaption: String {
-        if curve.isIdentity { return "no bend" }
-        return curve.strength > 0
-            ? String(format: "punchier · γ %.2f", curve.gamma)
-            : String(format: "flatter · γ %.2f", curve.gamma)
-    }
-
-    // MARK: - Harmony
-
-    private func harmonySection(_ color: ColorValue) -> some View {
-        @Bindable var store = store
-        let members = color.harmony(store.harmony, options: store.harmonyOptions)
-        let baseIndex = store.harmony.baseIndex(options: store.harmonyOptions)
-
-        return VStack(alignment: .leading, spacing: 12) {
-            sectionHeading(
-                "Harmony",
-                note: "Turned on OKLCH's wheel, where equal degrees are equal steps."
-            )
-
-            Picker("Harmony", selection: $store.harmony) {
-                ForEach(Harmony.allCases) { harmony in
-                    Text(HarmonyPresentation.of(harmony).title).tag(harmony)
-                }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-
-            Text(HarmonyPresentation.of(store.harmony).summary)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            if store.harmony == .analogous {
-                slider(
-                    "Spread",
-                    value: $store.harmonyOptions.analogousSpread,
-                    range: 5...90,
-                    caption: String(format: "±%.0f°", store.harmonyOptions.analogousSpread)
-                )
-            }
-
-            // A gray has no hue, so it has no relatives. Said plainly rather than shown
-            // as five identical swatches with no explanation.
-            if color.isAchromatic, store.harmony != .monochromatic {
-                Label(
-                    "A gray has no hue to turn, so every member is the same color. "
-                        + "Monochromatic still works.",
-                    systemImage: "info.circle"
-                )
-                .font(.callout)
-                .foregroundStyle(.secondary)
-            }
-
-            swatchRow(members, identifier: "transformHarmony", markingBaseAt: baseIndex)
-        }
-    }
-
-    // MARK: - Ramp
-
-    private func rampSection(_ color: ColorValue) -> some View {
-        @Bindable var store = store
-        let stops = store.shadeRamp.generated(from: color)
-
-        return VStack(alignment: .leading, spacing: 12) {
-            sectionHeading(
-                "Shade ramp",
-                note: "Chroma tapers toward the ends and no stop leaves the gamut, "
-                    + "which is what a constant-chroma ramp gets wrong."
-            )
-
-            HStack(spacing: 18) {
-                Stepper(
-                    "Stops: \(ShadeRamp.stopCount(for: store.shadeRamp.stops))",
-                    value: $store.shadeRamp.stops,
-                    in: 3...21,
-                    step: 2
-                )
-                .fixedSize()
-                Spacer()
-            }
-
-            slider(
-                "Taper",
-                value: $store.shadeRamp.chromaTaper,
-                range: 0...1,
-                caption: store.shadeRamp.chromaTaper == 0
-                    ? "none · the naive ramp"
-                    : String(
-                        format: "ends keep %.0f%%",
-                        (1 - store.shadeRamp.chromaTaper) * 100
-                    )
-            )
-
-            swatchRow(
-                stops,
-                identifier: "transformRamp",
-                markingBaseAt: stops.count / 2
-            )
-        }
-    }
-
-    // MARK: - Legibility
-
-    private func legibilitySection(_ color: ColorValue) -> some View {
-        @Bindable var store = store
-
-        return VStack(alignment: .leading, spacing: 12) {
-            sectionHeading(
-                "Make it legible",
-                note: "Push it by hand or jump to a target. Both move lightness only, so "
-                    + "the color keeps its hue and its chroma."
-            )
-
-            Picker("Target", selection: $store.contrastTarget) {
-                ForEach(RequirementPresentation.all) { presentation in
-                    Text(
-                        "\(presentation.title) · \(ratioText(presentation.requirement.minimumRatio))"
-                    )
-                    .tag(presentation.requirement)
-                }
-            }
-            .accessibilityIdentifier("transformTargetPicker")
-
-            if let background = store.backgroundColor {
-                solverBody(color: color, background: background)
-            } else {
-                Label(
-                    "Set a background in the Contrast tool — legibility is a property of "
-                        + "a pair.",
-                    systemImage: "circle.lefthalf.filled"
-                )
-                .font(.callout)
-                .foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    private func solverBody(color: ColorValue, background: ColorValue) -> some View {
-        let target = store.contrastTarget.minimumRatio
-        let current = color.contrastRatio(with: background)
-        let ceiling = ContrastSolver.ceiling(against: background)
-        let solutions = ContrastSolver.solutions(for: color, on: background, target: target)
-
-        return VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
-                ColorSwatch(color: background, cornerRadius: 6)
-                    .frame(width: 24, height: 24)
-                Text("on \(css(background))")
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Text("now \(ratioText(current))")
-                    .font(.system(.callout, design: .monospaced))
-                    .accessibilityIdentifier("transformCurrentRatio")
-            }
-
-            pushControl(color: color, background: background)
-
-            if color.meets(store.contrastTarget, on: background) {
-                Label(
-                    "Already reaches \(ratioText(target)) — nothing to fix.",
-                    systemImage: "checkmark.circle.fill"
-                )
-                .font(.callout)
-                .foregroundStyle(.green)
-                .accessibilityIdentifier("transformSolverVerdict")
-            } else if solutions.isEmpty {
-                // The honest failure, and the one people do not expect: in the middle of
-                // the luminance range the ceiling is far below AAA, so this is not a
-                // hard target but an impossible one.
-                Label(
-                    "Out of reach on this background. No color at all beats "
-                        + "\(ratioText(ceiling)) here, so \(ratioText(target)) is "
-                        + "impossible — change the background.",
-                    systemImage: "exclamationmark.triangle.fill"
-                )
-                .font(.callout)
-                .foregroundStyle(.orange)
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityIdentifier("transformSolverVerdict")
-            } else {
-                Text(
-                    solutions.count == 1
-                        ? "One way out of it:"
-                        : "Two ways out of it — the nearest is marked."
-                )
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .accessibilityIdentifier("transformSolverVerdict")
-
-                // Only worth marking when there is something to compare it against —
-                // "nearest" beside a lone option is noise.
-                let nearest = solutions.count > 1
-                    ? solutions.min { abs($0.lightnessDelta) < abs($1.lightnessDelta) }
-                    : nil
-
-                HStack(alignment: .top, spacing: 14) {
-                    ForEach(solutions, id: \.direction) { solution in
-                        solutionColumn(
-                            solution,
-                            background: background,
-                            isNearest: solution == nearest
-                        )
-                    }
-                    Spacer()
-                }
-            }
-        }
-    }
-
-    /// The manual half of the contrast tool: drag, and watch the ratio move.
-    ///
-    /// Right is always *more* contrast, whichever polarity the pair is — the direction
-    /// comes from ``ContrastSolver/awayFromBackground(for:on:)`` rather than from a fixed
-    /// sign, so this control means the same thing for dark text on light and for light
-    /// text on dark. Dragging left far enough crosses the background's own luminance and
-    /// the ratio climbs again, which is the V in person and the reason the number beside
-    /// the slider is live rather than derived from the slider's sign.
-    private func pushControl(color: ColorValue, background: ColorValue) -> some View {
-        let pushed = ContrastSolver.pushed(color, on: background, by: push)
-        let ratio = pushed.contrastRatio(with: background)
-        let direction = ContrastSolver.awayFromBackground(for: color, on: background)
-
-        return VStack(alignment: .leading, spacing: 8) {
-            slider(
-                "Push",
-                value: $push,
-                range: -0.4...0.4,
-                caption: push == 0
-                    ? "\(direction.rawValue) is apart"
-                    : "\(ratioText(ratio)) · \(signed(push, decimals: 2)) L"
-            )
-
-            if push != 0 {
-                HStack(spacing: 12) {
-                    sample(text: pushed, background: background)
-                        .frame(maxWidth: 260)
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(css(pushed))
-                            .font(.system(.caption, design: .monospaced))
-                            .textSelection(.enabled)
-                            .accessibilityIdentifier("transformPushed")
-                        // Pushing a saturated color toward either end of the lightness
-                        // scale leaves sRGB long before the end, which is why the
-                        // spelling above turns into `color(display-p3 …)` — the app
-                        // declines to spell a wide color as hex. Said out loud here for
-                        // the same reason the Adjust section says it.
-                        if !pushed.inGamut(of: .srgb) {
-                            ColorBadge(text: "outside sRGB")
-                        }
-                        Button("Use it") { apply(pushed) }
-                            .accessibilityIdentifier("transformUsePushed")
-                    }
-                    Spacer()
-                }
-            }
-        }
-    }
-
-    private func sample(text: ColorValue, background: ColorValue) -> some View {
-        Text("The quick brown fox")
-            .font(.system(size: 14, weight: .medium))
-            .foregroundStyle(text.displayColor)
-            .padding(10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(background.displayColor, in: RoundedRectangle(cornerRadius: 8))
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .strokeBorder(.separator.opacity(0.5), lineWidth: 1)
-            )
-    }
-
-    private func solutionColumn(
-        _ solution: ContrastSolution,
-        background: ColorValue,
-        isNearest: Bool
-    ) -> some View {
         VStack(alignment: .leading, spacing: 6) {
+          Text(css(result))
+            .font(.system(.callout, design: .monospaced))
+            .textSelection(.enabled)
+            .accessibilityIdentifier("transformAdjusted")
+          if !result.inGamut(of: .srgb) {
+            ColorBadge(text: "outside sRGB")
+          }
+        }
+        Spacer()
+      }
+
+      HStack(spacing: 10) {
+        Button("Apply") { apply(result) }
+          .disabled(!isPending)
+          .accessibilityIdentifier("transformApply")
+        Button("Reset") {
+          adjustment = .identity
+          curve = .identity
+        }
+        .disabled(!isPending)
+      }
+    }
+  }
+
+  // MARK: - Harmony
+
+  private func harmonySection(_ color: ColorValue) -> some View {
+    @Bindable var store = store
+    let members = color.harmony(store.harmony, options: store.harmonyOptions)
+    let baseIndex = store.harmony.baseIndex(options: store.harmonyOptions)
+
+    return VStack(alignment: .leading, spacing: 12) {
+      sectionHeading(
+        "Harmony",
+        note: "Turned on OKLCH's wheel, where equal degrees are equal steps.",
+      )
+
+      Picker("Harmony", selection: $store.harmony) {
+        ForEach(Harmony.allCases) { harmony in
+          Text(HarmonyPresentation.of(harmony).title).tag(harmony)
+        }
+      }
+      .pickerStyle(.segmented)
+      .labelsHidden()
+
+      Text(HarmonyPresentation.of(store.harmony).summary)
+        .font(.callout)
+        .foregroundStyle(.secondary)
+        .fixedSize(horizontal: false, vertical: true)
+
+      if store.harmony == .analogous {
+        slider(
+          "Spread",
+          value: $store.harmonyOptions.analogousSpread,
+          range: 5 ... 90,
+          caption: String(format: "±%.0f°", store.harmonyOptions.analogousSpread),
+        )
+      }
+
+      // A gray has no hue, so it has no relatives. Said plainly rather than shown
+      // as five identical swatches with no explanation.
+      if color.isAchromatic, store.harmony != .monochromatic {
+        Label(
+          "A gray has no hue to turn, so every member is the same color. "
+            + "Monochromatic still works.",
+          systemImage: "info.circle",
+        )
+        .font(.callout)
+        .foregroundStyle(.secondary)
+      }
+
+      swatchRow(members, identifier: "transformHarmony", markingBaseAt: baseIndex)
+    }
+  }
+
+  // MARK: - Ramp
+
+  private func rampSection(_ color: ColorValue) -> some View {
+    @Bindable var store = store
+    let stops = store.shadeRamp.generated(from: color)
+
+    return VStack(alignment: .leading, spacing: 12) {
+      sectionHeading(
+        "Shade ramp",
+        note: "Chroma tapers toward the ends and no stop leaves the gamut, "
+          + "which is what a constant-chroma ramp gets wrong.",
+      )
+
+      HStack(spacing: 18) {
+        Stepper(
+          "Stops: \(ShadeRamp.stopCount(for: store.shadeRamp.stops))",
+          value: $store.shadeRamp.stops,
+          in: 3 ... 21,
+          step: 2,
+        )
+        .fixedSize()
+        Spacer()
+      }
+
+      slider(
+        "Taper",
+        value: $store.shadeRamp.chromaTaper,
+        range: 0 ... 1,
+        caption: store.shadeRamp.chromaTaper == 0
+          ? "none · the naive ramp"
+          : String(
+            format: "ends keep %.0f%%",
+            (1 - store.shadeRamp.chromaTaper) * 100,
+          ),
+      )
+
+      swatchRow(
+        stops,
+        identifier: "transformRamp",
+        markingBaseAt: stops.count / 2,
+      )
+    }
+  }
+
+  // MARK: - Legibility
+
+  private func legibilitySection(_ color: ColorValue) -> some View {
+    @Bindable var store = store
+
+    return VStack(alignment: .leading, spacing: 12) {
+      sectionHeading(
+        "Make it legible",
+        note: "Push it by hand or jump to a target. Both move lightness only, so "
+          + "the color keeps its hue and its chroma.",
+      )
+
+      Picker("Target", selection: $store.contrastTarget) {
+        ForEach(RequirementPresentation.all) { presentation in
+          Text(
+            "\(presentation.title) · \(ratioText(presentation.requirement.minimumRatio))",
+          )
+          .tag(presentation.requirement)
+        }
+      }
+      .accessibilityIdentifier("transformTargetPicker")
+
+      if let background = store.backgroundColor {
+        solverBody(color: color, background: background)
+      } else {
+        Label(
+          "Set a background in the Contrast tool — legibility is a property of "
+            + "a pair.",
+          systemImage: "circle.lefthalf.filled",
+        )
+        .font(.callout)
+        .foregroundStyle(.secondary)
+      }
+    }
+  }
+
+  private func solverBody(color: ColorValue, background: ColorValue) -> some View {
+    let target = store.contrastTarget.minimumRatio
+    let current = color.contrastRatio(with: background)
+    let ceiling = ContrastSolver.ceiling(against: background)
+    let solutions = ContrastSolver.solutions(for: color, on: background, target: target)
+
+    return VStack(alignment: .leading, spacing: 12) {
+      HStack(spacing: 8) {
+        ColorSwatch(color: background, cornerRadius: 6)
+          .frame(width: 24, height: 24)
+        Text("on \(css(background))")
+          .font(.system(.caption, design: .monospaced))
+          .foregroundStyle(.secondary)
+        Spacer()
+        Text("now \(ratioText(current))")
+          .font(.system(.callout, design: .monospaced))
+          .accessibilityIdentifier("transformCurrentRatio")
+      }
+
+      pushControl(color: color, background: background)
+
+      if color.meets(store.contrastTarget, on: background) {
+        Label(
+          "Already reaches \(ratioText(target)) — nothing to fix.",
+          systemImage: "checkmark.circle.fill",
+        )
+        .font(.callout)
+        .foregroundStyle(.green)
+        .accessibilityIdentifier("transformSolverVerdict")
+      } else if solutions.isEmpty {
+        // The honest failure, and the one people do not expect: in the middle of
+        // the luminance range the ceiling is far below AAA, so this is not a
+        // hard target but an impossible one.
+        Label(
+          "Out of reach on this background. No color at all beats "
+            + "\(ratioText(ceiling)) here, so \(ratioText(target)) is "
+            + "impossible — change the background.",
+          systemImage: "exclamationmark.triangle.fill",
+        )
+        .font(.callout)
+        .foregroundStyle(.orange)
+        .fixedSize(horizontal: false, vertical: true)
+        .accessibilityIdentifier("transformSolverVerdict")
+      } else {
+        Text(
+          solutions.count == 1
+            ? "One way out of it:"
+            : "Two ways out of it — the nearest is marked.",
+        )
+        .font(.callout)
+        .foregroundStyle(.secondary)
+        .accessibilityIdentifier("transformSolverVerdict")
+
+        // Only worth marking when there is something to compare it against —
+        // "nearest" beside a lone option is noise.
+        let nearest = solutions.count > 1
+          ? solutions.min { abs($0.lightnessDelta) < abs($1.lightnessDelta) }
+          : nil
+
+        HStack(alignment: .top, spacing: 14) {
+          ForEach(solutions, id: \.direction) { solution in
+            solutionColumn(
+              solution,
+              background: background,
+              isNearest: solution == nearest,
+            )
+          }
+          Spacer()
+        }
+      }
+    }
+  }
+
+  /// The manual half of the contrast tool: drag, and watch the ratio move.
+  ///
+  /// Right is always *more* contrast, whichever polarity the pair is — the direction
+  /// comes from ``ContrastSolver/awayFromBackground(for:on:)`` rather than from a fixed
+  /// sign, so this control means the same thing for dark text on light and for light
+  /// text on dark. Dragging left far enough crosses the background's own luminance and
+  /// the ratio climbs again, which is the V in person and the reason the number beside
+  /// the slider is live rather than derived from the slider's sign.
+  private func pushControl(color: ColorValue, background: ColorValue) -> some View {
+    let pushed = ContrastSolver.pushed(color, on: background, by: push)
+    let ratio = pushed.contrastRatio(with: background)
+    let direction = ContrastSolver.awayFromBackground(for: color, on: background)
+
+    return VStack(alignment: .leading, spacing: 8) {
+      slider(
+        "Push",
+        value: $push,
+        range: -0.4 ... 0.4,
+        caption: push == 0
+          ? "\(direction.rawValue) is apart"
+          : "\(ratioText(ratio)) · \(signed(push, decimals: 2)) L",
+      )
+
+      if push != 0 {
+        HStack(spacing: 12) {
+          sample(text: pushed, background: background)
+            .frame(maxWidth: 260)
+
+          VStack(alignment: .leading, spacing: 4) {
+            Text(css(pushed))
+              .font(.system(.caption, design: .monospaced))
+              .textSelection(.enabled)
+              .accessibilityIdentifier("transformPushed")
+            // Pushing a saturated color toward either end of the lightness
+            // scale leaves sRGB long before the end, which is why the
+            // spelling above turns into `color(display-p3 …)` — the app
+            // declines to spell a wide color as hex. Said out loud here for
+            // the same reason the Adjust section says it.
+            if !pushed.inGamut(of: .srgb) {
+              ColorBadge(text: "outside sRGB")
+            }
+            Button("Use it") { apply(pushed) }
+              .accessibilityIdentifier("transformUsePushed")
+          }
+          Spacer()
+        }
+      }
+    }
+  }
+
+  private func sample(text: ColorValue, background: ColorValue) -> some View {
+    Text("The quick brown fox")
+      .font(.system(size: 14, weight: .medium))
+      .foregroundStyle(text.displayColor)
+      .padding(10)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .background(background.displayColor, in: RoundedRectangle(cornerRadius: 8))
+      .overlay(
+        RoundedRectangle(cornerRadius: 8)
+          .strokeBorder(.separator.opacity(0.5), lineWidth: 1),
+      )
+  }
+
+  private func solutionColumn(
+    _ solution: ContrastSolution,
+    background: ColorValue,
+    isNearest: Bool,
+  ) -> some View {
+    VStack(alignment: .leading, spacing: 6) {
+      Button {
+        apply(solution.color)
+      } label: {
+        Text("The quick brown fox")
+          .font(.system(size: 14, weight: .medium))
+          .foregroundStyle(solution.color.displayColor)
+          .padding(10)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .background(
+            background.displayColor, in: RoundedRectangle(cornerRadius: 8),
+          )
+          .overlay(
+            RoundedRectangle(cornerRadius: 8)
+              // Erased, because the two branches are different
+              // `ShapeStyle` types and a ternary has to pick one.
+              .strokeBorder(
+                isNearest
+                  ? AnyShapeStyle(Color.accentColor)
+                  : AnyShapeStyle(.separator.opacity(0.5)),
+                lineWidth: isNearest ? 2 : 1,
+              ),
+          )
+          .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+      .accessibilityLabel("\(solution.direction.rawValue), \(css(solution.color))")
+      .accessibilityIdentifier("transformSolution-\(solution.direction.rawValue)")
+      .help("Use \(css(solution.color)) — \(ratioText(solution.ratio))")
+
+      HStack(spacing: 6) {
+        Text(solution.direction.rawValue.capitalized)
+          .font(.caption.weight(.medium))
+        Text(ratioText(solution.ratio))
+          .font(.system(.caption, design: .monospaced))
+          .foregroundStyle(.secondary)
+        if isNearest {
+          ColorBadge(text: "nearest", tint: .accentColor)
+        }
+      }
+    }
+    .frame(maxWidth: 240)
+  }
+
+  // MARK: - Shared pieces
+
+  private func sectionHeading(_ title: String, note: String) -> some View {
+    VStack(alignment: .leading, spacing: 2) {
+      Text(title).font(.headline)
+      Text(note)
+        .font(.caption)
+        .foregroundStyle(.tertiary)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+  }
+
+  /// A labeled slider with a value readout, which every section needs and macOS does
+  /// not provide — a `Slider`'s own label renders as visible text beside it.
+  private func slider(
+    _ label: String,
+    value: Binding<Double>,
+    range: ClosedRange<Double>,
+    caption: String,
+  ) -> some View {
+    HStack(spacing: 12) {
+      Text(label)
+        .font(.callout)
+        .frame(width: 74, alignment: .leading)
+      Slider(value: value, in: range)
+        .labelsHidden()
+        .accessibilityLabel(label)
+      Text(caption)
+        .font(.system(.caption, design: .monospaced))
+        .foregroundStyle(.secondary)
+        .frame(width: 132, alignment: .trailing)
+    }
+  }
+
+  /// A row of derived colors, any of which can become the panel's color.
+  ///
+  /// Each swatch is a button carrying its own CSS as its accessibility label. Not
+  /// decoration: a bare swatch announces nothing at all to VoiceOver, and it is also
+  /// the only handle a UI test has on a row of colored rectangles.
+  private func swatchRow(
+    _ colors: [ColorValue],
+    identifier: String,
+    markingBaseAt baseIndex: Int,
+  ) -> some View {
+    ScrollView(.horizontal, showsIndicators: false) {
+      HStack(alignment: .top, spacing: 8) {
+        ForEach(Array(colors.enumerated()), id: \.offset) { index, color in
+          let isBase = index == baseIndex
+          VStack(spacing: 5) {
             Button {
-                apply(solution.color)
+              apply(color)
             } label: {
-                Text("The quick brown fox")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(solution.color.displayColor)
-                    .padding(10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(
-                        background.displayColor, in: RoundedRectangle(cornerRadius: 8)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            // Erased, because the two branches are different
-                            // `ShapeStyle` types and a ternary has to pick one.
-                            .strokeBorder(
-                                isNearest
-                                    ? AnyShapeStyle(Color.accentColor)
-                                    : AnyShapeStyle(.separator.opacity(0.5)),
-                                lineWidth: isNearest ? 2 : 1
-                            )
-                    )
-                    .contentShape(Rectangle())
+              ColorSwatch(color: color, cornerRadius: 7)
+                .frame(width: 46, height: 52)
+                .overlay {
+                  if isBase {
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                      .strokeBorder(Color.accentColor, lineWidth: 2)
+                  }
+                }
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("\(solution.direction.rawValue), \(css(solution.color))")
-            .accessibilityIdentifier("transformSolution-\(solution.direction.rawValue)")
-            .help("Use \(css(solution.color)) — \(ratioText(solution.ratio))")
+            .accessibilityLabel(css(color))
+            .accessibilityIdentifier("\(identifier)-\(index)")
+            .help("Use \(css(color))")
 
-            HStack(spacing: 6) {
-                Text(solution.direction.rawValue.capitalized)
-                    .font(.caption.weight(.medium))
-                Text(ratioText(solution.ratio))
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                if isNearest { ColorBadge(text: "nearest", tint: .accentColor) }
-            }
-        }
-        .frame(maxWidth: 240)
-    }
-
-    // MARK: - Shared pieces
-
-    private func sectionHeading(_ title: String, note: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title).font(.headline)
-            Text(note)
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    /// A labeled slider with a value readout, which every section needs and macOS does
-    /// not provide — a `Slider`'s own label renders as visible text beside it.
-    private func slider(
-        _ label: String,
-        value: Binding<Double>,
-        range: ClosedRange<Double>,
-        caption: String
-    ) -> some View {
-        HStack(spacing: 12) {
-            Text(label)
-                .font(.callout)
-                .frame(width: 74, alignment: .leading)
-            Slider(value: value, in: range)
-                .labelsHidden()
-                .accessibilityLabel(label)
-            Text(caption)
-                .font(.system(.caption, design: .monospaced))
+            if isBase {
+              Text("yours")
+                .font(.caption2)
                 .foregroundStyle(.secondary)
-                .frame(width: 132, alignment: .trailing)
-        }
-    }
-
-    /// A row of derived colors, any of which can become the panel's color.
-    ///
-    /// Each swatch is a button carrying its own CSS as its accessibility label. Not
-    /// decoration: a bare swatch announces nothing at all to VoiceOver, and it is also
-    /// the only handle a UI test has on a row of colored rectangles.
-    private func swatchRow(
-        _ colors: [ColorValue],
-        identifier: String,
-        markingBaseAt baseIndex: Int
-    ) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(alignment: .top, spacing: 8) {
-                ForEach(Array(colors.enumerated()), id: \.offset) { index, color in
-                    let isBase = index == baseIndex
-                    VStack(spacing: 5) {
-                        Button {
-                            apply(color)
-                        } label: {
-                            ColorSwatch(color: color, cornerRadius: 7)
-                                .frame(width: 46, height: 52)
-                                .overlay {
-                                    if isBase {
-                                        RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                            .strokeBorder(Color.accentColor, lineWidth: 2)
-                                    }
-                                }
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(css(color))
-                        .accessibilityIdentifier("\(identifier)-\(index)")
-                        .help("Use \(css(color))")
-
-                        if isBase {
-                            Text("yours")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        } else if !color.inGamut(of: .srgb) {
-                            Text("wide")
-                                .font(.caption2)
-                                .foregroundStyle(.orange)
-                                .help("Outside sRGB. Kept exact rather than mapped in.")
-                        }
-                    }
-                }
+            } else if !color.inGamut(of: .srgb) {
+              Text("wide")
+                .font(.caption2)
+                .foregroundStyle(.orange)
+                .help("Outside sRGB. Kept exact rather than mapped in.")
             }
-            .padding(.vertical, 2)
+          }
         }
+      }
+      .padding(.vertical, 2)
     }
+  }
 
-    private func labeledSwatch(_ color: ColorValue, caption: String) -> some View {
-        VStack(spacing: 6) {
-            ColorSwatch(color: color, cornerRadius: 10)
-                .frame(width: 76, height: 54)
-            Text(caption)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
+  private func labeledSwatch(_ color: ColorValue, caption: String) -> some View {
+    VStack(spacing: 6) {
+      ColorSwatch(color: color, cornerRadius: 10)
+        .frame(width: 76, height: 54)
+      Text(caption)
+        .font(.caption)
+        .foregroundStyle(.secondary)
     }
+  }
 
-    // MARK: - Output
+  // MARK: - Adjust
 
-    /// Adopts a derived color and clears the pending adjustment.
-    ///
-    /// `preferring: .oklch` rather than hex, and for the reason the picker's OKLCH mode
-    /// writes the same format: every transform here computes in OKLCH and half of them
-    /// can leave the sRGB gamut, so hex would quantize the result onto the 8-bit grid or
-    /// map it in outright. The store keeps *text* as its source of truth, which makes
-    /// either loss permanent.
-    private func apply(_ color: ColorValue) {
-        store.adopt(color, preferring: .oklch)
-        store.remember()
-        adjustment = .identity
-        curve = .identity
-        // The push is relative too, so leaving it up would apply the same shove again
-        // to a color that has already taken it.
-        push = 0
-    }
+  /// The color as the sliders currently describe it. Curve after adjustment, because
+  /// the curve is about where a lightness sits on the scale and the adjustment is what
+  /// decides that.
+  private func adjusted(_ color: ColorValue) -> ColorValue {
+    curve.applied(to: adjustment.applied(to: color))
+  }
 
-    /// Display precision, not storage precision — this is a caption, and the string that
-    /// actually lands in the field goes through ``ColorStore/adopt(_:preferring:)``.
-    private func css(_ color: ColorValue) -> String {
-        color.cssStringOrHex(
-            as: color.spelling(preferring: .hex),
-            options: store.formatOptions
-        )
-    }
+  // MARK: - Output
 
-    private func ratioText(_ ratio: Double) -> String {
-        String(format: "%.2f:1", ratio)
-    }
+  /// Adopts a derived color and clears the pending adjustment.
+  ///
+  /// `preferring: .oklch` rather than hex, and for the reason the picker's OKLCH mode
+  /// writes the same format: every transform here computes in OKLCH and half of them
+  /// can leave the sRGB gamut, so hex would quantize the result onto the 8-bit grid or
+  /// map it in outright. The store keeps *text* as its source of truth, which makes
+  /// either loss permanent.
+  private func apply(_ color: ColorValue) {
+    store.adopt(color, preferring: .oklch)
+    store.remember()
+    adjustment = .identity
+    curve = .identity
+    // The push is relative too, so leaving it up would apply the same shove again
+    // to a color that has already taken it.
+    push = 0
+  }
 
-    private func signed(_ value: Double, decimals: Int) -> String {
-        let formatted = String(format: "%.\(decimals)f", value)
-        return value > 0 ? "+\(formatted)" : formatted
-    }
+  /// Display precision, not storage precision — this is a caption, and the string that
+  /// actually lands in the field goes through ``ColorStore/adopt(_:preferring:)``.
+  private func css(_ color: ColorValue) -> String {
+    color.cssStringOrHex(
+      as: color.spelling(preferring: .hex),
+      options: store.formatOptions,
+    )
+  }
+
+  private func ratioText(_ ratio: Double) -> String {
+    String(format: "%.2f:1", ratio)
+  }
+
+  private func signed(_ value: Double, decimals: Int) -> String {
+    let formatted = String(format: "%.\(decimals)f", value)
+    return value > 0 ? "+\(formatted)" : formatted
+  }
 }
 
 /// Wording for each harmony, kept out of ColorCore.
@@ -598,54 +606,54 @@ struct TransformPanel: View {
 /// is editorial — the same split ``CVDPresentation`` and ``RequirementPresentation``
 /// keep.
 struct HarmonyPresentation {
-    let harmony: Harmony
-    let title: String
-    let summary: String
+  let harmony: Harmony
+  let title: String
+  let summary: String
 
-    static func of(_ harmony: Harmony) -> HarmonyPresentation {
-        switch harmony {
-        case .complementary:
-            HarmonyPresentation(
-                harmony: harmony,
-                title: "Comp",
-                summary: "The hue directly opposite. Maximum separation, and the pairing "
-                    + "most likely to shout — good for one accent against a base."
-            )
-        case .splitComplementary:
-            HarmonyPresentation(
-                harmony: harmony,
-                title: "Split",
-                summary: "The two hues either side of the complement. Nearly the contrast "
-                    + "of a complement without the head-on collision."
-            )
-        case .triad:
-            HarmonyPresentation(
-                harmony: harmony,
-                title: "Triad",
-                summary: "Three hues evenly spaced. Balanced and vivid; usually wants one "
-                    + "dominant member and two accents rather than equal billing."
-            )
-        case .tetrad:
-            HarmonyPresentation(
-                harmony: harmony,
-                title: "Tetrad",
-                summary: "Four hues evenly spaced — two complementary pairs. The most "
-                    + "colors a small interface can usually carry."
-            )
-        case .analogous:
-            HarmonyPresentation(
-                harmony: harmony,
-                title: "Analogous",
-                summary: "Immediate neighbours. Quiet and cohesive, with little contrast "
-                    + "of its own, so lean on lightness to separate them."
-            )
-        case .monochromatic:
-            HarmonyPresentation(
-                harmony: harmony,
-                title: "Mono",
-                summary: "One hue, many lightnesses — a short shade ramp, so it inherits "
-                    + "the tapering and stays in gamut."
-            )
-        }
+  static func of(_ harmony: Harmony) -> HarmonyPresentation {
+    switch harmony {
+    case .complementary:
+      HarmonyPresentation(
+        harmony: harmony,
+        title: "Comp",
+        summary: "The hue directly opposite. Maximum separation, and the pairing "
+          + "most likely to shout — good for one accent against a base.",
+      )
+    case .splitComplementary:
+      HarmonyPresentation(
+        harmony: harmony,
+        title: "Split",
+        summary: "The two hues either side of the complement. Nearly the contrast "
+          + "of a complement without the head-on collision.",
+      )
+    case .triad:
+      HarmonyPresentation(
+        harmony: harmony,
+        title: "Triad",
+        summary: "Three hues evenly spaced. Balanced and vivid; usually wants one "
+          + "dominant member and two accents rather than equal billing.",
+      )
+    case .tetrad:
+      HarmonyPresentation(
+        harmony: harmony,
+        title: "Tetrad",
+        summary: "Four hues evenly spaced — two complementary pairs. The most "
+          + "colors a small interface can usually carry.",
+      )
+    case .analogous:
+      HarmonyPresentation(
+        harmony: harmony,
+        title: "Analogous",
+        summary: "Immediate neighbours. Quiet and cohesive, with little contrast "
+          + "of its own, so lean on lightness to separate them.",
+      )
+    case .monochromatic:
+      HarmonyPresentation(
+        harmony: harmony,
+        title: "Mono",
+        summary: "One hue, many lightnesses — a short shade ramp, so it inherits "
+          + "the tapering and stays in gamut.",
+      )
     }
+  }
 }
