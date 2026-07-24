@@ -37,6 +37,11 @@ nonisolated struct PickerPlane: @unchecked Sendable {
 /// `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, and a plane is tens of thousands of
 /// color conversions. Doing that on the main thread would hitch the drag that asked
 /// for it.
+///
+/// Every loop checks `Task.isCancelled` and abandons the buffer. A drag queues one
+/// render per frame and only the last is wanted; without a check inside the work, a
+/// cancelled render still runs to completion, because the caller detaches it and a
+/// detached task has no parent to inherit cancellation from.
 nonisolated enum PickerPlaneRenderer {
 
     /// Rendered edge length. Deliberately below the drawn size and scaled up with
@@ -72,6 +77,7 @@ nonisolated enum PickerPlaneRenderer {
         var pixels = [UInt8](repeating: 255, count: size * size * 4)
 
         for row in 0..<size {
+            if Task.isCancelled { return nil }
             let value = (1 - Double(row) / Double(size - 1)) * 100
             for column in 0..<size {
                 let saturation = Double(column) / Double(size - 1) * 100
@@ -104,6 +110,7 @@ nonisolated enum PickerPlaneRenderer {
         var displayEdge = [Double](repeating: 0, count: size)
 
         for row in 0..<size {
+            if Task.isCancelled { return nil }
             let lightness = 1 - Double(row) / Double(size - 1)
             let srgbMax = GamutBoundary.maxChroma(lightness: lightness, hue: hue, in: .srgb)
             let displayMax = GamutBoundary.maxChroma(lightness: lightness, hue: hue, in: .displayP3)
@@ -138,6 +145,9 @@ nonisolated enum PickerPlaneRenderer {
         var pixels = [UInt8](repeating: 255, count: steps * 4)
 
         for step in 0..<steps {
+            // Every 32nd step: the strip is a fraction of a plane's work, and checking
+            // 360 times would cost more than it saves.
+            if step.isMultiple(of: 32), Task.isCancelled { return nil }
             let hue = Double(step) / Double(steps) * 360
             let displayP3: SIMD3<Double>
             switch mode {

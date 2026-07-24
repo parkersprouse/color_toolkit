@@ -23,6 +23,9 @@ struct PickerPanel: View {
     @State private var plane: PickerPlane?
     @State private var strip: CGImage?
     @State private var planeSide: CGFloat = 320
+    @State private var planeRender: Task<PickerPlane?, Never>?
+    @State private var stripRender: Task<CGImage?, Never>?
+    @State private var rememberSoon: Task<Void, Never>?
 
     /// What the plane's pixels depend on. Only a change here is worth re-rendering
     /// sixty thousand conversions for — moving the cursor around a plane does not
@@ -66,9 +69,8 @@ struct PickerPanel: View {
         }
         .task { seedFromStore() }
         .onChange(of: store.inputText) { state.syncing(with: store.inputText, color: store.color) }
-        // `.task(id:)` cancels the render in flight when the id moves again, which is
-        // the whole throttle: dragging the hue strip queues one render per frame and
-        // all but the last are torn down before they finish.
+        // `.task(id:)` restarts when the id moves, which discards the stale result.
+        // Stopping the *work* takes an explicit cancel — see `renderPlane()`.
         .task(id: planeKey) { await renderPlane() }
         .task(id: stripKey) { await renderStrip() }
     }
@@ -84,7 +86,10 @@ struct PickerPanel: View {
                 // Switching tabs deliberately does not *write* — looking at a color in
                 // other axes is not editing it, and rewriting `#3b82f6` as `oklch(…)`
                 // for having glanced at the OKLCH tab would be presumptuous.
-                set: { state.setMode($0, carrying: store.color) }
+                set: { newMode in
+                    state.setMode(newMode, carrying: store.color)
+                    store.pickerMode = newMode
+                }
             )
         ) {
             ForEach(PickerMode.allCases) { mode in
@@ -152,10 +157,10 @@ struct PickerPanel: View {
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { moveCursor(to: $0.location, in: size) }
-                    // Only on release, matching the field's `onSubmit`: a drag crosses
-                    // hundreds of colors on the way to the one that was wanted, and
-                    // filing each would bury the recents list under the journey.
-                    .onEnded { _ in store.remember() }
+                    // Never mid-drag, and not even on release — see
+                    // `rememberWhenSettled()`. A drag crosses hundreds of colors on the
+                    // way to the one that was wanted.
+                    .onEnded { _ in rememberWhenSettled() }
             )
         }
         .aspectRatio(1, contentMode: .fit)
@@ -282,7 +287,7 @@ struct PickerPanel: View {
                             }
                         }
                     }
-                    .onEnded { _ in store.remember() }
+                    .onEnded { _ in rememberWhenSettled() }
             )
         }
         .frame(width: 28)
@@ -337,7 +342,7 @@ struct PickerPanel: View {
                         let fraction = clampedFraction(value.location.x, over: size.width)
                         apply { $0.alpha = fraction }
                     }
-                    .onEnded { _ in store.remember() }
+                    .onEnded { _ in rememberWhenSettled() }
             )
         }
         .frame(height: 24)
@@ -441,9 +446,13 @@ struct PickerPanel: View {
         store.inputText = state.cssToWrite()
     }
 
+    /// Re-entering the tool rebuilds this panel's `@State` from scratch, which is right
+    /// for the axes — the field's color may have moved while the tool was away — and
+    /// wrong for the mode, which is a preference rather than a view of anything. So the
+    /// axes come from the color and the mode comes from the store.
     private func seedFromStore() {
-        guard let color = store.color else { return }
-        state.seed(from: color)
+        if let color = store.color { state.seed(from: color) }
+        state.setMode(store.pickerMode, carrying: store.color)
     }
 
     private func clampedFraction(_ position: CGFloat, over extent: CGFloat) -> Double {
@@ -451,22 +460,53 @@ struct PickerPanel: View {
         return min(max(Double(position / extent), 0), 1)
     }
 
+    /// Renders off the main actor, and **cancels the render it replaces**.
+    ///
+    /// The cancellation has to be explicit. A detached task does not inherit its
+    /// parent's — that is what "detached" means — so `.task(id:)` tearing down the
+    /// wrapper leaves the render itself running to completion on a background thread.
+    /// Dropping its stale result afterwards would still look correct and would still
+    /// burn a full plane's worth of conversions per frame of a hue drag.
     private func renderPlane() async {
         let snapshot = state
-        let rendered = await Task.detached(priority: .userInitiated) {
+        planeRender?.cancel()
+        let render = Task.detached(priority: .userInitiated) {
             PickerPlaneRenderer.plane(mode: snapshot.mode, state: snapshot)
-        }.value
-        guard !Task.isCancelled else { return }
+        }
+        planeRender = render
+
+        let rendered = await render.value
+        guard !Task.isCancelled, let rendered else { return }
         plane = rendered
     }
 
     private func renderStrip() async {
         let snapshot = state
-        let rendered = await Task.detached(priority: .userInitiated) {
+        stripRender?.cancel()
+        let render = Task.detached(priority: .userInitiated) {
             PickerPlaneRenderer.hueStrip(mode: snapshot.mode, state: snapshot)
-        }.value
-        guard !Task.isCancelled else { return }
+        }
+        stripRender = render
+
+        let rendered = await render.value
+        guard !Task.isCancelled, let rendered else { return }
         strip = rendered
+    }
+
+    /// Files the current color under recents once the user has stopped moving.
+    ///
+    /// Three controls feed this — plane, strip, alpha — and dialing in one color
+    /// touches all three. Filing on each release would deposit three *different*
+    /// way-points, which is the same noise the store avoids by not remembering on every
+    /// keystroke: the colors between `#f` and `#f0a` are not colors anyone chose.
+    /// Waiting for the movement to stop files the one that was.
+    private func rememberWhenSettled() {
+        rememberSoon?.cancel()
+        rememberSoon = Task {
+            try? await Task.sleep(for: .seconds(1))
+            guard !Task.isCancelled else { return }
+            store.remember()
+        }
     }
 }
 

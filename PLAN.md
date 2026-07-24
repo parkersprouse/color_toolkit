@@ -148,6 +148,12 @@
 >   am writing" flag is the tempting version and the wrong one: the store reparses
 >   synchronously but observation fires later, so the flag is already clear by the time
 >   the callback lands.
+> - **`.task(id:)` restarting does not stop a `Task.detached` it started.** Detached is
+>   exactly what it says: no parent, so no inherited cancellation. Discarding the stale
+>   *result* afterwards still looks correct and still burns a full plane of conversions
+>   per frame of a drag — a throttle that isn't one. The render task is held and
+>   cancelled explicitly, and the loops check `Task.isCancelled` so the cancel has
+>   somewhere to land.
 > - **A `GeometryReader` square inside a `ScrollView` takes the whole unbounded height
 >   proposal.** The window opened 948pt tall, and the resize moved the mode switcher out
 >   from under a click already in flight — surfacing as "Not hittable", which reads like
@@ -373,6 +379,16 @@ Display P3 while 9,626 of 20,000 P3 colors fall outside sRGB.
   it; rewriting `#3b82f6` as `oklch(…)` for having glanced at the other tab would be
   presumptuous. It does *carry* the field's color across, which is what stops HSV from
   narrowing a wide color merely by having been the tab the panel opened on.
+
+**Recents are filed on a debounce, not on release.** Plane, strip and alpha are three
+controls that dialing in one color touches in turn, so remembering on each gesture end
+deposits three different way-points — the same noise the store already avoids by not
+remembering on every keystroke. A second of stillness is the signal that a color was
+chosen rather than passed through.
+
+**The mode outlives the panel** (it lives on `ColorStore`), because re-entering the
+tool tears the panel's state down. The axes *should* be rebuilt from the field, which
+may have moved; the choice of which axes to use should not be.
 
 **No numeric entry fields.** The shared input field above already accepts any CSS
 color, so L/C/h boxes would be a second way to type the same thing. The readout is

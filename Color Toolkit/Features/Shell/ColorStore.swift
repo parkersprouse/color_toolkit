@@ -142,6 +142,14 @@ final class ColorStore {
     /// Which panel the main window is showing.
     var tool: Tool = .convert
 
+    /// Which axes the picker is showing.
+    ///
+    /// Here rather than in the panel because leaving the tool and coming back tears the
+    /// panel's own state down. Its *axes* should be rebuilt — the color may have moved
+    /// while the tool was away — but the choice of axes is a preference about how you
+    /// like to pick, and losing it every time is the kind of small rudeness that adds up.
+    var pickerMode: PickerMode = .hsv
+
     private(set) var recents: [RecentColor] = []
 
     /// Enough to be useful, few enough to stay scannable in a menu-bar panel.
