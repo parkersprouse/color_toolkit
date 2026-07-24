@@ -41,13 +41,15 @@ struct MenuBarPanel: View {
             }
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(store.color?.cssStringOrHex(as: .hex, options: store.formatOptions) ?? "No color")
+                Text(resolvedHex ?? "No color")
                     .font(.system(.body, design: .monospaced))
-                Text(store.inputText.isEmpty ? "Nothing entered" : store.inputText)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                if let authoredText {
+                    Text(authoredText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
             }
 
             Spacer(minLength: 0)
@@ -55,6 +57,26 @@ struct MenuBarPanel: View {
             copyMenu
         }
         .padding(12)
+    }
+
+    private var resolvedHex: String? {
+        store.color?.cssStringOrHex(as: .hex, options: store.formatOptions)
+    }
+
+    /// What was typed — unless it says the same thing as the line above it.
+    ///
+    /// The subtitle earns its place when the two disagree: `rebeccapurple` or an
+    /// `oklch()` stays visible next to the hex it resolves to. Type hex in the first
+    /// place and there is nothing left to show, and a value printed twice reads as a
+    /// rendering bug rather than as detail.
+    ///
+    /// Compared case-insensitively, so `#3B82F6` counts as a match — but not
+    /// otherwise normalized, because `#ffcc00` against a collapsed `#fc0` genuinely
+    /// is two different strings and worth seeing both of.
+    private var authoredText: String? {
+        let typed = store.inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !typed.isEmpty, typed.lowercased() != resolvedHex?.lowercased() else { return nil }
+        return typed
     }
 
     private var copyMenu: some View {
