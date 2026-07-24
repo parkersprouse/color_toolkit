@@ -25,6 +25,7 @@ final class ConversionSmokeTests: XCTestCase {
         continueAfterFailure = false
         app = XCUIApplication()
         app.launch()
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 30), "App did not reach the foreground")
     }
 
     override func tearDownWithError() throws {
@@ -33,6 +34,11 @@ final class ConversionSmokeTests: XCTestCase {
         // that looks like a second copy of the app and cannot be clicked — the exact
         // symptom that prompted this file.
         app?.terminate()
+        // …and wait for it to actually be gone. `terminate()` returns before the
+        // process does, so the next test's `launch()` can race a bundle still shutting
+        // down and fail with "does not have a process ID". Observed once in five runs
+        // before this wait was added.
+        _ = app?.wait(for: .notRunning, timeout: 30)
         app = nil
     }
 

@@ -66,17 +66,24 @@ struct FormatRow: View {
 
     var body: some View {
         Button(action: copy) {
+            // Centre-aligned, which is what the single-line rows every precision
+            // below Maximum produce. Baseline alignment would read better on a
+            // wrapped row but shifts the badge and copy icon on every other one.
             HStack(spacing: 10) {
                 Text(formatted.format.title)
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .frame(width: 132, alignment: .leading)
 
+                // Wraps rather than truncates. At the highest precision a
+                // `color(prophoto-rgb …)` value outgrows the row, and middle
+                // truncation would elide exactly the digits someone raised the
+                // precision to see — while the copy button silently delivered the
+                // full string, so the display disagreed with the clipboard.
                 Text(formatted.css)
                     .font(.system(.callout, design: .monospaced))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 if formatted.isGamutMapped {
                     ColorBadge(text: "mapped")
