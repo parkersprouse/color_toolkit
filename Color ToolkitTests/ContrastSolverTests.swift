@@ -204,6 +204,70 @@ struct ContrastSolverTests {
         #expect(abs(ContrastSolver.ceiling(against: Self.black) - 21) < 1e-9)
     }
 
+    /// **The ceiling has a floor, and it is exactly `√21`.**
+    ///
+    /// The two candidates — against black, `(l + 0.05) / 0.05`, rising with the
+    /// background's luminance, and against white, `1.05 / (l + 0.05)`, falling — cross
+    /// where `(l + 0.05)² = 0.05 × 1.05`. So the worst background in existence still
+    /// permits `√21 ≈ 4.5826:1`, the geometric mean of WCAG's own range, at a luminance
+    /// of `0.1791`.
+    ///
+    /// Which settles a question the UI would otherwise have to guess at: **AA body text
+    /// is always reachable**, by a margin of 0.08, and so is every requirement below it.
+    /// Only AAA's 7:1 can actually be impossible. Worth pinning because it is the
+    /// difference between an "out of reach" message that fires for a real reason and one
+    /// nobody ever sees.
+    @Test("No background pushes the ceiling below √21, so AA is always reachable")
+    func theCeilingHasAFloor() {
+        let floor = 21.0.squareRoot()
+
+        // The worst background, constructed rather than searched for. It sits at
+        // luminance `√21 × 0.05 − 0.05 = 0.1791`, which is channel 0.4604 — between the
+        // 8-bit grays 117 and 118, so no sweep over hex colors can land on it.
+        let worstLuminance = floor * 0.05 - 0.05
+        let channel = 1.055 * pow(worstLuminance, 1 / 2.4) - 0.055
+        let worst = ColorValue(space: .srgb, channel, channel, channel)
+
+        #expect(abs(worst.wcagRelativeLuminance - worstLuminance) < 1e-9)
+        #expect(
+            abs(ContrastSolver.ceiling(against: worst) - floor) < 1e-6,
+            "the worst case is not √21: \(ContrastSolver.ceiling(against: worst))"
+        )
+
+        // And nothing beats it. Swept continuously, since the minimum falls between two
+        // 8-bit values.
+        for step in 0...1000 {
+            let value = Double(step) / 1000
+            let gray = ColorValue(space: .srgb, value, value, value)
+            #expect(
+                ContrastSolver.ceiling(against: gray) >= floor - 1e-9,
+                "gray \(value) dropped the ceiling to \(ContrastSolver.ceiling(against: gray))"
+            )
+        }
+
+        #expect(
+            floor > ContrastRequirement.aaNormalText.minimumRatio,
+            "AA body text is no longer always reachable"
+        )
+        #expect(floor < ContrastRequirement.aaaNormalText.minimumRatio)
+    }
+
+    /// The other side of that coin: AA really is solvable everywhere, including at the
+    /// luminance where the ceiling bottoms out.
+    @Test("AA body text has a solution against every gray")
+    func aaIsAlwaysSolvable() {
+        for step in stride(from: 0, through: 255, by: 5) {
+            let gray = ColorValue.srgb8(UInt8(step), UInt8(step), UInt8(step))
+            let solutions = ContrastSolver.solutions(
+                for: Self.blue, on: gray, meeting: .aaNormalText
+            )
+            #expect(!solutions.isEmpty, "no AA solution against gray \(step)")
+            for solution in solutions {
+                #expect(solution.color.meets(.aaNormalText, on: gray))
+            }
+        }
+    }
+
     // MARK: - Why the solver does not bisect the ratio
 
     /// **The measured fact the solver's design rests on, pinned so nobody "simplifies"

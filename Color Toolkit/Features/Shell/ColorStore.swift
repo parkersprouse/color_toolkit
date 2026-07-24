@@ -93,6 +93,10 @@ enum Tool: String, CaseIterable, Identifiable, Sendable {
     /// Between the other two deliberately: choosing a color comes before asking what
     /// it converts to or whether it is readable.
     case pick
+    /// After picking, because it takes a color as its input rather than producing one
+    /// from nothing, and before the two accessibility tools, because the colors it
+    /// derives are the ones you then go and check.
+    case transform
     case contrast
     /// After contrast, because both are accessibility questions about the same color —
     /// "can it be read" and "can it be told apart".
@@ -106,6 +110,7 @@ enum Tool: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .convert: "Convert"
         case .pick: "Pick"
+        case .transform: "Transform"
         case .contrast: "Contrast"
         case .cvd: "CVD"
         }
@@ -161,6 +166,22 @@ final class ColorStore {
     /// the endpoint where the effect is clearest.
     var cvdDeficiency: ColorVisionDeficiency = .deuteranomaly
     var cvdSeverity: Double = 1
+
+    /// What the transform panel is deriving, and how.
+    ///
+    /// On the store for the same reason as ``pickerMode`` and ``cvdDeficiency``: these
+    /// are preferences about how you like to work, and leaving the tool tears the panel
+    /// down. The panel's *pending* adjustment deliberately does **not** live here — see
+    /// the note in `TransformPanel`. A half-dialed slider is an unfinished edit, not a
+    /// preference, and finding one still applied after a trip through another tool would
+    /// mean the panel was showing a color the field does not contain.
+    var harmony: Harmony = .triad
+    var harmonyOptions = HarmonyOptions.default
+    var shadeRamp = ShadeRamp.default
+
+    /// Which bar the contrast solver aims at. AA body text is the one nearly every
+    /// audit actually checks.
+    var contrastTarget: ContrastRequirement = .aaNormalText
 
     private(set) var recents: [RecentColor] = []
 
