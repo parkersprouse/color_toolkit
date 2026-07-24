@@ -308,7 +308,8 @@ struct ContrastSolverTests {
         ]
     )
     func pushingApartRaisesTheRatio(background: ColorValue) {
-        var previous = Self.blue.contrastRatio(with: background)
+        let start = Self.blue.contrastRatio(with: background)
+        var previous = start
         for step in 1...20 {
             let pushed = ContrastSolver.pushed(
                 Self.blue, on: background, by: Double(step) / 40
@@ -320,6 +321,90 @@ struct ContrastSolverTests {
             )
             previous = ratio
         }
+        // Non-decreasing alone is satisfied by a push that does nothing at all, so
+        // require that it actually went somewhere.
+        #expect(
+            previous > start + 0.5,
+            "pushing the whole range moved the ratio only \(start) → \(previous)"
+        )
+    }
+
+    /// The other half of the slider, and the half every other test here skips.
+    ///
+    /// Pushing *together* walks the color toward the background's own luminance, so the
+    /// ratio falls toward 1:1 — in both polarities, which is the same sign-independence
+    /// that makes pushing apart work. Asserted rather than assumed to be "the same
+    /// arithmetic with a minus sign": the negative half of the range is otherwise never
+    /// exercised.
+    @Test(
+        "Pushing together lowers the ratio, in both polarities",
+        arguments: [
+            // Blue is darker than white, so together means lighter.
+            ColorValue.srgb8(0xff, 0xff, 0xff),
+            // Blue is lighter than black, so together means darker.
+            ColorValue.srgb8(0x00, 0x00, 0x00),
+        ]
+    )
+    func pushingTogetherLowersTheRatio(background: ColorValue) {
+        let start = Self.blue.contrastRatio(with: background)
+        var previous = start
+
+        for step in 1...10 {
+            let pushed = ContrastSolver.pushed(
+                Self.blue, on: background, by: -Double(step) / 50
+            )
+            let ratio = pushed.contrastRatio(with: background)
+            #expect(
+                ratio <= previous + 1e-6,
+                "pushing together raised the ratio from \(previous) to \(ratio)"
+            )
+            previous = ratio
+        }
+
+        #expect(previous < start - 0.5, "together moved the ratio only \(start) → \(previous)")
+        // And it is heading for 1:1, which is what "together" means.
+        #expect(previous > 1)
+    }
+
+    /// Pushed far enough *together*, the color crosses the background's own luminance and
+    /// contrast starts climbing again — the V, reached from the manual control rather
+    /// than from the solver. Pinned because it is exactly the behavior that makes the
+    /// panel's live ratio necessary: the slider's sign stops predicting the answer here,
+    /// and a UI that inferred the ratio from the sign would be wrong past the crossing.
+    @Test("Pushed far enough together, the color crosses over and contrast climbs again")
+    func pushingTogetherEventuallyCrossesOver() {
+        let background = ColorValue.srgb8(0x80, 0x80, 0x80)
+        let start = Self.blue.contrastRatio(with: background)
+
+        // `#3b82f6` is *lighter* than mid-gray — luminance 0.2355 against 0.2159, a much
+        // narrower margin than it looks — so away is lighter and "together" darkens it,
+        // down through the gray and out the other side. Asserted rather than assumed;
+        // assuming it was wrong the first time.
+        #expect(ContrastSolver.awayFromBackground(for: Self.blue, on: background) == .lighter)
+        #expect(start < 1.1, "the pair should start close to the background's own luminance")
+
+        var lowest = start
+        var lowestAt = 0.0
+        for step in 0...40 {
+            let amount = -Double(step) / 200
+            let ratio = ContrastSolver.pushed(Self.blue, on: background, by: amount)
+                .contrastRatio(with: background)
+            if ratio < lowest {
+                lowest = ratio
+                lowestAt = amount
+            }
+        }
+
+        #expect(lowest < 1.02, "never actually reached the background's luminance: \(lowest)")
+        #expect(lowestAt < 0, "the minimum should be somewhere along the together half")
+
+        // Past the minimum the ratio climbs again, which a monotone function cannot do.
+        let past = ContrastSolver.pushed(Self.blue, on: background, by: lowestAt - 0.2)
+            .contrastRatio(with: background)
+        #expect(
+            past > lowest + 0.5,
+            "contrast did not recover past the crossing: \(lowest) → \(past)"
+        )
     }
 
     @Test("A push of nothing changes nothing")
