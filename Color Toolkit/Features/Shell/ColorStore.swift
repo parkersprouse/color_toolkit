@@ -90,6 +90,9 @@ struct ColorField {
 /// app's spine, and every tool is a different question asked about the same color.
 enum Tool: String, CaseIterable, Identifiable, Sendable {
     case convert
+    /// Between the other two deliberately: choosing a color comes before asking what
+    /// it converts to or whether it is readable.
+    case pick
     case contrast
 
     var id: String { rawValue }
@@ -99,6 +102,7 @@ enum Tool: String, CaseIterable, Identifiable, Sendable {
     var title: String {
         switch self {
         case .convert: "Convert"
+        case .pick: "Pick"
         case .contrast: "Contrast"
         }
     }

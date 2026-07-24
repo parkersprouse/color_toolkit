@@ -33,6 +33,8 @@ struct ContentView: View {
                         description: Text("Type a CSS color above and every other format appears here.")
                     )
                 }
+            case .pick:
+                PickerPanel()
             case .contrast:
                 ContrastPanel()
             }
