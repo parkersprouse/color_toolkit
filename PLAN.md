@@ -1,12 +1,18 @@
 # Color Toolkit — Implementation Plan
 
-> **Status (2026-07-24): M0–M6 complete except CVD simulation, every milestone
-> reviewed on the running app.** 162 test functions / 254 executed cases green,
-> including seven XCUITest smoke tests over rendered panels. ColorCore is validated
-> against **colorjs.io 0.7.0** (pinned exact) — 6,384 conversions, 1,368 gamut
-> mappings and 108 contrast pairs — plus independent definitional anchors. Next up:
-> **M7 (transforms and harmonies)**, with **M5b (CVD)** waiting on a pinnable source
-> for Machado's matrices.
+> **Status (2026-07-24): M0–M6 complete and reviewed on the running app; M5b (CVD)
+> now implemented, its long-standing provenance block resolved.** ColorCore is
+> validated against **colorjs.io 0.7.0** (pinned exact) — 6,384 conversions, 1,368
+> gamut mappings and 108 contrast pairs — plus independent definitional anchors, and
+> now **405 CVD vectors** over Machado's Table 1. Next up: **M7 (transforms and
+> harmonies)**.
+>
+> **M5b caveat — build/test run pending.** The CVD work (matrices, simulation, tests,
+> UI) was authored in a Linux environment with no Xcode toolchain, so `xcodebuild
+> test` has not yet been run against it and the panel has not been reviewed on the
+> running app. What *is* verified is the part that was actually blocking the milestone:
+> the 33 Table 1 matrices agree exactly with three independent sources (see the
+> finding below). Run the macOS suite and review the panel before marking it reviewed.
 >
 > M6's boundary readouts were checked against the reference from the panel's own
 > screenshots: at `L 0.7 h 140` the panel says sRGB allows `0.2253` and the oracle
@@ -168,6 +174,31 @@
 >   watching them fail** — which caught that the first draft of the precision test used
 >   a P3 color that happened to be exactly `#3b82f6`, so hex round-tripped it perfectly
 >   and the test proved nothing.
+> - **Machado's Table 1 is not 33 numbers to recall — it is 33 numbers to pin.** The
+>   matrices are generated (`python3 Tools/generate-cvd-matrices.py`) from a vendored
+>   copy of colour-science 0.4.7's `CVD_MATRICES_MACHADO2010`, the same table the
+>   reference `daltonlens` library uses. Before generating, all 33 were confirmed to
+>   agree **exactly** (0.0 diff) with three independent copies: `daltonlens` 0.1.5, the
+>   severity-1.0 rows in `opticquiz-cvd` 1.1.0, and the paper's own Table 1 from a
+>   screenshot. The generator vendors the dataset rather than installing the 200 MB
+>   colour+scipy stack, and re-asserts the identity-at-0.0 and the three published
+>   endpoints as guards so a wrong swap fails loudly — the Bradford failure mode, headed
+>   off the same way.
+> - **The CVD matrices are linear-RGB → linear-RGB, and applying them to gamma-encoded
+>   sRGB is the trap.** Confirmed three ways: `daltonlens` runs them in
+>   `_simulate_cvd_linear_rgb` (decode sRGB → matrix → re-encode), and both npm
+>   implementations linearize first. The difference is not subtle — on `#cc00ff` seen as
+>   a protanope the linear pipeline gives `[0, 0.447, 1]` while a gamma-space application
+>   lands ~0.26 away — so a discriminating test asserts the linear answer *and* asserts a
+>   mismatch with the gamma-space one, exactly the shape of the WCAG-coefficient test.
+> - **PLAN said "LMS matrices"; Table 1 is RGB.** Machado derives the transform through
+>   LMS cone fundamentals, but tabulates it as a 3×3 that maps linear RGB to linear RGB.
+>   The app never touches an LMS space for CVD — colorjs.io exposes none that is the
+>   Hunt-Pointer-Estevez basis anyway, which is what made this look hard. Resolving the
+>   source resolved the difficulty with it.
+> - **Rows of every Table 1 matrix sum to ~1 (to 1e-6), so grays are invariant.** A
+>   neutral confuses no cones, and the matrices encode that — a useful free invariant
+>   the tests pin, and a quick check that the right numbers loaded.
 
 ## Context
 
@@ -344,11 +375,34 @@ Round-trip tests: parse → serialize → parse must be idempotent.
 
 Two things came out of reviewing the screenshots. Nothing in this panel is dimmer than `.secondary` — `.tertiary` explanatory text is dim enough to fail the very check running inches above it, and a contrast tool that ships low-contrast text has undermined its own advice. And APCA's polarity is described comparatively ("lighter text on a darker background") rather than absolutely, because calling `#3b82f6` a dark background out loud reads as a bug even though the sign is right.
 
-### M5b — Accessibility (CVD simulation) — *deferred, needs a source*
+### ✅ M5b — Accessibility (CVD simulation)
 
-Machado et al. (2009) severity-parameterized LMS matrices for protan/deutan/tritan, as a live preview filter over any swatch or palette.
+Machado et al. (2009) severity-parameterized simulation matrices for protan / deutan /
+tritan, as a live preview filter over any swatch or palette: the current color shown
+original-vs-simulated, all three deficiencies at the chosen severity side by side, the
+foreground/background pair as a CVD viewer sees it (the other half of the contrast
+question), and the recents strip filtered. Deficiency and severity live on `ColorStore`
+so they outlast the panel, exactly like `pickerMode`.
 
-**Blocked on provenance, not difficulty.** It is 33 published 3×3 matrices, and colorjs.io implements no CVD and exposes no cone-fundamental LMS space — `cam16` and `jzazbz` carry their own LMS, neither of which is the Hunt-Pointer-Estevez basis Machado and Viénot use. Transcribing 33 matrices from recall is the Bradford failure mode at scale. Resolve by pinning a dependency that carries the tables and generating Swift from it, exactly as `generate-constants.mjs` does — then this is a short milestone.
+- **[CVDMatrices.swift](Color%20Toolkit/ColorCore/Analysis/CVDMatrices.swift)** —
+  **generated** (`python3 Tools/generate-cvd-matrices.py`) from a vendored, pinned copy
+  of Machado's Table 1; never hand-edited, same rule as `Matrices.swift`. The generator
+  is Python because the oracle that carries the table (colour-science, and `daltonlens`
+  after it) is Python; it needs only the standard library.
+- **[CVDSimulation.swift](Color%20Toolkit/ColorCore/Analysis/CVDSimulation.swift)** —
+  `ColorValue.simulating(_:severity:)`. Gamut-maps into sRGB, decodes to **linear**
+  light, applies the severity-interpolated matrix, clamps, re-encodes. Exact 0.1 steps
+  are Table 1 verbatim; between them the two nearest matrices are blended, matching the
+  reference libraries.
+- **The block was always provenance, and it is now pinned** — see the two findings
+  above on the source and the linear-RGB trap. It turned out to be a short milestone
+  once the numbers were trustworthy, exactly as predicted.
+
+**What is deliberately absent: no pass/fail verdict.** Like the APCA panel, this shows
+rather than judges — there is no threshold for "distinguishable enough", and inventing
+one would be the same overreach the contrast panel refuses. Tritanomaly additionally
+carries an honest caveat in its blurb, because the paper's authors flag it as an
+approximation via the shift paradigm rather than a fit to data.
 
 ### ✅ M6 — Full-spectrum picker
 

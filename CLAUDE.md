@@ -64,6 +64,16 @@ node Tools/generate-parse-fixtures.mjs    # → Fixtures/parse-vectors.json
 node Tools/generate-contrast-fixtures.mjs # → Fixtures/contrast-vectors.json
 ```
 
+The CVD matrices are the one exception to the Node/colorjs.io rule. Their oracle is
+`colour-science` (Python), so the generator is Python — but it needs **only the
+standard library**: it reads a vendored, pinned copy of Machado's Table 1 in
+`Tools/vendor/machado2010.py` (colour-science 0.4.7, BSD-3, provenance in
+`Tools/vendor/README.md`), no `pip install` required.
+
+```bash
+python3 Tools/generate-cvd-matrices.py    # → ColorCore/Analysis/CVDMatrices.swift, Fixtures/cvd-vectors.json
+```
+
 Ask the oracle rather than reasoning about gamuts:
 
 ```bash
@@ -92,6 +102,15 @@ Layered so the numeric core stays independently testable and UI-free:
   or non-`@MainActor` tests cannot read it.
 - `ColorCore/Spaces/Matrices.swift` and `NamedColors.swift` are **generated**.
   Regenerate; never hand-edit.
+- `ColorCore/Analysis/CVDMatrices.swift` is **generated** too, from Machado's Table 1
+  (`python3 Tools/generate-cvd-matrices.py`). Same rule — regenerate, never hand-edit —
+  and never re-transcribe the 33 matrices from memory; the pinned vendored source and
+  its three cross-checks exist precisely so nobody has to.
+- **CVD matrices are applied in linear RGB, not gamma-encoded sRGB.** `simulating(_:​
+  severity:)` decodes to linear, applies the 3×3, then re-encodes. Applying them to the
+  sRGB channels directly is the classic mistake and is visibly wrong (≈0.26 off on a
+  saturated mid-tone). A test asserts the linear answer *and* a mismatch with the
+  gamma-space one; do not "simplify" the pipeline by dropping the linearization.
 - The project uses file-system-synchronized groups (`objectVersion = 77`). New
   `.swift` files compile automatically — do not edit `project.pbxproj` to add them.
 - **Never assert a gamut-containment claim from reasoning.** Space "widths" do not

@@ -94,6 +94,9 @@ enum Tool: String, CaseIterable, Identifiable, Sendable {
     /// it converts to or whether it is readable.
     case pick
     case contrast
+    /// After contrast, because both are accessibility questions about the same color —
+    /// "can it be read" and "can it be told apart".
+    case cvd
 
     var id: String { rawValue }
 
@@ -104,6 +107,7 @@ enum Tool: String, CaseIterable, Identifiable, Sendable {
         case .convert: "Convert"
         case .pick: "Pick"
         case .contrast: "Contrast"
+        case .cvd: "CVD"
         }
     }
 }
@@ -149,6 +153,14 @@ final class ColorStore {
     /// while the tool was away — but the choice of axes is a preference about how you
     /// like to pick, and losing it every time is the kind of small rudeness that adds up.
     var pickerMode: PickerMode = .hsv
+
+    /// Which deficiency the CVD panel is simulating, and how severely. On the store for
+    /// the same reason as ``pickerMode``: leaving the tool tears the panel down, and the
+    /// deficiency you were inspecting is a preference worth keeping across the trip. The
+    /// default is deuteranomaly at full severity — the most common deficiency, shown at
+    /// the endpoint where the effect is clearest.
+    var cvdDeficiency: ColorVisionDeficiency = .deuteranomaly
+    var cvdSeverity: Double = 1
 
     private(set) var recents: [RecentColor] = []
 

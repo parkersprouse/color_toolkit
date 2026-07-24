@@ -37,6 +37,8 @@ struct ContentView: View {
                 PickerPanel()
             case .contrast:
                 ContrastPanel()
+            case .cvd:
+                CVDPanel()
             }
         }
         .frame(minWidth: 520, minHeight: 460)
