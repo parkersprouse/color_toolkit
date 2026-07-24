@@ -26,6 +26,10 @@ struct TransformPanel: View {
     @State private var adjustment = OKLCHAdjustment.identity
     @State private var curve = LightnessCurve.identity
 
+    /// How far the contrast section has pushed the color away from the background.
+    /// Panel state for the same reason as `adjustment` — an unfinished edit.
+    @State private var push = 0.0
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
@@ -246,7 +250,8 @@ struct TransformPanel: View {
         return VStack(alignment: .leading, spacing: 12) {
             sectionHeading(
                 "Make it legible",
-                note: "Moves lightness only, so the color keeps its hue and its chroma."
+                note: "Push it by hand or jump to a target. Both move lightness only, so "
+                    + "the color keeps its hue and its chroma."
             )
 
             Picker("Target", selection: $store.contrastTarget) {
@@ -291,6 +296,8 @@ struct TransformPanel: View {
                     .font(.system(.callout, design: .monospaced))
                     .accessibilityIdentifier("transformCurrentRatio")
             }
+
+            pushControl(color: color, background: background)
 
             if color.meets(store.contrastTarget, on: background) {
                 Label(
@@ -342,6 +349,69 @@ struct TransformPanel: View {
                 }
             }
         }
+    }
+
+    /// The manual half of the contrast tool: drag, and watch the ratio move.
+    ///
+    /// Right is always *more* contrast, whichever polarity the pair is — the direction
+    /// comes from ``ContrastSolver/awayFromBackground(for:on:)`` rather than from a fixed
+    /// sign, so this control means the same thing for dark text on light and for light
+    /// text on dark. Dragging left far enough crosses the background's own luminance and
+    /// the ratio climbs again, which is the V in person and the reason the number beside
+    /// the slider is live rather than derived from the slider's sign.
+    private func pushControl(color: ColorValue, background: ColorValue) -> some View {
+        let pushed = ContrastSolver.pushed(color, on: background, by: push)
+        let ratio = pushed.contrastRatio(with: background)
+        let direction = ContrastSolver.awayFromBackground(for: color, on: background)
+
+        return VStack(alignment: .leading, spacing: 8) {
+            slider(
+                "Push",
+                value: $push,
+                range: -0.4...0.4,
+                caption: push == 0
+                    ? "\(direction.rawValue) is apart"
+                    : "\(ratioText(ratio)) · \(signed(push, decimals: 2)) L"
+            )
+
+            if push != 0 {
+                HStack(spacing: 12) {
+                    sample(text: pushed, background: background)
+                        .frame(maxWidth: 260)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(css(pushed))
+                            .font(.system(.caption, design: .monospaced))
+                            .textSelection(.enabled)
+                            .accessibilityIdentifier("transformPushed")
+                        // Pushing a saturated color toward either end of the lightness
+                        // scale leaves sRGB long before the end, which is why the
+                        // spelling above turns into `color(display-p3 …)` — the app
+                        // declines to spell a wide color as hex. Said out loud here for
+                        // the same reason the Adjust section says it.
+                        if !pushed.inGamut(of: .srgb) {
+                            ColorBadge(text: "outside sRGB")
+                        }
+                        Button("Use it") { apply(pushed) }
+                            .accessibilityIdentifier("transformUsePushed")
+                    }
+                    Spacer()
+                }
+            }
+        }
+    }
+
+    private func sample(text: ColorValue, background: ColorValue) -> some View {
+        Text("The quick brown fox")
+            .font(.system(size: 14, weight: .medium))
+            .foregroundStyle(text.displayColor)
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(background.displayColor, in: RoundedRectangle(cornerRadius: 8))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(.separator.opacity(0.5), lineWidth: 1)
+            )
     }
 
     private func solutionColumn(
@@ -498,6 +568,9 @@ struct TransformPanel: View {
         store.remember()
         adjustment = .identity
         curve = .identity
+        // The push is relative too, so leaving it up would apply the same shove again
+        // to a color that has already taken it.
+        push = 0
     }
 
     /// Display precision, not storage precision — this is a caption, and the string that

@@ -267,6 +267,60 @@ final class TransformSmokeTests: XCTestCase {
         )
     }
 
+    /// The manual half of the contrast tool: drag, and the ratio moves.
+    ///
+    /// `#3b82f6` on white starts at 3.68:1 and the away direction is *darker*, so pushing
+    /// right must raise the ratio. Checked by reading the live figure rather than by
+    /// trusting the slider's sign — which is the whole point of the control, since the
+    /// sign means opposite things in the two polarities.
+    func testPushingRaisesTheLiveRatio() {
+        setField("#3b82f6")
+        click(radioButton: "Transform", "the tool switcher")
+
+        XCTAssertTrue(
+            readout("transformCurrentRatio").contains("3.68"),
+            "Expected the known 3.68:1 starting point"
+        )
+
+        let push = app.sliders["Push"]
+        guard push.waitForExistence(timeout: 15) else {
+            XCTFail("No Push slider. Tree was:\n\(app.debugDescription)")
+            return
+        }
+        // Reading an off-screen element is fine; *dragging* one is not, and this slider
+        // sits well below the fold.
+        scrollDown(8)
+        guard waitUntilHittable(push) else {
+            XCTFail("Push slider never became hittable. Tree was:\n\(app.debugDescription)")
+            return
+        }
+        // The slider spans -0.4...0.4, so 0.9 of the way along is a firm shove apart.
+        push.adjust(toNormalizedSliderPosition: 0.9)
+
+        let pushed = readout("transformPushed")
+        XCTAssertFalse(pushed.isEmpty, "Pushing produced no color")
+        capture("transform-push")
+
+        click(button: "transformUsePushed", "the push apply button")
+        XCTAssertTrue(
+            fieldValue().hasPrefix("oklch("),
+            "Using the pushed color did not write it to the field"
+        )
+        // Pushing apart raises contrast, so the adopted color must beat where it started.
+        // The readout reads "now 14.02:1", so strip both ends rather than just the ":1".
+        let after = readout("transformCurrentRatio")
+        let ratio = Double(
+            after
+                .replacingOccurrences(of: "now ", with: "")
+                .replacingOccurrences(of: ":1", with: "")
+                .trimmingCharacters(in: .whitespaces)
+        ) ?? 0
+        XCTAssertGreaterThan(
+            ratio, 3.68,
+            "Pushing apart did not raise the ratio — it reads \(after)"
+        )
+    }
+
     /// Both directions at once, on a background chosen to make that possible.
     ///
     /// `#757575` is not arbitrary. AA body text is reachable *upward* only while

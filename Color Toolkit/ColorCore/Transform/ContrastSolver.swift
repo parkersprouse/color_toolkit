@@ -69,10 +69,80 @@ nonisolated enum ContrastSolver {
     /// nothing whatsoever beats 5.32:1, so AAA's 7:1 is not "hard" there, it is
     /// unreachable, and a tool that spun looking for it would be lying.
     static func ceiling(against background: ColorValue) -> Double {
+        max(
+            ceiling(against: background, going: .lighter),
+            ceiling(against: background, going: .darker)
+        )
+    }
+
+    /// The best contrast reachable against this background **in one direction**.
+    ///
+    /// The two are wildly asymmetric everywhere except the middle, which is why a UI
+    /// that offers to push a color one way has to ask this rather than
+    /// ``ceiling(against:)``: on a `#1a1a2e` background, going lighter reaches 16:1 while
+    /// going darker manages barely 1.3:1.
+    static func ceiling(
+        against background: ColorValue,
+        going direction: ContrastSolution.Direction
+    ) -> Double {
         let luminance = background.wcagRelativeLuminance
-        let againstBlack = (luminance + flare) / flare
-        let againstWhite = (1 + flare) / (luminance + flare)
-        return max(againstBlack, againstWhite)
+        switch direction {
+        case .lighter: return (1 + flare) / (luminance + flare)
+        case .darker: return (luminance + flare) / flare
+        }
+    }
+
+    /// Which way is *away* from the background — the direction that raises contrast.
+    ///
+    /// A color already lighter than its background gets more legible by getting lighter
+    /// still; one already darker, by getting darker. Deciding this from the colors
+    /// themselves is what lets a "push apart" control mean the same thing in both
+    /// directions, so dragging right raises the ratio whether the text is dark on light
+    /// or light on dark.
+    ///
+    /// On an exact tie there is no side to be on, so the direction with more headroom
+    /// wins — the useful answer rather than an arbitrary one.
+    static func awayFromBackground(
+        for color: ColorValue,
+        on background: ColorValue
+    ) -> ContrastSolution.Direction {
+        let theirs = background.wcagRelativeLuminance
+        let ours = color.wcagRelativeLuminance
+        if ours > theirs { return .lighter }
+        if ours < theirs { return .darker }
+        return ceiling(against: background, going: .lighter)
+            >= ceiling(against: background, going: .darker)
+            ? .lighter
+            : .darker
+    }
+
+    /// This color pushed away from the background along OKLCH lightness.
+    ///
+    /// The manual half of the contrast tool, where ``solutions(for:on:target:resolution:)``
+    /// is the automatic one: rather than naming a ratio and being handed a color, you move
+    /// the color and watch the ratio. Both move lightness alone and neither touches hue or
+    /// chroma, so a color pushed to legibility is still recognizably itself.
+    ///
+    /// - Parameter amount: Lightness to move, positive *away* from the background and
+    ///   negative toward it. Pushing far enough toward the background crosses it and the
+    ///   contrast starts climbing again — the V described above. That is the honest
+    ///   behavior and the reason a caller should show the live ratio rather than assume
+    ///   the slider's sign is the answer.
+    static func pushed(
+        _ color: ColorValue,
+        on background: ColorValue,
+        by amount: Double
+    ) -> ColorValue {
+        guard amount != 0 else { return color }
+        let origin = color.oklchComponents
+        let sign: Double = awayFromBackground(for: color, on: background) == .lighter ? 1 : -1
+        return color.derivedOKLCH(
+            OKLCHComponents(
+                lightness: min(max(origin.lightness + sign * amount, 0), 1),
+                chroma: origin.chroma,
+                hue: origin.hue
+            )
+        )
     }
 
     /// Every direction in which `color` can reach `target` against `background`.

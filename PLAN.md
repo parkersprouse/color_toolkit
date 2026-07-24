@@ -498,10 +498,11 @@ It is also the only assertable surface a `Canvas` can offer a UI test.
 
 ### ✅ M7 — Transform + harmony tools
 
-All computed in **OKLCH** for perceptual evenness. One panel, four sections, and the
-pattern the plan predicted: *view → operates on a `ColorValue` → emits a `ColorValue` or
-`[ColorValue]`.* Every emitted swatch is a button that adopts it, so the sections
-compose — adopt a triad's red and its own triad contains the original blue.
+All computed in **OKLCH** for perceptual evenness. One panel rather than five entries in
+the tool switcher, four sections, and the pattern the plan predicted: *view → operates on
+a `ColorValue` → emits a `ColorValue` or `[ColorValue]`.* Every emitted swatch is a button
+that adopts it, so the sections compose — adopt a triad's red and its own triad contains
+the original blue.
 
 The export sheet is deferred to M8 as planned; until then the output is adopt-into-the-
 field plus the Convert panel's existing copy rows, which is the same destination reached
@@ -548,11 +549,27 @@ one click later.
   *correctness* rule. Because the edge comes from the same predicate the badge uses,
   every stop is in gamut **by construction** rather than by a mapping applied afterwards.
 - **[ContrastSolver.swift](Color%20Toolkit/ColorCore/Transform/ContrastSolver.swift)** —
-  "the nearest color hitting 4.5:1", moving **lightness alone**: hue and chroma are what
-  make a color that color, and a solver free to move them turns "nearest" into a
+  both halves the plan asked for, sharing one set of machinery. The **auto-fix** is "the
+  nearest color hitting 4.5:1"; the **manual push** is a slider that moves the color and
+  reports the ratio live. Both move **lightness alone**: hue and chroma are what make a
+  color that color, and a solver free to move them turns "nearest" into a
   two-dimensional search with no obvious metric. See the two findings above — the V-shape
   that rules out bisecting the ratio, and the `√21` floor that decides when to say
   "impossible" instead of searching.
+- **"Push apart" has to decide its own sign**, or it means opposite things in the two
+  polarities. `awayFromBackground(for:on:)` reads the direction off the pair — a color
+  already lighter than its background gets more legible by getting lighter still — so
+  dragging right raises the ratio whether the text is dark on light or light on dark. On
+  an exact luminance tie there is no side, and the direction with more headroom wins.
+  Those headrooms are wildly asymmetric away from mid-luminance and are their own
+  question: against `#1a1a2e`, going lighter reaches 16:1 while going darker manages
+  1.3:1, hence a per-direction `ceiling(against:going:)` alongside the overall one.
+- **The S-curve is a slider in the Adjust section rather than a fifth tool.** The plan
+  framed it as one of "two separate contrast tools", which was right about the *maths* —
+  it takes no second color — and wrong about the *furniture*: as its own panel it would
+  be one slider on an empty page, and it composes with the other three adjustments, which
+  is where its value actually shows. The separation the plan cared about is preserved
+  where it matters: it is its own type, with no reference to a background anywhere.
 
 **Testing has no oracle here, and that is an advantage.** colorjs.io converts and maps
 but has no notion of a harmony, a ramp or a solver, so — exactly as with

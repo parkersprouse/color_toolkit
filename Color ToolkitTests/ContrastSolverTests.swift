@@ -268,6 +268,101 @@ struct ContrastSolverTests {
         }
     }
 
+    // MARK: - Pushing by hand
+
+    /// "Apart" means the same thing in both polarities, which is the whole point of
+    /// deciding the direction from the colors rather than from a fixed sign.
+    @Test(
+        "Away from the background is away, whichever side you start on",
+        arguments: [
+            // Dark text on a light background pushes darker.
+            (ColorValue.srgb8(0x3b, 0x82, 0xf6), ColorValue.srgb8(0xff, 0xff, 0xff),
+             ContrastSolution.Direction.darker),
+            // Light text on a dark background pushes lighter.
+            (ColorValue.srgb8(0x3b, 0x82, 0xf6), ColorValue.srgb8(0x00, 0x00, 0x00),
+             ContrastSolution.Direction.lighter),
+            (ColorValue.srgb8(0xff, 0xff, 0xff), ColorValue.srgb8(0x80, 0x80, 0x80),
+             ContrastSolution.Direction.lighter),
+            (ColorValue.srgb8(0x11, 0x11, 0x11), ColorValue.srgb8(0x80, 0x80, 0x80),
+             ContrastSolution.Direction.darker),
+        ]
+    )
+    func directionFollowsTheColors(
+        color: ColorValue,
+        background: ColorValue,
+        expected: ContrastSolution.Direction
+    ) {
+        #expect(ContrastSolver.awayFromBackground(for: color, on: background) == expected)
+    }
+
+    /// The defining property of the push control: dragging right always raises the ratio,
+    /// no matter which polarity the pair is. A fixed "lighter means more contrast" sign
+    /// would fail half of these.
+    @Test(
+        "Pushing apart raises the ratio in both polarities",
+        arguments: [
+            ColorValue.srgb8(0xff, 0xff, 0xff),
+            ColorValue.srgb8(0x00, 0x00, 0x00),
+            ColorValue.srgb8(0x80, 0x80, 0x80),
+            ColorValue.srgb8(0x1a, 0x1a, 0x2e),
+        ]
+    )
+    func pushingApartRaisesTheRatio(background: ColorValue) {
+        var previous = Self.blue.contrastRatio(with: background)
+        for step in 1...20 {
+            let pushed = ContrastSolver.pushed(
+                Self.blue, on: background, by: Double(step) / 40
+            )
+            let ratio = pushed.contrastRatio(with: background)
+            #expect(
+                ratio >= previous - 1e-6,
+                "push \(Double(step) / 40) dropped the ratio from \(previous) to \(ratio)"
+            )
+            previous = ratio
+        }
+    }
+
+    @Test("A push of nothing changes nothing")
+    func zeroPushIsIdentity() {
+        #expect(ContrastSolver.pushed(Self.blue, on: Self.white, by: 0) == Self.blue)
+    }
+
+    @Test("Pushing keeps hue and chroma, like every transform here")
+    func pushingOnlyMovesLightness() {
+        let origin = Self.blue.oklchComponents
+        let pushed = ContrastSolver.pushed(Self.blue, on: Self.white, by: 0.2)
+            .oklchComponents
+
+        #expect(abs(pushed.chroma - origin.chroma) < 1e-12)
+        #expect(abs(pushed.hue - origin.hue) < 1e-9)
+        #expect(abs(pushed.lightness - (origin.lightness - 0.2)) < 1e-12)
+    }
+
+    /// Lightness has ends, so a push runs out rather than running off.
+    @Test("A push past the end of the scale clamps")
+    func pushingClamps() {
+        let far = ContrastSolver.pushed(Self.blue, on: Self.white, by: 5)
+        #expect(far.oklchComponents.lightness == 0)
+        #expect(abs(far.contrastRatio(with: Self.white) - 21) < 1e-9)
+    }
+
+    /// The per-direction ceilings are wildly asymmetric away from mid-luminance, which is
+    /// exactly why a push control has to ask for one rather than for the overall figure.
+    @Test("Each direction has its own ceiling")
+    func directionalCeilings() {
+        let navy = ColorValue.srgb8(0x1a, 0x1a, 0x2e)
+        let lighter = ContrastSolver.ceiling(against: navy, going: .lighter)
+        let darker = ContrastSolver.ceiling(against: navy, going: .darker)
+
+        #expect(lighter > 15, "expected plenty of headroom upward, got \(lighter)")
+        #expect(darker < 2, "expected almost none downward, got \(darker)")
+        #expect(ContrastSolver.ceiling(against: navy) == max(lighter, darker))
+
+        // And each really is reached by the corresponding extreme.
+        #expect(abs(Self.white.contrastRatio(with: navy) - lighter) < 1e-9)
+        #expect(abs(Self.black.contrastRatio(with: navy) - darker) < 1e-9)
+    }
+
     // MARK: - Why the solver does not bisect the ratio
 
     /// **The measured fact the solver's design rests on, pinned so nobody "simplifies"
