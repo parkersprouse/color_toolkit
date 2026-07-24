@@ -53,12 +53,18 @@ enum ScreenSampler {
     /// Pure and `nonisolated` on purpose: this is the part worth testing, and a
     /// `@MainActor` bridge would drag every test that touches it onto the main actor.
     ///
-    /// - Note: ColorSync converts through the display's ICC profile, whose primaries
-    ///   differ slightly from the idealized matrices in CSS Color 4. Measured against
-    ///   colorjs.io, a same-primaries conversion agrees to ΔEOK ~3.6e-8, and a
-    ///   cross-primaries one (P3 → sRGB) to ~3.4e-5 — three orders of magnitude below
-    ///   a just-noticeable difference, but not zero. A sampled color is therefore as
-    ///   exact as the system's own color management, not as exact as arithmetic.
+    /// - Note: A sampled color is as exact as the system's color management, not as
+    ///   exact as arithmetic, and the two ways it falls short differ by a thousandfold.
+    ///   Measured against colorjs.io 0.7.0:
+    ///
+    ///   - **Same primaries** (sRGB → linear sRGB): ΔEOK 3.3e-8. This is ColorSync's
+    ///     float32 pipeline showing through — the components differ by 1.1e-7 at a
+    ///     value of 0.92, which is exactly one `Float` ulp there. Nothing else is lost.
+    ///   - **Across primaries** (P3 → sRGB): ΔEOK 3.4e-5, from the display profile's
+    ///     primaries not matching CSS Color 4's idealized matrices.
+    ///
+    ///   Both sit far under a just-noticeable difference of 0.02, but neither is zero,
+    ///   so tests here assert a tolerance rather than equality.
     nonisolated static func colorValue(from nsColor: NSColor) -> ColorValue? {
         for (nsSpace, space) in readingSpaces {
             guard let nsSpace, let converted = nsColor.usingColorSpace(nsSpace) else { continue }

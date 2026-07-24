@@ -39,7 +39,7 @@ struct ScreenSamplerTests {
     /// idealized matrices. They are not the same numbers, so a sampled color is as
     /// exact as the system's color management rather than as exact as arithmetic —
     /// worth measuring rather than assuming.
-    @Test("Bridged P3 red matches the reference to within ColorSync's own disagreement")
+    @Test("Bridged P3 red matches the reference to within ColorSync's own error")
     func wideGamutMatchesReference() throws {
         let bridged = try #require(ScreenSampler.colorValue(from: p3Red))
 
@@ -51,9 +51,10 @@ struct ScreenSamplerTests {
             -0.01963755459033439
         )
 
-        // Measured at 3.4e-5 — three orders of magnitude under a just-noticeable
-        // difference of 0.02, but a thousand times looser than the same-primaries
-        // path below. Cross-primaries conversion is where the profiles differ.
+        // Measured at 3.4e-5 — far under a just-noticeable difference of 0.02, but a
+        // thousand times looser than the same-primaries path below, which comes in at
+        // 3.3e-8. Crossing primaries is where the display profile and the spec's
+        // matrices actually disagree; staying inside them costs only float32.
         #expect(bridged.deltaEOK(to: reference) < 1e-4)
     }
 

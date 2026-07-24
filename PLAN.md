@@ -58,11 +58,14 @@
 >   is why most Mac eyedroppers lie about vivid colors. Sampled colors are read into
 >   **linear extended sRGB** instead (sRGB primaries, no transfer function, components
 >   free to leave 0–1), which lands directly on `ColorSpace.srgbLinear`.
-> - **ColorSync is not the CSS spec.** It converts through the display's ICC profile,
->   whose primaries differ slightly from CSS Color 4's idealized matrices. Measured
->   against colorjs.io: same-primaries agrees to ΔEOK 3.6e-8, cross-primaries (P3 →
->   sRGB) to 3.4e-5. Both far under a 0.02 JND, but a sampled color is only as exact as
->   the system's color management — assert against it with a tolerance, not zero.
+> - **ColorSync is not the CSS spec, and falls short in two different ways.** Measured
+>   against colorjs.io 0.7.0: same-primaries (sRGB → linear sRGB) agrees to ΔEOK
+>   **3.3e-8**, cross-primaries (P3 → sRGB) only to **3.4e-5** — a thousandfold gap.
+>   The small one is just ColorSync's **float32** pipeline (components differ by 1.1e-7
+>   at a value of 0.92, exactly one `Float` ulp); the large one is the display's ICC
+>   primaries genuinely differing from CSS Color 4's idealized matrices. Both sit far
+>   under a 0.02 JND, but a sampled color is only ever as exact as the system's color
+>   management — assert a tolerance, never equality.
 > - **Storage precision and display precision are different settings.** `ColorStore`
 >   keeps *text* as its source of truth, so an adopted color is serialized and
 >   immediately re-parsed; anything the spelling rounds or gamut-maps is gone for good.
