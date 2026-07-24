@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A native macOS color toolkit for web development. Built: CSS Color 4 parsing and
 conversion across 14 spaces, a menu bar panel, a screen eyedropper with a global
-shortcut, WCAG 2.2 / APCA contrast checking, and a gamut-aware HSV/OKLCH picker.
-Planned: transforms and harmonies, CSS export, saved projects. Swift 6, SwiftUI, no
-third-party runtime dependencies.
+shortcut, WCAG 2.2 / APCA contrast checking, a gamut-aware HSV/OKLCH picker, and OKLCH
+transforms — adjustment, harmonies, shade ramps and a contrast solver. Planned: CSS
+export, saved projects. Swift 6, SwiftUI, no third-party runtime dependencies.
 
 **[PLAN.md](PLAN.md) is the source of truth** for milestone status, what is deferred
 and why, and the reasoning behind every decision recorded below. This file is the
@@ -87,8 +87,9 @@ Layered so the numeric core stays independently testable and UI-free:
 - **`ColorCore/`** — pure value types, no AppKit, no SwiftUI. `ColorValue` +
   `ColorSpace`, 14 spaces routed through XYZ D65, CSS Color 4 §13 gamut mapping,
   a hand-written recursive-descent CSS parser, a serializer, `Analysis/`
-  (WCAG 2.2 and APCA contrast), and `Convert/GamutBoundary.swift` (how much chroma
-  a lightness and hue have left).
+  (WCAG 2.2 and APCA contrast), `Convert/GamutBoundary.swift` (how much chroma
+  a lightness and hue have left), and `Transform/` (relative adjustment, the S-curve,
+  harmonies, shade ramps, the contrast solver — all in OKLCH).
 - **`Features/Shell/ColorStore.swift`** — `@MainActor @Observable`, one instance
   injected into both scenes (menu bar + window). Holds a *pair* of `ColorField`s
   (foreground + background) and which `Tool` the window is showing.
@@ -145,7 +146,33 @@ Layered so the numeric core stays independently testable and UI-free:
   at `L = 0` that buys 0.041 of *chroma*. The boundary is strict, the badge forgiving.
 - **HSV is not a `ColorSpace` case and must not become one** — CSS has no `hsv()`, so
   a case would leak into the parser, serializer, catalog and every `allCases` loop.
-  It is `ColorCore/Convert/HSV.swift`, a coordinate on the side.
+  It is `ColorCore/Convert/HSV.swift`, a coordinate on the side. `OKLCHComponents` in
+  `Transform/Adjustment.swift` is the same idea for the same reason.
+- **Harmonies are never gamut-mapped; ramp stops always are.** These look like one
+  decision and are opposite ones. A hue rotation that leaves sRGB is the honest answer
+  and the badge exists to say so — mapping it returns a "complement" that is not the
+  complement. A `ShadeRamp` is a set built to be used together, so every stop is held
+  inside `GamutBoundary`'s edge. Both are pinned by tests, including one asserting that
+  a constant-chroma ramp really does escape the gamut; if that stops failing, the ramp
+  has lost its reason to exist.
+- **`ShadeRamp` clamps a stop only when `inGamut` says no.** Not a shortcut: clamping
+  unconditionally moves the base off itself by up to a search step (so it no longer
+  comes out of its own ramp), and for an unbounded gamut `maxChroma` returns `.infinity`
+  and every chroma becomes infinite.
+- **Transforms return OKLCH, never the input's space.** A round trip through hex
+  quantizes onto the 8-bit grid, so a sub-1/255 nudge returns the original; and results
+  that leave sRGB have no honest spelling in a bounded format. `TransformPanel` therefore
+  adopts with `preferring: .oklch`.
+- **Never bisect the contrast ratio — it is a V, not a monotone curve.** Against a
+  mid-tone background contrast falls to 1:1 as the color crosses the background's
+  luminance and rises again, so a target has two crossings and bisection lands on
+  whichever the bracket straddled. `ContrastSolver` inverts the ratio into a target
+  *luminance* (which is monotone in lightness) and bisects that, keeping the passing end
+  so the result provably satisfies `meets`. Do not "simplify" this.
+- **The contrast ceiling's floor is `√21 ≈ 4.5826`**, so AA body text is reachable
+  against every background and only AAA can be impossible. The worst-case background
+  falls between 8-bit grays 117 and 118, so a hex sweep cannot find it — the test
+  constructs it.
 - The picker's axes are the source of truth during interaction, not the store. It
   writes on every change and re-seeds only when the field's text differs from what it
   last wrote — a boolean "am I writing" flag does not work, because observation fires
@@ -163,7 +190,18 @@ tests structurally cannot reach — rendering. See the header of
 the accessibility-tree conventions before writing UI tests.
 
 - A green test is not a test that tests anything. Confirm a new regression test
-  **fails against the unfixed code** before trusting it.
+  **fails against the unfixed code** before trusting it. For a *new* feature with no bug
+  to regress against, mutate the feature instead — every load-bearing claim in
+  `Transform/` was checked that way, which is what proved the ramp's conditional clamp
+  is a correctness rule and not an optimization.
+- **`Transform/` and `GamutBoundary` have no oracle, deliberately.** colorjs.io has no
+  notion of a harmony, a ramp or a solver, so assert the *property* (a hue exactly 180°
+  away, every stop in gamut, the answer passes `meets` and one step back fails) rather
+  than recorded output — which stays true if the arithmetic is rewritten. The
+  conversions underneath are oracle-validated already; do not re-test them here.
+- **Swatch buttons carry their CSS as an `accessibilityLabel`.** A colored rectangle
+  says nothing to VoiceOver *or* to XCUITest, so a row of derived colors is otherwise
+  untestable — and a harmony that emitted one color three times would pass.
 - **Never write a fallback chain of XCUITest queries.** One named query, and dump
   `app.debugDescription` on failure. A chain that silently matches on index is a test
   that cannot fail — one hid a picker announcing its SF Symbol name to VoiceOver.

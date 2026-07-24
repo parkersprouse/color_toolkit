@@ -1,10 +1,18 @@
 # Color Toolkit — Implementation Plan
 
-> **Status (2026-07-24): M0–M6 and M5b (CVD) complete, every milestone reviewed on the
+> **Status (2026-07-24): M0–M7 and M5b (CVD) complete, every milestone reviewed on the
 > running app and the full suite green.** ColorCore is validated against **colorjs.io
 > 0.7.0** (pinned exact) — 6,384 conversions, 1,368 gamut mappings and 108 contrast
-> pairs — plus independent definitional anchors, and now **405 CVD vectors** over
-> Machado's Table 1. Next up: **M7 (transforms and harmonies)**.
+> pairs — plus independent definitional anchors, and **405 CVD vectors** over
+> Machado's Table 1. Next up: **M8 (export)**.
+>
+> M7's harmonies were checked against the reference from the panel's own screenshots:
+> adopting the triad member of `#3b82f6` writes
+> `oklch(0.6230830326 0.1880147345 19.81452853)`, and colorjs.io agrees to ten decimals
+> — lightness and chroma preserved exactly, hue rotated 120° and wrapped past 360. Its
+> hex, `#e24956`, matches the panel's own readout. The transforms themselves have **no
+> oracle** (colorjs.io has no notion of a harmony, a ramp or a solver), so they are
+> tested definitionally, the way the gamut boundary is.
 >
 > M5b's matrices were confirmed against three independent copies of Machado's Table 1
 > (see the finding below), and the panel was reviewed on the running app: pure red
@@ -197,6 +205,40 @@
 > - **Rows of every Table 1 matrix sum to ~1 (to 1e-6), so grays are invariant.** A
 >   neutral confuses no cones, and the matrices encode that — a useful free invariant
 >   the tests pin, and a quick check that the right numbers loaded.
+> - **Contrast is not monotonic in lightness — it is a V — so a solver must not bisect
+>   it.** Walking OKLCH lightness upward against a mid-tone background, the ratio *falls*
+>   to 1:1 as the color passes through the background's own luminance and rises again
+>   beyond it. Every target therefore has **two** crossings, and a bisection on the ratio
+>   converges on whichever branch its initial bracket happened to straddle — silently
+>   returning the further answer half the time. Measured over 215,000 samples: every one
+>   of the 216 multi-crossing cases had a mid-tone background, and none had white or
+>   black. Relative *luminance* is monotonic in lightness (the only backwards steps were
+>   5e-5 of gamut-mapper jitter), so the solver inverts the target ratio into the two
+>   luminances that produce it and bisects each. The inversion is algebraically exact, so
+>   keeping the bracket's passing end returns a color that provably satisfies `meets`.
+> - **The contrast ceiling has a floor, and it is exactly `√21 ≈ 4.5826`.** Against any
+>   background the best available ratio is the better of black and white — `(l+0.05)/0.05`
+>   rising, `1.05/(l+0.05)` falling — and they cross where `(l+0.05)² = 0.0525`, at
+>   luminance `0.1791`. So **AA body text (4.5:1) is reachable against every background
+>   that exists**, by a margin of 0.08, and only AAA's 7:1 can be genuinely impossible.
+>   Against a mid-gray `#808080` nothing beats 5.32:1. The worst-case background sits at
+>   channel `0.4604`, between the 8-bit grays 117 and 118 — so a sweep over hex colors
+>   cannot land on it, and the test constructs it instead. A corollary the UI uses: the
+>   band where AA is solvable in *both* directions is the sliver of luminance `0.175`
+>   to `0.1833` either side of that crossover.
+> - **Harmonies must not be gamut-mapped; ramps must be.** They look like the same
+>   decision and are opposite ones. Rotating a vivid hue routinely leaves sRGB — the
+>   gamut is nothing like a cylinder, so a chroma that fits at one hue may not fit at
+>   another — and pulling the result in hands back a "complement" that is not the
+>   complement, so harmonies stay exact and the badge does its job. A ramp is the other
+>   case: it is a set built to be *used together*, and a constant-chroma one leaves the
+>   gamut at both ends (asserted, so the premise cannot rot), gets clipped on the way to
+>   the screen, and clipping shifts hue.
+> - **Clamping a ramp stop only when it needs it is not an optimization.** Clamping
+>   unconditionally moves the chosen color off itself by up to one search step — so it
+>   would no longer come out of its own ramp bit-for-bit — and in an unbounded gamut,
+>   where `maxChroma` correctly answers `.infinity`, it would set every chroma to
+>   infinity. Both failure modes were confirmed by mutation.
 
 ## Context
 
@@ -206,7 +248,7 @@ The single thing that determines whether this tool is worth relying on is **conv
 
 ### Current state
 
-M0–M3 are built. The stock SwiftData template (`Item.swift`, the `NavigationSplitView` list) is gone; what stands now is:
+M0–M7 are built. The stock SwiftData template (`Item.swift`, the `NavigationSplitView` list) is gone; what stands now is:
 
 | Layer | Files |
 |---|---|
@@ -216,14 +258,17 @@ M0–M3 are built. The stock SwiftData template (`Item.swift`, the `NavigationSp
 | Parse | [CSSTokenizer.swift](Color%20Toolkit/ColorCore/Parse/CSSTokenizer.swift), [ColorSyntax.swift](Color%20Toolkit/ColorCore/Parse/ColorSyntax.swift), [CSSColorParser.swift](Color%20Toolkit/ColorCore/Parse/CSSColorParser.swift) |
 | Format | [CSSFormatter.swift](Color%20Toolkit/ColorCore/Format/CSSFormatter.swift), [FormatCatalog.swift](Color%20Toolkit/ColorCore/Format/FormatCatalog.swift) |
 | Shell | [ColorStore.swift](Color%20Toolkit/Features/Shell/ColorStore.swift), [MenuBarPanel.swift](Color%20Toolkit/Features/Shell/MenuBarPanel.swift), [ContentView.swift](Color%20Toolkit/ContentView.swift) |
-| Analysis | [WCAGContrast.swift](Color%20Toolkit/ColorCore/Analysis/WCAGContrast.swift), [APCAContrast.swift](Color%20Toolkit/ColorCore/Analysis/APCAContrast.swift) |
+| Analysis | [WCAGContrast.swift](Color%20Toolkit/ColorCore/Analysis/WCAGContrast.swift), [APCAContrast.swift](Color%20Toolkit/ColorCore/Analysis/APCAContrast.swift), [CVDSimulation.swift](Color%20Toolkit/ColorCore/Analysis/CVDSimulation.swift), [CVDMatrices.swift](Color%20Toolkit/ColorCore/Analysis/CVDMatrices.swift) (**generated**) |
+| Transform | [Adjustment.swift](Color%20Toolkit/ColorCore/Transform/Adjustment.swift), [LightnessCurve.swift](Color%20Toolkit/ColorCore/Transform/LightnessCurve.swift), [Harmony.swift](Color%20Toolkit/ColorCore/Transform/Harmony.swift), [ShadeRamp.swift](Color%20Toolkit/ColorCore/Transform/ShadeRamp.swift), [ContrastSolver.swift](Color%20Toolkit/ColorCore/Transform/ContrastSolver.swift) |
 | Conversion UI | [ColorInputField.swift](Color%20Toolkit/Features/Conversion/ColorInputField.swift), [ConversionPanel.swift](Color%20Toolkit/Features/Conversion/ConversionPanel.swift), [FormatPresentation.swift](Color%20Toolkit/Features/Conversion/FormatPresentation.swift) |
 | Contrast UI | [ContrastPanel.swift](Color%20Toolkit/Features/Contrast/ContrastPanel.swift) |
 | Picker UI | [PickerState.swift](Color%20Toolkit/Features/Picker/PickerState.swift), [PickerPlane.swift](Color%20Toolkit/Features/Picker/PickerPlane.swift), [PickerPanel.swift](Color%20Toolkit/Features/Picker/PickerPanel.swift) |
+| CVD UI | [CVDPanel.swift](Color%20Toolkit/Features/CVD/CVDPanel.swift) |
+| Transform UI | [TransformPanel.swift](Color%20Toolkit/Features/Transform/TransformPanel.swift) |
 | Design system | [ColorSwatch.swift](Color%20Toolkit/DesignSystem/ColorSwatch.swift), [ColorValue+SwiftUI.swift](Color%20Toolkit/DesignSystem/ColorValue+SwiftUI.swift) |
 | Services | [Clipboard.swift](Color%20Toolkit/Services/Clipboard.swift), [ScreenSampler.swift](Color%20Toolkit/Services/ScreenSampler.swift), [GlobalHotKey.swift](Color%20Toolkit/Services/GlobalHotKey.swift) |
 
-`ColorCore/Transform/` and `Persistence/` exist as empty folders awaiting M7 and M9.
+`Persistence/` exists as an empty folder awaiting M9.
 
 Key facts about the project, established during exploration and still current:
 
@@ -451,16 +496,93 @@ It is also the only assertable surface a `Canvas` can offer a UI test.
 
 *Done, and reviewed on the running app from its own screenshots.*
 
-### M7 — Transform + harmony tools
+### ✅ M7 — Transform + harmony tools
 
-All computed in **OKLCH** for perceptual evenness. Every tool follows one pattern: *view → operates on a `ColorValue` → emits a `ColorValue` or `[ColorValue]` → feeds the shared export sheet.* Adding a tool later means one file, no plumbing.
+All computed in **OKLCH** for perceptual evenness. One panel rather than five entries in
+the tool switcher, four sections, and the pattern the plan predicted: *view → operates on
+a `ColorValue` → emits a `ColorValue` or `[ColorValue]`.* Every emitted swatch is a button
+that adopts it, so the sections compose — adopt a triad's red and its own triad contains
+the original blue.
 
-- Lightness / saturation (chroma) / hue adjustment
-- **Contrast — two separate tools**, per your answer:
-  - *Paired solver:* pin a second color, slide to push apart/together with the live WCAG ratio, plus auto-fix ("nearest color hitting 4.5:1")
-  - *S-curve:* standalone punchiness around mid-gray, no second color
-- Harmonies: complementary (h+180), split-complementary (h±150/210), triad (h±120), tetrad (h+90/180/270), analogous (h±30, configurable), monochromatic
-- **Shade ramp** (chosen color as the middle stop): *a naive constant-chroma lightness ramp pushes the light and dark ends out of gamut.* Taper chroma toward the extremes and gamut-map every step — this is exactly what makes Tailwind-style ramps look right.
+The export sheet is deferred to M8 as planned; until then the output is adopt-into-the-
+field plus the Convert panel's existing copy rows, which is the same destination reached
+one click later.
+
+- **[Adjustment.swift](Color%20Toolkit/ColorCore/Transform/Adjustment.swift)** —
+  `OKLCHComponents` (the coordinate every transform works in, mirroring `HSVComponents`)
+  and `OKLCHAdjustment`. **Relative, not absolute**, which is what stops it being the M6
+  picker twice: the picker already sets L, C and h outright, and what it cannot do is
+  *transform* — a little lighter, a little less saturated, thirty degrees round. Each
+  axis gets the operator it deserves, and they are not interchangeable: lightness **adds**
+  (it is perceptually uniform on a fixed `0…1` scale), chroma **multiplies** (no upper
+  bound, and its useful range depends on both lightness and hue, so `+0.05` would be
+  noise on a vivid color and a doubling on a muted one), hue **adds and wraps** (it is an
+  angle).
+- **Results stay in OKLCH rather than returning to the input's space.** A round trip back
+  to `#3b82f6` would quantize onto the 8-bit grid — a nudge finer than 1/255 would return
+  the color you started with — and half of these transforms leave sRGB anyway, where a
+  bounded format has no honest spelling. The picker learned the same lesson in M6, and
+  the panel writes at `.lossless` for the same reason the eyedropper does.
+- **[LightnessCurve.swift](Color%20Toolkit/ColorCore/Transform/LightnessCurve.swift)** —
+  the S-curve: contrast with no second color in it. The pivot is **fixed at `L = 0.5`**
+  rather than configurable, and that is what buys the good behavior: exact symmetry,
+  fixed points at black/mid-gray/white, and an exact inverse. Opposite strengths cancel
+  to 1e-12 because the strength maps *exponentially* onto the exponent (`3^s`), so `+0.5`
+  and `−0.5` are reciprocal gammas; a linear mapping would fail to cancel. Its real use
+  is on a **set** — it widens a ramp's ends while holding its order and its midpoint,
+  which a lightness offset cannot do, because an offset slides a ramp where a curve
+  stretches it.
+- **[Harmony.swift](Color%20Toolkit/ColorCore/Transform/Harmony.swift)** — the six, at
+  the classic angles but turned on OKLCH's wheel. That choice is the whole point:
+  rotate 180° in HSL and a saturated blue's "complement" comes back a dim mustard,
+  because HSL's hue is a raw RGB angle in which equal degrees are wildly unequal steps.
+  Monochromatic is the odd one out — one hue, many lightnesses — so it delegates to
+  `ShadeRamp` rather than reimplementing a lightness family worse.
+- **A gray has no relatives, and the arithmetic says so.** Every hue harmony of
+  `#808080` returns the same gray repeated, which is correct — there is no third color
+  related to a neutral by 120° — so the panel says it in words rather than showing five
+  identical swatches with no explanation.
+- **[ShadeRamp.swift](Color%20Toolkit/ColorCore/Transform/ShadeRamp.swift)** — the two
+  rules do different jobs and both are needed. Tapering chroma toward the ends is the
+  *aesthetic* rule (light stops read as tints rather than as the same ink at a higher
+  lightness); holding every stop at or inside the `GamutBoundary` edge is the
+  *correctness* rule. Because the edge comes from the same predicate the badge uses,
+  every stop is in gamut **by construction** rather than by a mapping applied afterwards.
+- **[ContrastSolver.swift](Color%20Toolkit/ColorCore/Transform/ContrastSolver.swift)** —
+  both halves the plan asked for, sharing one set of machinery. The **auto-fix** is "the
+  nearest color hitting 4.5:1"; the **manual push** is a slider that moves the color and
+  reports the ratio live. Both move **lightness alone**: hue and chroma are what make a
+  color that color, and a solver free to move them turns "nearest" into a
+  two-dimensional search with no obvious metric. See the two findings above — the V-shape
+  that rules out bisecting the ratio, and the `√21` floor that decides when to say
+  "impossible" instead of searching.
+- **"Push apart" has to decide its own sign**, or it means opposite things in the two
+  polarities. `awayFromBackground(for:on:)` reads the direction off the pair — a color
+  already lighter than its background gets more legible by getting lighter still — so
+  dragging right raises the ratio whether the text is dark on light or light on dark. On
+  an exact luminance tie there is no side, and the direction with more headroom wins.
+  Those headrooms are wildly asymmetric away from mid-luminance and are their own
+  question: against `#1a1a2e`, going lighter reaches 16:1 while going darker manages
+  1.3:1, hence a per-direction `ceiling(against:going:)` alongside the overall one.
+- **The S-curve is a slider in the Adjust section rather than a fifth tool.** The plan
+  framed it as one of "two separate contrast tools", which was right about the *maths* —
+  it takes no second color — and wrong about the *furniture*: as its own panel it would
+  be one slider on an empty page, and it composes with the other three adjustments, which
+  is where its value actually shows. The separation the plan cared about is preserved
+  where it matters: it is its own type, with no reference to a background anywhere.
+
+**Testing has no oracle here, and that is an advantage.** colorjs.io converts and maps
+but has no notion of a harmony, a ramp or a solver, so — exactly as with
+`GamutBoundary` — the tests assert the *properties* the results must have rather than
+recorded output: a hue exactly 180° away, a chroma preserved to the last bit, every ramp
+stop in gamut, and, for the solver, that the answer passes `meets` **and** that stepping
+back toward the original fails. Every load-bearing claim was confirmed by mutation:
+removing the ramp's clamp fails three tests, dropping its exact fast path fails two,
+gamut-mapping harmonies fails four, and keeping the solver's failing bracket end fails
+five.
+
+*Done, and reviewed on the running app from its own screenshots — see the status note
+above for the colorjs.io cross-check of an adopted triad member.*
 
 ### M8 — Export
 
@@ -489,7 +611,8 @@ Per milestone:
 - **M1/M2 (core):** `xcodebuild test` — parameterized tests against the colorjs.io fixture; round-trip idempotency; gamut-mapping boundary cases (`L≥1` → white, `L≤0` → black, in-gamut colors unchanged).
 - **M5:** two different standards of proof, because the oracle only covers one of them. **APCA** is validated against colorjs.io directly (`node Tools/generate-contrast-fixtures.mjs`) at 1e-9, both polarities — real external validation, since the Swift is transcribed from that package. **WCAG** cannot be, because colorjs.io implements a different definition; correctness there comes from anchors that hold under any variant (`#000` on `#fff` = 21:1, a color against itself = 1:1) plus one pair chosen to *disagree* between the definitions, asserted both ways round.
 - **M6:** the plane is a `Canvas`, so nothing about the pixels reaches the accessibility tree — the numeric readout is the assertable surface, and the boundary figures it prints were checked against the oracle from the panel's own screenshots. See [PickerSmokeTests](Color%20ToolkitUITests/PickerSmokeTests.swift).
-- **M3/M4/M7–M9 (UI):** run the app and verify interactively. Spot-check conversions against a browser's DevTools color picker, which implements the same spec — a fast, honest end-to-end sanity check.
+- **M7:** the transforms have no oracle, so ColorCore asserts their defining properties and every load-bearing one was confirmed by mutation (see the milestone above). What *can* be cross-checked is the pipeline end to end, and was: the OKLCH string the panel wrote after adopting a triad member agrees with colorjs.io to ten decimals. See [TransformSmokeTests](Color%20ToolkitUITests/TransformSmokeTests.swift), where each derived swatch is a button labelled with its own CSS — the only handle a test has on a row of colored rectangles, and the thing a bare swatch owes VoiceOver anyway.
+- **M3/M4/M8–M9 (UI):** run the app and verify interactively. Spot-check conversions against a browser's DevTools color picker, which implements the same spec — a fast, honest end-to-end sanity check.
 
 The scheme is shared and works from the command line:
 

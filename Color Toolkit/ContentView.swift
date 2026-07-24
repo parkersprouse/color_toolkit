@@ -35,6 +35,8 @@ struct ContentView: View {
                 }
             case .pick:
                 PickerPanel()
+            case .transform:
+                TransformPanel()
             case .contrast:
                 ContrastPanel()
             case .cvd:
