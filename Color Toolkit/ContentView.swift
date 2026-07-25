@@ -27,8 +27,8 @@ struct ContentView: View {
       // and the window title alone spends that twice over. Six segments crossed
       // the line and macOS swept the entire switcher into a "more toolbar items"
       // overflow menu, taking every tool with it, at a window size well above the
-      // 520pt minimum. M9 adds a seventh, so raising the minimum would only defer
-      // it.
+      // 520pt minimum. Raising the minimum would only have deferred it — M9 added a
+      // seventh segment, and all seven fit here.
       //
       // Text, not `Label`. A segmented control renders a `Label` icon-only and
       // then hands VoiceOver the SF Symbol name — the picker literally announced

@@ -253,7 +253,73 @@ struct ProjectStoreTests {
     #expect(project.modifiedAt > before)
   }
 
+  /// The claim the whole milestone rests on, and the only test here that leaves memory.
+  ///
+  /// Every other test in this file uses `isStoredInMemoryOnly`, which proves round
+  /// tripping *within* a context and structurally cannot prove that anything survives the
+  /// app being quit — the thing "saved projects" actually means. So this one writes to a
+  /// real SQLite store, drops the container entirely, opens a second one over the same
+  /// file and reads it back.
+  ///
+  /// Both halves of the store's meaning are checked: `rebeccapurple` for the spelling,
+  /// and the ramp for order, since ``SavedColor/sortIndex`` is doing its work across a
+  /// genuine reopen here rather than across one in-memory fetch.
+  ///
+  /// The temp path is a *directory*, not a bare file. SQLite writes `-wal` and `-shm`
+  /// sidecars beside the store, and removing only the `.store` would leave state behind
+  /// that could make a later run pass for the wrong reason.
+  @Test("A saved project survives the store closing and reopening")
+  func dataSurvivesAReopen() throws {
+    let directory = URL.temporaryDirectory
+      .appending(path: "m9-reopen-\(UUID().uuidString)", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let url = directory.appending(path: "projects.store")
+
+    let purple = try #require(CSSColorParser.parse("rebeccapurple").color)
+    let base = try #require(CSSColorParser.parse("#3b82f6").color)
+    let stops = ShadeRamp.default.generated(from: base)
+
+    // Scoped so the container is released before the second one opens the same file.
+    do {
+      let library = try ProjectLibrary(ModelContext(Self.makeContainer(at: url)))
+      let project = try library.createProject(named: "Site")
+      try library.saveColor(ColorRecord(purple, text: "rebeccapurple"), named: "Brand", to: project)
+      try library.savePalette(
+        zip(PaletteNaming.rampKeys(count: stops.count), stops)
+          .map { PaletteEntry(key: $0, color: $1) },
+        named: "Brand",
+        kind: .ramp,
+        to: project,
+      )
+    }
+
+    let library = try ProjectLibrary(ModelContext(Self.makeContainer(at: url)))
+    let project = try #require(try library.projects().first)
+    #expect(project.name == "Site")
+
+    let color = try #require(project.orderedColors.first)
+    #expect(color.text == "rebeccapurple")
+    #expect(color.colorValue == purple)
+    #expect(color.name == "Brand")
+
+    let palette = try #require(project.orderedPalettes.first)
+    #expect(palette.kind == .ramp)
+    #expect(palette.paletteEntries.map(\.key) == PaletteNaming.tailwindScale)
+    for (saved, source) in zip(palette.paletteEntries.map(\.color), stops) {
+      #expect(saved.deltaEOK(to: source) < 1e-9)
+    }
+  }
+
   // MARK: Private
+
+  /// A store on disk, for the one test that has to leave memory.
+  private static func makeContainer(at url: URL) throws -> ModelContainer {
+    try ModelContainer(
+      for: PersistenceStack.schema,
+      configurations: ModelConfiguration(schema: PersistenceStack.schema, url: url),
+    )
+  }
 
   /// A container that exists only for the duration of one test. Nothing here may touch
   /// the store the app itself writes to.

@@ -277,7 +277,7 @@ Layered so the numeric core stays independently testable and UI-free:
   switcher into a *"more toolbar items"* overflow menu — every tool gone, at a window
   745pt wide. Principal placement is *centered*, so its budget is
   `width − 2 × max(leading, trailing)`, and the window title alone spends that twice
-  over. Do not move it back; M9 adds a seventh tool.
+  over. Do not move it back — M9 added a seventh segment, and all seven fit in the body.
 - **A ramp stop on the gamut boundary can round outward at display precision.** The
   printed `oklch(0.97 0.0142 259.81)` is 2.3e-5 of chroma past a boundary at `0.014177`,
   so the *string* is out of sRGB while the `ColorValue` is inside. Worst case across hues
@@ -309,6 +309,11 @@ Layered so the numeric core stays independently testable and UI-free:
   `ProjectsSmokeTests`. Without it XCUITest writes into the real library and the next run
   finds it. The argument carries no leading hyphen on purpose; `NSUserDefaults` claims
   anything that starts with one.
+- **An in-memory container cannot test persistence.** It proves round tripping inside one
+  context and says nothing about surviving a quit, which is what "saved" means — so
+  `dataSurvivesAReopen` writes a real store, drops the container and reopens it. Use a
+  temp *directory*: SQLite leaves `-wal` and `-shm` beside the file, and removing only
+  the `.store` leaves state that can make the next run pass for the wrong reason.
 - New tool panels: add a `Tool` case, a folder under `Features/`, and a branch in
   `ContentView`. Keep spec facts in ColorCore and wording in the panel — see
   `RequirementPresentation`.

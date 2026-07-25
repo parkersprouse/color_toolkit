@@ -1,9 +1,9 @@
 # Color Toolkit — Implementation Plan
 
 > **Status (2026-07-25): M0–M9 and M5b (CVD) complete — every planned milestone is
-> built, each reviewed on the running app, and the full suite is green** — **281 Swift
-> Testing functions across 33 suites plus 22 XCUITests**, 303 test functions in total,
-> which expand to 536 individual cases once parameterized arguments are counted.
+> built, each reviewed on the running app, and the full suite is green** — **282 Swift
+> Testing functions across 33 suites plus 22 XCUITests**, 304 test functions in total,
+> which expand to 537 individual cases once parameterized arguments are counted.
 > ColorCore is validated against **colorjs.io 0.7.0** (pinned exact) — 6,384
 > conversions, 1,368 gamut mappings and 108 contrast pairs — plus independent
 > definitional anchors, and **405 CVD vectors** over Machado's Table 1. What remains is
@@ -650,9 +650,10 @@ are complements, and a test pins that.
 Decisions worth recording:
 
 - **"A whole palette" means the sets the app already has**: the harmony, the ramp, and
-  recents. There is no `Palette` type, deliberately — that is M9's, and inventing one
-  here to have something to point at would be building the next milestone early and
-  worse.
+  recents. There was no `Palette` type at this point, deliberately — it belonged to M9,
+  and inventing one here to have something to point at would have been building the next
+  milestone early and worse. M9 added it, and adding the saved-palette source afterwards
+  cost exactly one enum case, which is the evidence the seam was drawn in the right place.
 - **Keys are a correctness problem, not a naming one.** A palette entry's key becomes a
   CSS identifier *and* a JavaScript object key, and the two have different rules:
   Tailwind writes shade keys bare because `50:` is a legal numeric key, but a bare
@@ -691,7 +692,7 @@ items"* overflow menu — taking every tool with it, not just Export — at a wi
 wide, well above the 520pt minimum. `ToolbarItem(placement: .principal)` is *centered*,
 so its width budget is not the toolbar's spare room but `width − 2 × max(leading,
 trailing)`, and the window title alone spends that twice over. Raising the minimum would
-only defer it, since M9 adds a seventh tool. In the window body it also makes the
+only have deferred it — M9 added the seventh tool, and all seven fit in the body. It also makes the
 hierarchy `ContentView` already described in its comment literal rather than implied:
 field, then switcher, then panel. Every existing UI test kept passing unchanged, because
 they query `radioButtons` by label and never cared where it lived.
@@ -739,8 +740,14 @@ above for the colorjs.io cross-check of an exported ramp stop.*
 
 Saving to a file rather than the clipboard. It needs a sandbox entitlement plus an
 `NSSavePanel` wrapper in `Services/`, and clipboard-only is the coherent scope for a
-panel whose output is meant to be pasted into a stylesheet you already have open. Worth
-revisiting alongside M9, where a saved project is a file anyway.
+panel whose output is meant to be pasted into a stylesheet you already have open.
+
+**Still the one deferred piece, and M9 did not bring it any closer** — the note here used
+to say it was worth revisiting alongside M9 "where a saved project is a file anyway",
+which turned out to be wrong on the facts. A SwiftData project is a store *inside the app
+container*, written with no entitlement and never shown to the user as a file, so it
+shares nothing with `NSSavePanel` but the word "save". This remains its own small
+milestone, standing on its own reasons.
 
 ### ✅ M9 — Projects (SwiftData)
 
@@ -820,6 +827,19 @@ container anywhere. `ProjectStoreTests` takes the things only SwiftData can answ
 inverses, cascades, what comes back from a fetch. `ProjectsSmokeTests` covers what only a
 running app can show: clicking a saved swatch returns *your* spelling to the field, and a
 ramp saved in one tool exports under its own name in another.
+
+**An in-memory store cannot prove persistence, which is the entire feature.** Every test
+above ran on `isStoredInMemoryOnly`, and a container that never touches a disk proves
+round tripping *within a context* and nothing whatever about surviving a quit. So one
+test leaves memory: it writes to a real SQLite store in a temp **directory** (SQLite puts
+`-wal` and `-shm` sidecars beside the file, and cleaning up only the `.store` would leave
+state that could make a later run pass for the wrong reason), releases the container,
+opens a second one over the same file, and requires both the spelling and the ramp's
+order to come back. Separately, launching with no arguments was confirmed to open
+`default.store` under
+`~/Library/Containers/me.parkersprouse.color-toolkit/Data/Library/Application Support/` —
+so the sandbox permits the default location, `.persistent` is the arm actually taken, and
+the fallback banner is not quietly the normal case.
 
 Four mutations confirm the tests bite: dropping the `missing` mask fails two, nullifying
 the palette cascade fails two, canonicalizing the stored text fails six, and removing the
