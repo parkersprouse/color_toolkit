@@ -27,7 +27,8 @@ Build:
 xcodebuild -project "Color Toolkit.xcodeproj" -scheme "Color Toolkit" -destination 'platform=macOS' build
 ```
 
-Full test suite (~5 minutes, most of it UI tests):
+Full test suite (~7 minutes, nearly all of it UI tests — the 291 Swift Testing functions
+finish in under a second, the 25 XCUITests take about six minutes):
 
 ```bash
 xcodebuild -project "Color Toolkit.xcodeproj" -scheme "Color Toolkit" -destination 'platform=macOS' test
@@ -177,10 +178,11 @@ Layered so the numeric core stays independently testable and UI-free:
 - **`Features/Shell/ColorStore.swift`** — `@MainActor @Observable`, one instance
   injected into both scenes (menu bar + window). Holds a *pair* of `ColorField`s
   (foreground + background) and which `Tool` the window is showing.
-- **`Persistence/`** — the only SwiftData in the app. `ColorRecord` is a plain value
-  type bridging `ColorValue` to flat, queryable columns; `ProjectModels` holds the three
-  `@Model` classes; `ProjectLibrary` owns every mutation so the rules are testable
-  against a container; `PersistenceStack` builds the one container both scenes share.
+- **`Persistence/`** — the only SwiftData in the app, five files. `ColorRecord` is a plain
+  value type bridging `ColorValue` to flat, queryable columns; `ProjectModels` holds the
+  three `@Model` classes; `ProjectLibrary` owns every mutation so the rules are testable
+  against a container; `SchemaVersions` declares `ColorToolkitSchemaV1` and an empty
+  migration plan; `PersistenceStack` builds the one container both scenes share.
 - **`Features/`, `DesignSystem/`** — SwiftUI, one folder per tool. `Services/` wraps
   AppKit (pasteboard, `NSColorSampler`, Carbon hot keys).
 
@@ -311,6 +313,10 @@ Layered so the numeric core stays independently testable and UI-free:
   745pt wide. Principal placement is *centered*, so its budget is
   `width − 2 × max(leading, trailing)`, and the window title alone spends that twice
   over. Do not move it back — M9 added a seventh segment, and all seven fit in the body.
+  **Seven is the tested ceiling at `minWidth: 520`; an eighth is unmeasured risk.** This
+  is why M15's mixing folds into `Transform` and M17's import folds into `Projects`
+  rather than each taking a `Tool` case. Adding an eighth means budgeting for shorter
+  titles, a raised `minWidth`, or a different control — not just one more enum case.
 - **A ramp stop on the gamut boundary can round outward at display precision.** The
   printed `oklch(0.97 0.0142 259.81)` is 2.3e-5 of chroma past a boundary at `0.014177`,
   so the *string* is out of sRGB while the `ColorValue` is inside. Worst case across hues

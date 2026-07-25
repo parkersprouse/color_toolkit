@@ -1,11 +1,15 @@
 # Color Toolkit — Implementation Plan
 
-> **Status (2026-07-25): M0–M11 and M5b (CVD) complete**, each reviewed on the running
-> app, with the full suite green — **291 Swift Testing functions across 34 suites plus 25
-> XCUITests**, both read off a run rather than counted by hand. ColorCore is validated
-> against **colorjs.io 0.7.0** (pinned exact) — 6,384
-> conversions, 1,368 gamut mappings and 108 contrast pairs — plus independent
-> definitional anchors, and **405 CVD vectors** over Machado's Table 1.
+> **Status (2026-07-25): M0–M11 and M5b (CVD) complete**, with the full suite green —
+> **291 Swift Testing functions across 34 suites plus 25 XCUITests**, both read off a run
+> rather than counted by hand. ColorCore is validated against **colorjs.io 0.7.0** (pinned
+> exact) — 6,384 conversions, 1,368 gamut mappings and 108 contrast pairs — plus
+> independent definitional anchors, and **405 CVD vectors** over Machado's Table 1.
+>
+> M0–M9 were each reviewed on the running app. **Two later things were not, and should
+> not be read as if they were:** M10 changed no behavior and has no UI to look at, and
+> M11's *drag* gesture is untestable by XCUITest and unconfirmed by hand — its Move
+> Left/Right commands, which share the same handler, are covered end to end.
 >
 > **M10–M18 take up what the deferred list had been holding**: the CSS syntaxes the
 > parser still rejects (`calc()`, `rgb(from …)`, `color-mix()`), the missing-component
@@ -297,36 +301,36 @@ M0–M11 are built. The stock SwiftData template (`Item.swift`, the `NavigationS
 
 | Layer | Files |
 |---|---|
-| Core model | [ColorValue.swift](Color%20Toolkit/ColorCore/ColorValue.swift), [ColorSpace.swift](Color%20Toolkit/ColorCore/ColorSpace.swift) |
-| Spaces | [Matrices.swift](Color%20Toolkit/ColorCore/Spaces/Matrices.swift) and [NamedColors.swift](Color%20Toolkit/ColorCore/Spaces/NamedColors.swift) (**generated**), [TransferFunctions.swift](Color%20Toolkit/ColorCore/Spaces/TransferFunctions.swift), [ColorMatrix.swift](Color%20Toolkit/ColorCore/Spaces/ColorMatrix.swift) |
-| Convert | [Conversion.swift](Color%20Toolkit/ColorCore/Convert/Conversion.swift), [GamutMapping.swift](Color%20Toolkit/ColorCore/Convert/GamutMapping.swift), [GamutBoundary.swift](Color%20Toolkit/ColorCore/Convert/GamutBoundary.swift), [HSV.swift](Color%20Toolkit/ColorCore/Convert/HSV.swift) |
-| Parse | [CSSTokenizer.swift](Color%20Toolkit/ColorCore/Parse/CSSTokenizer.swift), [ColorSyntax.swift](Color%20Toolkit/ColorCore/Parse/ColorSyntax.swift), [CSSColorParser.swift](Color%20Toolkit/ColorCore/Parse/CSSColorParser.swift) |
-| Format | [CSSFormatter.swift](Color%20Toolkit/ColorCore/Format/CSSFormatter.swift), [FormatCatalog.swift](Color%20Toolkit/ColorCore/Format/FormatCatalog.swift) |
+| Core model | [ColorValue.swift](ColorCore/ColorValue.swift), [ColorSpace.swift](ColorCore/ColorSpace.swift) |
+| Spaces | [Matrices.swift](ColorCore/Spaces/Matrices.swift) and [NamedColors.swift](ColorCore/Spaces/NamedColors.swift) (**generated**), [TransferFunctions.swift](ColorCore/Spaces/TransferFunctions.swift), [ColorMatrix.swift](ColorCore/Spaces/ColorMatrix.swift) |
+| Convert | [Conversion.swift](ColorCore/Convert/Conversion.swift), [GamutMapping.swift](ColorCore/Convert/GamutMapping.swift), [GamutBoundary.swift](ColorCore/Convert/GamutBoundary.swift), [HSV.swift](ColorCore/Convert/HSV.swift) |
+| Parse | [CSSTokenizer.swift](ColorCore/Parse/CSSTokenizer.swift), [ColorSyntax.swift](ColorCore/Parse/ColorSyntax.swift), [CSSColorParser.swift](ColorCore/Parse/CSSColorParser.swift) |
+| Format | [CSSFormatter.swift](ColorCore/Format/CSSFormatter.swift), [FormatCatalog.swift](ColorCore/Format/FormatCatalog.swift) |
 | Shell | [ColorStore.swift](Color%20Toolkit/Features/Shell/ColorStore.swift), [MenuBarPanel.swift](Color%20Toolkit/Features/Shell/MenuBarPanel.swift), [ContentView.swift](Color%20Toolkit/ContentView.swift) |
-| Analysis | [WCAGContrast.swift](Color%20Toolkit/ColorCore/Analysis/WCAGContrast.swift), [APCAContrast.swift](Color%20Toolkit/ColorCore/Analysis/APCAContrast.swift), [CVDSimulation.swift](Color%20Toolkit/ColorCore/Analysis/CVDSimulation.swift), [CVDMatrices.swift](Color%20Toolkit/ColorCore/Analysis/CVDMatrices.swift) (**generated**) |
-| Transform | [Adjustment.swift](Color%20Toolkit/ColorCore/Transform/Adjustment.swift), [LightnessCurve.swift](Color%20Toolkit/ColorCore/Transform/LightnessCurve.swift), [Harmony.swift](Color%20Toolkit/ColorCore/Transform/Harmony.swift), [ShadeRamp.swift](Color%20Toolkit/ColorCore/Transform/ShadeRamp.swift), [ContrastSolver.swift](Color%20Toolkit/ColorCore/Transform/ContrastSolver.swift) |
-| Export | [ExportTemplate.swift](Color%20Toolkit/ColorCore/Export/ExportTemplate.swift), [ColorExport.swift](Color%20Toolkit/ColorCore/Export/ColorExport.swift) |
+| Analysis | [WCAGContrast.swift](ColorCore/Analysis/WCAGContrast.swift), [APCAContrast.swift](ColorCore/Analysis/APCAContrast.swift), [CVDSimulation.swift](ColorCore/Analysis/CVDSimulation.swift), [CVDMatrices.swift](ColorCore/Analysis/CVDMatrices.swift) (**generated**) |
+| Transform | [Adjustment.swift](ColorCore/Transform/Adjustment.swift), [LightnessCurve.swift](ColorCore/Transform/LightnessCurve.swift), [Harmony.swift](ColorCore/Transform/Harmony.swift), [ShadeRamp.swift](ColorCore/Transform/ShadeRamp.swift), [ContrastSolver.swift](ColorCore/Transform/ContrastSolver.swift) |
+| Export | [ExportTemplate.swift](ColorCore/Export/ExportTemplate.swift), [ColorExport.swift](ColorCore/Export/ColorExport.swift) |
 | Conversion UI | [ColorInputField.swift](Color%20Toolkit/Features/Conversion/ColorInputField.swift), [ConversionPanel.swift](Color%20Toolkit/Features/Conversion/ConversionPanel.swift), [FormatPresentation.swift](Color%20Toolkit/Features/Conversion/FormatPresentation.swift) |
 | Contrast UI | [ContrastPanel.swift](Color%20Toolkit/Features/Contrast/ContrastPanel.swift) |
 | Picker UI | [PickerState.swift](Color%20Toolkit/Features/Picker/PickerState.swift), [PickerPlane.swift](Color%20Toolkit/Features/Picker/PickerPlane.swift), [PickerPanel.swift](Color%20Toolkit/Features/Picker/PickerPanel.swift) |
 | CVD UI | [CVDPanel.swift](Color%20Toolkit/Features/CVD/CVDPanel.swift) |
 | Transform UI | [TransformPanel.swift](Color%20Toolkit/Features/Transform/TransformPanel.swift) |
 | Export UI | [ExportPanel.swift](Color%20Toolkit/Features/Export/ExportPanel.swift), [ExportPresentation.swift](Color%20Toolkit/Features/Export/ExportPresentation.swift) |
-| Persistence | [ColorRecord.swift](Color%20Toolkit/Persistence/ColorRecord.swift), [ProjectModels.swift](Color%20Toolkit/Persistence/ProjectModels.swift), [ProjectLibrary.swift](Color%20Toolkit/Persistence/ProjectLibrary.swift), [PersistenceStack.swift](Color%20Toolkit/Persistence/PersistenceStack.swift) |
+| Persistence | [ColorRecord.swift](Color%20Toolkit/Persistence/ColorRecord.swift), [ProjectModels.swift](Color%20Toolkit/Persistence/ProjectModels.swift), [ProjectLibrary.swift](Color%20Toolkit/Persistence/ProjectLibrary.swift), [PersistenceStack.swift](Color%20Toolkit/Persistence/PersistenceStack.swift), [SchemaVersions.swift](Color%20Toolkit/Persistence/SchemaVersions.swift) |
 | Projects UI | [ProjectsPanel.swift](Color%20Toolkit/Features/Projects/ProjectsPanel.swift) |
 | Design system | [ColorSwatch.swift](Color%20Toolkit/DesignSystem/ColorSwatch.swift), [ColorValue+SwiftUI.swift](Color%20Toolkit/DesignSystem/ColorValue+SwiftUI.swift) |
 | Services | [Clipboard.swift](Color%20Toolkit/Services/Clipboard.swift), [ScreenSampler.swift](Color%20Toolkit/Services/ScreenSampler.swift), [GlobalHotKey.swift](Color%20Toolkit/Services/GlobalHotKey.swift) |
 
-`Persistence/` exists as of M9 and holds four files, listed above. An earlier revision of
-this file claimed one existed and was empty long before that was true; git does not track
-empty directories, so it never survived a clone and the claim held only on the machine
-that made it.
+`Persistence/` exists as of M9 and holds five files, listed above — M11 added
+`SchemaVersions.swift`. An earlier revision of this file claimed one existed and was empty
+long before that was true; git does not track empty directories, so it never survived a
+clone and the claim held only on the machine that made it.
 
 Key facts about the project, established during exploration and still current:
 
 | Fact | Value | Why it matters |
 |---|---|---|
-| `objectVersion` | `77`, with `PBXFileSystemSynchronizedRootGroup` | **New `.swift` files are picked up automatically.** No `project.pbxproj` edits needed — just write files into `Color Toolkit/`, subfolders included. |
+| `objectVersion` | `77`, with **two** `PBXFileSystemSynchronizedRootGroup`s | **New `.swift` files are picked up automatically.** No `project.pbxproj` edits needed — write into `ColorCore/` or `Color Toolkit/`, subfolders included. Editing the project file is for adding a *target*, nothing else. |
 | `SDKROOT` / target | `macosx`, deploy `26.5` | macOS-only. Every modern API is available; no availability guards needed. |
 | `ENABLE_APP_SANDBOX` | `YES` (no `.entitlements` file yet; Xcode auto-generates) | Constrains the eyedropper and global-hotkey design. |
 | `SWIFT_VERSION` | `6.0` (raised in M0) | Strict concurrency throughout. |
@@ -344,11 +348,11 @@ Key facts about the project, established during exploration and still current:
 
 ## Architecture
 
-Four layers, strictly one-directional. **`ColorCore` imports nothing but `Foundation`** — no SwiftUI, no AppKit, no SwiftData. That constraint is what keeps it exhaustively testable and reusable (a future CLI or Raycast extension can link it unchanged).
+Four layers, strictly one-directional. **`ColorCore` imports nothing but `Foundation`** — no SwiftUI, no AppKit, no SwiftData. Every one of its 26 files, measured rather than assumed. That constraint is what keeps it exhaustively testable and reusable, and M10 turned "reusable in principle" into "addressable by a second target": it now sits beside the app rather than inside it.
 
 ```
-Color Toolkit/
-├── ColorCore/                    ← pure value types, Sendable, zero UI deps
+Color Toolkit/                    ← repo root
+├── ColorCore/                    ← its own synchronized root group (M10)
 │   ├── ColorValue.swift          canonical model
 │   ├── ColorSpace.swift          space enum + component metadata
 │   ├── Spaces/                   matrices, transfer functions, white points
@@ -356,12 +360,19 @@ Color Toolkit/
 │   ├── Parse/                    CSS tokenizer + parser
 │   ├── Format/                   CSS serializer + format catalog
 │   ├── Analysis/                 WCAG, APCA, CVD, deltaE
-│   └── Transform/                lightness/sat/hue, harmonies, ramps
-├── Services/                     eyedropper, global hotkey, clipboard
-├── Persistence/                  SwiftData @Models + Codable bridge
-├── Features/                     one folder per feature area (SwiftUI)
-└── DesignSystem/                 shared swatch/slider components
+│   ├── Transform/                lightness/sat/hue, harmonies, ramps
+│   └── Export/                   declaration templates + document shapes
+├── Color Toolkit/                ← the app target's own group
+│   ├── Services/                 eyedropper, global hotkey, clipboard
+│   ├── Persistence/              SwiftData @Models + Codable bridge
+│   ├── Features/                 one folder per feature area (SwiftUI)
+│   └── DesignSystem/             shared swatch/slider components
+├── Color ToolkitTests/
+├── Color ToolkitUITests/
+└── Tools/                        Node + Python generators (not in any target)
 ```
+
+Both `ColorCore/` and `Color Toolkit/` are `PBXFileSystemSynchronizedRootGroup`s listed by the app target, so a `.swift` file dropped in either compiles with no project edit. The sources still build **into the app module**, which is why everything in `ColorCore` stays `internal` and the tests reach it with `@testable import`. M18's CLI target lists only the first group.
 
 The boundary runs in one direction only: **ColorCore knows facts, the UI layer owns editorial copy.** `CSSOutputFormat.catalog` lives in core; the section names ("Web", "Perceptual") and the per-format labels live in `Features/`. A core test that reaches into the UI for a display string is the smell that the layering has slipped — and in M3 it also broke a commit's ability to build standalone.
 
@@ -374,7 +385,7 @@ struct ColorValue: Hashable, Sendable, Codable {
     var space: ColorSpace
     var components: SIMD3<Double>
     var alpha: Double
-    var missing: ComponentMask   // CSS `none` — carried, not fully parsed in v1
+    var missing: ComponentMask   // CSS `none`, set by the parser and honoured by the serializer
 }
 ```
 
@@ -441,7 +452,7 @@ Hand-written recursive-descent tokenizer, no dependencies. Must handle:
 - `color(display-p3 1 0 0 / 50%)` and all predefined spaces
 - Named colors, case-insensitive
 
-Serializer needs configurable precision and legacy-vs-modern output. **Deferred:** `calc()`, and relative color syntax (`rgb(from …)`) — a strong later addition. `none` is carried in the model but not fully parsed in v1.
+Serializer needs configurable precision and legacy-vs-modern output. **Deferred at the time:** `calc()`, and relative color syntax (`rgb(from …)`) — a strong later addition, now planned as M13 and M14. `none` *is* parsed and round-trips (`nonePreserved()` pins it); what M2 left undone is the interpolation semantics in §13.2, which is M12.
 
 Round-trip tests: parse → serialize → parse must be idempotent.
 
@@ -462,8 +473,8 @@ Round-trip tests: parse → serialize → parse must be idempotent.
 
 ### ✅ M5 — Accessibility (contrast)
 
-- **WCAG 2.2** — [WCAGContrast.swift](Color%20Toolkit/ColorCore/Analysis/WCAGContrast.swift). Spec-literal `0.03928`, AA/AAA × normal/large, plus 1.4.11's 3:1 non-text threshold.
-- **APCA** — [APCAContrast.swift](Color%20Toolkit/ColorCore/Analysis/APCAContrast.swift). Transcribed from colorjs.io 0.7.0's implementation of **0.0.98G**, matching to 1e-9 across 108 pairs in both polarities.
+- **WCAG 2.2** — [WCAGContrast.swift](ColorCore/Analysis/WCAGContrast.swift). Spec-literal `0.03928`, AA/AAA × normal/large, plus 1.4.11's 3:1 non-text threshold.
+- **APCA** — [APCAContrast.swift](ColorCore/Analysis/APCAContrast.swift). Transcribed from colorjs.io 0.7.0's implementation of **0.0.98G**, matching to 1e-9 across 108 pairs in both polarities.
 - **UI** — [ContrastPanel.swift](Color%20Toolkit/Features/Contrast/ContrastPanel.swift), reached by the tool switcher (which sat in the toolbar until M8 moved it into the window body — see that milestone). The store now holds a *pair* of colors via `ColorField`, so the background gets the foreground's editing behavior rather than a second implementation of it.
 
 **No APCA pass/fail badges.** Its readability levels (Lc 90/75/60/45/30) could not be verified against a pinned source the way the algorithm was, and a threshold this app cannot stand behind has no business wearing a checkmark next to WCAG's, which it can. The panel shows the signed `Lc` and its polarity, nothing more.
@@ -479,12 +490,12 @@ foreground/background pair as a CVD viewer sees it (the other half of the contra
 question), and the recents strip filtered. Deficiency and severity live on `ColorStore`
 so they outlast the panel, exactly like `pickerMode`.
 
-- **[CVDMatrices.swift](Color%20Toolkit/ColorCore/Analysis/CVDMatrices.swift)** —
+- **[CVDMatrices.swift](ColorCore/Analysis/CVDMatrices.swift)** —
   **generated** (`python3 Tools/generate-cvd-matrices.py`) from a vendored, pinned copy
   of Machado's Table 1; never hand-edited, same rule as `Matrices.swift`. The generator
   is Python because the oracle that carries the table (colour-science, and `daltonlens`
   after it) is Python; it needs only the standard library.
-- **[CVDSimulation.swift](Color%20Toolkit/ColorCore/Analysis/CVDSimulation.swift)** —
+- **[CVDSimulation.swift](ColorCore/Analysis/CVDSimulation.swift)** —
   `ColorValue.simulating(_:severity:)`. Gamut-maps into sRGB, decodes to **linear**
   light, applies the severity-interpolated matrix, clamps, re-encodes. Exact 0.1 steps
   are Table 1 verbatim; between them the two nearest matrices are blended, matching the
@@ -507,7 +518,7 @@ clipped. Alpha slider over a checkerboard. The display's own edge is drawn dashe
 beside sRGB's — nested, and verified nested: 20,000 random sRGB colors all fall inside
 Display P3 while 9,626 of 20,000 P3 colors fall outside sRGB.
 
-- **[GamutBoundary.swift](Color%20Toolkit/ColorCore/Convert/GamutBoundary.swift)** —
+- **[GamutBoundary.swift](ColorCore/Convert/GamutBoundary.swift)** —
   `maxChroma(lightness:hue:in:)` and the sampled curve, in ColorCore because it is a
   numeric fact. Bisects the same `inGamut` predicate the badge uses, so the drawn line
   and the badge are one claim. See the blue counterexample and the tolerance note above
@@ -515,7 +526,7 @@ Display P3 while 9,626 of 20,000 P3 colors fall outside sRGB.
 - **HSV is deliberately not a `ColorSpace` case.** CSS has no `hsv()`, so a case would
   need excluding by hand from the parser, serializer, catalog and every `allCases` loop,
   and the first one missed would offer a format no browser accepts. It is a coordinate
-  on the side ([HSV.swift](Color%20Toolkit/ColorCore/Convert/HSV.swift)) wrapping the
+  on the side ([HSV.swift](ColorCore/Convert/HSV.swift)) wrapping the
   sRGB↔HSV conversions that already existed to route HWB.
 - **[PickerState.swift](Color%20Toolkit/Features/Picker/PickerState.swift)** holds the
   axes as a plain value type, testable without SwiftUI — which is what let the write
@@ -560,7 +571,7 @@ The export sheet is deferred to M8 as planned; until then the output is adopt-in
 field plus the Convert panel's existing copy rows, which is the same destination reached
 one click later.
 
-- **[Adjustment.swift](Color%20Toolkit/ColorCore/Transform/Adjustment.swift)** —
+- **[Adjustment.swift](ColorCore/Transform/Adjustment.swift)** —
   `OKLCHComponents` (the coordinate every transform works in, mirroring `HSVComponents`)
   and `OKLCHAdjustment`. **Relative, not absolute**, which is what stops it being the M6
   picker twice: the picker already sets L, C and h outright, and what it cannot do is
@@ -575,7 +586,7 @@ one click later.
   the color you started with — and half of these transforms leave sRGB anyway, where a
   bounded format has no honest spelling. The picker learned the same lesson in M6, and
   the panel writes at `.lossless` for the same reason the eyedropper does.
-- **[LightnessCurve.swift](Color%20Toolkit/ColorCore/Transform/LightnessCurve.swift)** —
+- **[LightnessCurve.swift](ColorCore/Transform/LightnessCurve.swift)** —
   the S-curve: contrast with no second color in it. The pivot is **fixed at `L = 0.5`**
   rather than configurable, and that is what buys the good behavior: exact symmetry,
   fixed points at black/mid-gray/white, and an exact inverse. Opposite strengths cancel
@@ -584,7 +595,7 @@ one click later.
   is on a **set** — it widens a ramp's ends while holding its order and its midpoint,
   which a lightness offset cannot do, because an offset slides a ramp where a curve
   stretches it.
-- **[Harmony.swift](Color%20Toolkit/ColorCore/Transform/Harmony.swift)** — the six, at
+- **[Harmony.swift](ColorCore/Transform/Harmony.swift)** — the six, at
   the classic angles but turned on OKLCH's wheel. That choice is the whole point:
   rotate 180° in HSL and a saturated blue's "complement" comes back a dim mustard,
   because HSL's hue is a raw RGB angle in which equal degrees are wildly unequal steps.
@@ -594,13 +605,13 @@ one click later.
   `#808080` returns the same gray repeated, which is correct — there is no third color
   related to a neutral by 120° — so the panel says it in words rather than showing five
   identical swatches with no explanation.
-- **[ShadeRamp.swift](Color%20Toolkit/ColorCore/Transform/ShadeRamp.swift)** — the two
+- **[ShadeRamp.swift](ColorCore/Transform/ShadeRamp.swift)** — the two
   rules do different jobs and both are needed. Tapering chroma toward the ends is the
   *aesthetic* rule (light stops read as tints rather than as the same ink at a higher
   lightness); holding every stop at or inside the `GamutBoundary` edge is the
   *correctness* rule. Because the edge comes from the same predicate the badge uses,
   every stop is in gamut **by construction** rather than by a mapping applied afterwards.
-- **[ContrastSolver.swift](Color%20Toolkit/ColorCore/Transform/ContrastSolver.swift)** —
+- **[ContrastSolver.swift](ColorCore/Transform/ContrastSolver.swift)** —
   both halves the plan asked for, sharing one set of machinery. The **auto-fix** is "the
   nearest color hitting 4.5:1"; the **manual push** is a slider that moves the color and
   reports the ratio live. Both move **lightness alone**: hue and chroma are what make a
@@ -698,7 +709,9 @@ items"* overflow menu — taking every tool with it, not just Export — at a wi
 wide, well above the 520pt minimum. `ToolbarItem(placement: .principal)` is *centered*,
 so its width budget is not the toolbar's spare room but `width − 2 × max(leading,
 trailing)`, and the window title alone spends that twice over. Raising the minimum would
-only have deferred it — M9 added the seventh tool, and all seven fit in the body. It also makes the
+only have deferred it — M9 added the seventh tool, and all seven fit in the body. **Seven
+is the tested ceiling, though, not a headroom claim**, which is why M15 and M17 fold their
+UI into existing panels rather than each taking a `Tool` case. It also makes the
 hierarchy `ContentView` already described in its comment literal rather than implied:
 field, then switcher, then panel. Every existing UI test kept passing unchanged, because
 they query `radioButtons` by label and never cared where it lived.
@@ -1122,6 +1135,8 @@ Per milestone:
 - **M7:** the transforms have no oracle, so ColorCore asserts their defining properties and every load-bearing one was confirmed by mutation (see the milestone above). What *can* be cross-checked is the pipeline end to end, and was: the OKLCH string the panel wrote after adopting a triad member agrees with colorjs.io to ten decimals. See [TransformSmokeTests](Color%20ToolkitUITests/TransformSmokeTests.swift), where each derived swatch is a button labelled with its own CSS — the only handle a test has on a row of colored rectangles, and the thing a bare swatch owes VoiceOver anyway.
 - **M8:** the only milestone whose output is *text a machine will read*, so the parser is the oracle — [ExportTests](Color%20ToolkitTests/ExportTests.swift) round-trips every exportable format back through `CSSColorParser` and requires the color to survive. Syntax is pinned with exact strings, and the identifier rules (JavaScript key quoting, CSS sanitizing) have their own parameterized cases, because a config that will not load is the failure mode and it is invisible from inside Swift. The source-to-entries mapping is asserted on `ColorStore` rather than through the UI — see [ExportStoreTests](Color%20ToolkitTests/ExportStoreTests.swift) — which is why that mapping lives on the store. [ExportSmokeTests](Color%20ToolkitUITests/ExportSmokeTests.swift) covers only what a running app can show: that the controls reach the document. It never clicks Copy, for the reason no test here touches the pasteboard.
 - **M9:** three levels, split on what each can actually answer. [ColorRecordTests](Color%20ToolkitTests/ColorRecordTests.swift) takes the mapping with no container in sight — every space, the `none` mask, and the stored components agreeing with the stored spelling. [ProjectStoreTests](Color%20ToolkitTests/ProjectStoreTests.swift) takes what only SwiftData can answer, opening with the assertion that the container builds at all, because inverses are resolved there rather than at compile time. [ProjectsSmokeTests](Color%20ToolkitUITests/ProjectsSmokeTests.swift) takes the round trip through a running app — and launches every one with `UITestInMemoryStore`, because the alternative is writing into the real library. The end-to-end cross-check is the ramp in the status note: saved, reloaded, exported, and identical to the value M8 checked against colorjs.io.
+- **M10:** the milestone has no behavior to test, so the test suite proves nothing beyond "still compiles". The real check is that **re-running all four generators reproduces every generated Swift file byte-for-byte** — that is what shows the output paths moved with the sources rather than quietly writing somewhere stale. (`cvd-vectors.json` is the exception and stays as committed; see the libm note in CLAUDE.md.)
+- **M11:** the store rules are in [ProjectStoreTests](Color%20ToolkitTests/ProjectStoreTests.swift), each confirmed against a mutation of the rule it covers — dropping the move's offset discount, skipping the dense renumber, disabling key dedup, re-deriving stored text, and moving colors instead of copying them all fail the suite. Reordering is checked across a real store close and reopen, since an in-memory container proves only that the objects in hand were mutated. [ProjectsSmokeTests](Color%20ToolkitUITests/ProjectsSmokeTests.swift) covers the wiring — **through the menu commands, not the drag**, because XCUITest cannot start a dragging session and a drag-driven test would fail whether the feature worked or not. **The drag gesture itself is not covered by any automated test and wants a human to try it once.**
 - **M3/M4 (UI):** run the app and verify interactively. Spot-check conversions against a browser's DevTools color picker, which implements the same spec — a fast, honest end-to-end sanity check.
 
 The scheme is shared and works from the command line:
