@@ -221,6 +221,24 @@ struct ProjectStoreTests {
     #expect(try library.project(uuid: id) == nil)
   }
 
+  /// Notes are edited by binding a `TextField` straight to the model, so the write has
+  /// already happened by the time anything is called — what ``ProjectLibrary/touch(_:)``
+  /// adds is the flush and the timestamp. This is the assertion that the note survives a
+  /// fetch rather than living only in the object the panel happens to be holding.
+  @Test("A note on a saved color persists")
+  func notesPersist() throws {
+    let library = try Self.makeLibrary()
+    let project = try library.createProject(named: "Site")
+    let blue = try #require(CSSColorParser.parse("#3b82f6").color)
+    let color = try library.saveColor(ColorRecord(blue, text: "#3b82f6"), named: "Brand", to: project)
+
+    color.notes = "Primary call to action only"
+    try library.touch(color)
+
+    let reloaded = try #require(try library.projects().first?.orderedColors.first)
+    #expect(reloaded.notes == "Primary call to action only")
+  }
+
   /// `modifiedAt` should mean what it says. Saving into a project is a modification of
   /// it, even though nothing about the `Project` row itself changed.
   @Test("Saving into a project marks it modified")

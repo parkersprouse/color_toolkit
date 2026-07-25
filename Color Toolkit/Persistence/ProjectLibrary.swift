@@ -98,6 +98,17 @@ struct ProjectLibrary {
     return color
   }
 
+  /// Commits an edit made by binding straight to the model — a renamed color, a note.
+  ///
+  /// Bindings write to the object the moment a key is pressed, so this is not what makes
+  /// the change happen; it is what stamps `modifiedAt` once and flushes, rather than
+  /// thirty times on the way through a sentence.
+  func touch(_ color: SavedColor) throws {
+    color.project?.touch()
+    color.palette?.project?.touch()
+    try context.save()
+  }
+
   func delete(_ color: SavedColor) throws {
     color.project?.touch()
     color.palette?.project?.touch()

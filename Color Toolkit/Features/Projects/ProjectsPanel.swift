@@ -67,6 +67,10 @@ struct ProjectsPanel: View {
   @State private var errorMessage: String?
   @State private var confirmingProjectDeletion = false
 
+  /// Which saved color's notes are open. A `@Model` is `Identifiable`, so this drives
+  /// `.popover(item:)` directly.
+  @State private var noteTarget: SavedColor?
+
   private var library: ProjectLibrary {
     ProjectLibrary(context)
   }
@@ -222,8 +226,45 @@ struct ProjectsPanel: View {
             savedColorTile(saved, index: index)
           }
         }
+        // One popover for the grid rather than one per tile: `item:` already carries
+        // which color is being edited, and forty tiles each holding their own would be
+        // forty pieces of state for a thing only ever open once.
+        .popover(item: $noteTarget) { saved in
+          notesEditor(saved)
+        }
       }
     }
+  }
+
+  /// Why a color was kept, which the swatch cannot say and the name should not have to.
+  ///
+  /// A popover rather than a field in the grid: notes are the least-used thing here and
+  /// giving every tile a permanent text box would bury the colors under them.
+  private func notesEditor(_ saved: SavedColor) -> some View {
+    @Bindable var saved = saved
+
+    return VStack(alignment: .leading, spacing: 8) {
+      Text(saved.name.isEmpty ? saved.text : saved.name)
+        .font(.headline)
+      TextField("Notes", text: $saved.notes, prompt: Text("What this is for"), axis: .vertical)
+        .lineLimit(3 ... 6)
+        .textFieldStyle(.roundedBorder)
+        .frame(width: 260)
+        .accessibilityIdentifier("savedColorNotes")
+      Text("Saved as \(saved.text)")
+        .font(.caption)
+        .foregroundStyle(.secondary)
+    }
+    .padding(12)
+    // Bound straight to the model, so edits are live; the save is stamped once on the
+    // way out rather than on every keystroke.
+    .onDisappear { perform { try library.touch(saved) } }
+  }
+
+  /// Name, spelling and notes, in whatever combination exists.
+  private func tooltip(_ saved: SavedColor) -> String {
+    let heading = saved.name.isEmpty ? saved.text : "\(saved.name) — \(saved.text)"
+    return saved.notes.isEmpty ? heading : "\(heading)\n\(saved.notes)"
   }
 
   /// One saved color: click to put it back in the field.
@@ -253,9 +294,17 @@ struct ProjectsPanel: View {
       .buttonStyle(.plain)
       .accessibilityLabel(saved.text)
       .accessibilityIdentifier("savedColor-\(index)")
-      .help(saved.name.isEmpty ? saved.text : "\(saved.name) — \(saved.text)")
+      .help(tooltip(saved))
       .contextMenu {
-        Button("Delete", role: .destructive) { perform { try library.delete(saved) } }
+        Button("Notes…") { noteTarget = saved }
+        Button("Delete", role: .destructive) {
+          // Cleared first: the popover holds this object, and leaving it pointed at a
+          // deleted model is a reference to a row that no longer exists.
+          if noteTarget?.persistentModelID == saved.persistentModelID {
+            noteTarget = nil
+          }
+          perform { try library.delete(saved) }
+        }
       }
 
       Text(saved.name.isEmpty ? saved.text : saved.name)
