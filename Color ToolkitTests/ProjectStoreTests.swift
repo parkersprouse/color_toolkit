@@ -311,7 +311,178 @@ struct ProjectStoreTests {
     }
   }
 
+  // MARK: - Reordering
+
+  /// `onMove` semantics: `destination` is a slot in the order as it stands *before*
+  /// anything is lifted out, so moving the first color to position 3 of 3 puts it last
+  /// rather than one short of it. Getting this wrong is invisible at the ends and wrong
+  /// by one everywhere else.
+  @Test("Moving a color rewrites the order")
+  func reorderingMovesAColor() throws {
+    let library = try Self.makeLibrary()
+    let project = try Self.projectWithColors(["#ff0000", "#00ff00", "#0000ff"], in: library)
+
+    try library.moveColors(fromOffsets: IndexSet(integer: 0), toOffset: 3, in: project)
+    #expect(project.orderedColors.map(\.name) == ["#00ff00", "#0000ff", "#ff0000"])
+
+    try library.moveColors(fromOffsets: IndexSet(integer: 2), toOffset: 0, in: project)
+    #expect(project.orderedColors.map(\.name) == ["#ff0000", "#00ff00", "#0000ff"])
+  }
+
+  /// Two colors dragged together stay together and stay in their own order.
+  @Test("A multiple selection moves as one block")
+  func reorderingMovesASelection() throws {
+    let library = try Self.makeLibrary()
+    let project = try Self.projectWithColors(["#ff0000", "#00ff00", "#0000ff"], in: library)
+
+    try library.moveColors(fromOffsets: IndexSet([0, 1]), toOffset: 3, in: project)
+
+    #expect(project.orderedColors.map(\.name) == ["#0000ff", "#ff0000", "#00ff00"])
+  }
+
+  /// The rule that makes a move safe. ``ProjectLibrary/nextIndex(after:)`` leaves gaps so
+  /// appends land last after a deletion, and a gap cannot hold an arbitrary insertion —
+  /// so a move renumbers everything densely. This asserts both halves: the positions
+  /// really are `0...n-1` afterwards, and appending still lands at the end, because
+  /// renumbering must not break what the gaps were protecting.
+  @Test("A move renumbers positions densely without breaking appends")
+  func reorderingRenumbersDensely() throws {
+    let library = try Self.makeLibrary()
+    let project = try Self.projectWithColors(["#ff0000", "#00ff00", "#0000ff"], in: library)
+
+    let middle = try #require(project.orderedColors.dropFirst().first)
+    try library.delete(middle)
+    #expect(project.orderedColors.map(\.sortIndex) == [0, 2])
+
+    try library.moveColors(fromOffsets: IndexSet(integer: 1), toOffset: 0, in: project)
+    #expect(project.orderedColors.map(\.sortIndex) == [0, 1])
+    #expect(project.orderedColors.map(\.name) == ["#0000ff", "#ff0000"])
+
+    let added = try #require(CSSColorParser.parse("#ffff00").color)
+    try library.saveColor(ColorRecord(added, text: "#ffff00"), named: "#ffff00", to: project)
+    #expect(project.orderedColors.map(\.name) == ["#0000ff", "#ff0000", "#ffff00"])
+  }
+
+  /// An out-of-range request is ignored rather than trapped. The offsets come from a drag,
+  /// and a drop that lands as the grid is re-laying out can name an index that no longer
+  /// exists; crashing on it would be a poor trade for a gesture the user can simply repeat.
+  @Test("An out-of-range move changes nothing")
+  func reorderingIgnoresBadOffsets() throws {
+    let library = try Self.makeLibrary()
+    let project = try Self.projectWithColors(["#ff0000", "#00ff00"], in: library)
+
+    try library.moveColors(fromOffsets: IndexSet(integer: 7), toOffset: 0, in: project)
+    try library.moveColors(fromOffsets: IndexSet(integer: 0), toOffset: 9, in: project)
+
+    #expect(project.orderedColors.map(\.name) == ["#ff0000", "#00ff00"])
+  }
+
+  /// Reordering is a persistence claim, not a view-state one, so it has to be checked the
+  /// way ``dataSurvivesAReopen`` checks the rest: a real store, dropped and reopened. An
+  /// in-memory container would prove only that the objects in hand were mutated.
+  @Test("A reordering survives the store closing and reopening")
+  func reorderingSurvivesAReopen() throws {
+    let directory = URL.temporaryDirectory
+      .appending(path: "m11-reorder-\(UUID().uuidString)", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let url = directory.appending(path: "projects.store")
+
+    // Scoped so the container is released before the second one opens the same file.
+    do {
+      let library = try ProjectLibrary(ModelContext(Self.makeContainer(at: url)))
+      let project = try Self.projectWithColors(["#ff0000", "#00ff00", "#0000ff"], in: library)
+      try library.moveColors(fromOffsets: IndexSet(integer: 2), toOffset: 0, in: project)
+    }
+
+    let library = try ProjectLibrary(ModelContext(Self.makeContainer(at: url)))
+    let project = try #require(library.projects().first)
+    #expect(project.orderedColors.map(\.name) == ["#0000ff", "#ff0000", "#00ff00"])
+  }
+
+  // MARK: - Loose sets
+
+  /// The reason this overload exists at all. These colors were typed by the user, so they
+  /// have a spelling worth keeping; the ``PaletteEntry`` overload re-derives one because
+  /// its colors — ramp stops, harmony members — never had one. Routing a loose set through
+  /// that door would turn `rebeccapurple` into `oklch(…)` on the way in.
+  @Test("A loose set keeps each color's authored spelling")
+  func looseSetKeepsItsSpelling() throws {
+    let library = try Self.makeLibrary()
+    let project = try Self.projectWithColors(["rebeccapurple", "#ff0000"], in: library)
+
+    try library.savePalette(from: project.orderedColors, named: "Picked", to: project)
+
+    let palette = try #require(project.orderedPalettes.first)
+    #expect(palette.kind == .custom)
+    #expect(palette.orderedEntries.map(\.text) == ["rebeccapurple", "#ff0000"])
+  }
+
+  /// A key becomes a CSS custom property and a JavaScript object key, so two entries
+  /// sharing one collapse into a single property and a color vanishes from the export with
+  /// nothing to mark its absence. Derived palettes generate distinct keys and never meet
+  /// this; a hand-picked set has no such guarantee.
+  @Test("Duplicate names still produce distinct palette keys")
+  func looseSetKeysAreUnique() throws {
+    let library = try Self.makeLibrary()
+    let project = try library.createProject(named: "Site")
+    for css in ["#ff0000", "#00ff00", "#0000ff"] {
+      let color = try #require(CSSColorParser.parse(css).color)
+      try library.saveColor(ColorRecord(color, text: css), named: "blue", to: project)
+    }
+
+    try library.savePalette(from: project.orderedColors, named: "Picked", to: project)
+
+    let palette = try #require(project.orderedPalettes.first)
+    let keys = palette.paletteEntries.map(\.key)
+    #expect(keys == ["blue", "blue-2", "blue-3"])
+    #expect(Set(keys).count == keys.count)
+  }
+
+  /// An unnamed color falls back to its position, so a set of blank names still exports as
+  /// distinct properties rather than one.
+  @Test("Unnamed colors fall back to positional keys")
+  func looseSetNamesFallBackToPositions() throws {
+    let library = try Self.makeLibrary()
+    let project = try library.createProject(named: "Site")
+    for css in ["#ff0000", "#00ff00"] {
+      let color = try #require(CSSColorParser.parse(css).color)
+      try library.saveColor(ColorRecord(color, text: css), to: project)
+    }
+
+    try library.savePalette(from: project.orderedColors, named: "Picked", to: project)
+
+    let palette = try #require(project.orderedPalettes.first)
+    #expect(palette.paletteEntries.map(\.key) == ["1", "2"])
+  }
+
+  /// The colors are copied into the palette, not moved into it. `SavedColor` belongs to a
+  /// project *or* a palette, so reassigning would empty the grid the user just selected in.
+  @Test("Saving a loose set leaves the loose colors where they were")
+  func looseSetLeavesTheColorsInPlace() throws {
+    let library = try Self.makeLibrary()
+    let project = try Self.projectWithColors(["#ff0000", "#00ff00"], in: library)
+
+    try library.savePalette(from: project.orderedColors, named: "Picked", to: project)
+
+    #expect(project.orderedColors.map(\.name) == ["#ff0000", "#00ff00"])
+    #expect(project.orderedPalettes.first?.entries.count == 2)
+  }
+
   // MARK: Private
+
+  /// A project holding one loose color per CSS string, named after it, in order.
+  private static func projectWithColors(
+    _ css: [String],
+    in library: ProjectLibrary,
+  ) throws -> Project {
+    let project = try library.createProject(named: "Site")
+    for text in css {
+      let color = try #require(CSSColorParser.parse(text).color)
+      try library.saveColor(ColorRecord(color, text: text), named: text, to: project)
+    }
+    return project
+  }
 
   /// A store on disk, for the one test that has to leave memory.
   private static func makeContainer(at url: URL) throws -> ModelContainer {

@@ -30,11 +30,6 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		2CA1C0DE3012599C00F6925E /* ColorCore */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = ColorCore;
-			sourceTree = "<group>";
-		};
 		2C6D6B463012599C00F6925E /* Color Toolkit */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = "Color Toolkit";
@@ -48,6 +43,11 @@
 		2C6D6B603012599D00F6925E /* Color ToolkitUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = "Color ToolkitUITests";
+			sourceTree = "<group>";
+		};
+		2CA1C0DE3012599C00F6925E /* ColorCore */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = ColorCore;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -114,8 +114,8 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				2CA1C0DE3012599C00F6925E /* ColorCore */,
 				2C6D6B463012599C00F6925E /* Color Toolkit */,
+				2CA1C0DE3012599C00F6925E /* ColorCore */,
 			);
 			name = "Color Toolkit";
 			packageProductDependencies = (
