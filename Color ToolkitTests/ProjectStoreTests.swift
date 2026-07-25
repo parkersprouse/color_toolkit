@@ -268,6 +268,6 @@ struct ProjectStoreTests {
   }
 
   private static func makeLibrary() throws -> ProjectLibrary {
-    ProjectLibrary(ModelContext(try makeContainer()))
+    try ProjectLibrary(ModelContext(makeContainer()))
   }
 }

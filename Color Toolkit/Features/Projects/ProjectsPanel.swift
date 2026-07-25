@@ -53,6 +53,11 @@ struct ProjectsPanel: View {
 
   // MARK: Private
 
+  /// The sets worth keeping. ``ExportSource/color`` is absent because Save Color already
+  /// does that one, and ``ExportSource/saved`` because saving a saved palette back into
+  /// the project it came from is a loop with nothing at the end of it.
+  private static let savableSets: [ExportSource] = [.harmony, .ramp, .recents]
+
   @Environment(ColorStore.self) private var store
   @Environment(\.modelContext) private var context
   @Environment(\.projectStoreStatus) private var storeStatus
@@ -261,12 +266,6 @@ struct ProjectsPanel: View {
     .onDisappear { perform { try library.touch(saved) } }
   }
 
-  /// Name, spelling and notes, in whatever combination exists.
-  private func tooltip(_ saved: SavedColor) -> String {
-    let heading = saved.name.isEmpty ? saved.text : "\(saved.name) — \(saved.text)"
-    return saved.notes.isEmpty ? heading : "\(heading)\n\(saved.notes)"
-  }
-
   /// One saved color: click to put it back in the field.
   ///
   /// The button carries the color's CSS as its accessibility label, for the reason every
@@ -361,12 +360,11 @@ struct ProjectsPanel: View {
     .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 8))
   }
 
-  // MARK: - Actions
-
-  /// The sets worth keeping. ``ExportSource/color`` is absent because Save Color already
-  /// does that one, and ``ExportSource/saved`` because saving a saved palette back into
-  /// the project it came from is a loop with nothing at the end of it.
-  private static let savableSets: [ExportSource] = [.harmony, .ramp, .recents]
+  /// Name, spelling and notes, in whatever combination exists.
+  private func tooltip(_ saved: SavedColor) -> String {
+    let heading = saved.name.isEmpty ? saved.text : "\(saved.name) — \(saved.text)"
+    return saved.notes.isEmpty ? heading : "\(heading)\n\(saved.notes)"
+  }
 
   private func create() {
     perform {

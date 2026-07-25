@@ -324,6 +324,30 @@ final class ColorStore {
     entries(for: exportSource)
   }
 
+  /// The export document as it currently stands.
+  ///
+  /// Generated in ColorCore and merely *displayed* here, which is what lets the panel be
+  /// a preview and a copy button with no string-building of its own — and what lets the
+  /// tests assert the output without ever touching the real pasteboard.
+  var exportDocument: String {
+    exportOptions.render(exportEntries, formatting: formatOptions)
+  }
+
+  /// How many entries the chosen format cannot express without moving them.
+  ///
+  /// Uses ``ColorValue/isGamutMapped(as:options:epsilon:)`` — the same predicate behind
+  /// the conversion panel's "mapped" badge and behind the serializer's own decision — so
+  /// the warning above the preview cannot disagree with the document below it.
+  var exportGamutMappedCount: Int {
+    exportEntries.count {
+      $0.color.isGamutMapped(
+        as: exportOptions.format,
+        options: formatOptions,
+        epsilon: ColorValue.gamutNoiseTolerance,
+      )
+    }
+  }
+
   /// The colors any source names, whether or not it is the one being exported.
   ///
   /// Split out from ``exportEntries`` when the Projects panel arrived: saving "the
@@ -371,30 +395,6 @@ final class ColorStore {
     exportSource = .saved
     exportOptions.name = name
     tool = .export
-  }
-
-  /// The export document as it currently stands.
-  ///
-  /// Generated in ColorCore and merely *displayed* here, which is what lets the panel be
-  /// a preview and a copy button with no string-building of its own — and what lets the
-  /// tests assert the output without ever touching the real pasteboard.
-  var exportDocument: String {
-    exportOptions.render(exportEntries, formatting: formatOptions)
-  }
-
-  /// How many entries the chosen format cannot express without moving them.
-  ///
-  /// Uses ``ColorValue/isGamutMapped(as:options:epsilon:)`` — the same predicate behind
-  /// the conversion panel's "mapped" badge and behind the serializer's own decision — so
-  /// the warning above the preview cannot disagree with the document below it.
-  var exportGamutMappedCount: Int {
-    exportEntries.count {
-      $0.color.isGamutMapped(
-        as: exportOptions.format,
-        options: formatOptions,
-        epsilon: ColorValue.gamutNoiseTolerance,
-      )
-    }
   }
 
   /// Copies the export document and files the color, since reaching for a value is the

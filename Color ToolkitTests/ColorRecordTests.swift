@@ -82,7 +82,7 @@ struct ColorRecordTests {
     arguments: ["rebeccapurple", "#3b82f6", "rgb(59 130 246)", "oklch(0.7 0.15 250)"],
   )
   func componentsMatchSpelling(css: String) throws {
-    let record = ColorRecord(try #require(CSSColorParser.parse(css).color), text: css)
+    let record = try ColorRecord(#require(CSSColorParser.parse(css).color), text: css)
 
     let reparsed = try #require(CSSColorParser.parse(record.text).color)
     #expect(reparsed == record.colorValue)
@@ -111,7 +111,7 @@ struct ColorRecordTests {
       // `.oklch` is unbounded, so nothing was gamut-mapped on the way out and the
       // recalled color is in the space it was written in.
       #expect(reparsed.space == .oklch)
-      #expect(reparsed.deltaEOK(to: try #require(record.colorValue)) < 1e-9)
+      #expect(try reparsed.deltaEOK(to: #require(record.colorValue)) < 1e-9)
     }
   }
 }
