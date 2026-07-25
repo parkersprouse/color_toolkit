@@ -1,8 +1,9 @@
 # Color Toolkit — Implementation Plan
 
 > **Status (2026-07-25): M0–M11 and M5b (CVD) complete**, each reviewed on the running
-> app, with the full suite green — **291 Swift Testing functions across 34 suites plus 24
-> XCUITests**. ColorCore is validated against **colorjs.io 0.7.0** (pinned exact) — 6,384
+> app, with the full suite green — **291 Swift Testing functions across 34 suites plus 25
+> XCUITests**, both read off a run rather than counted by hand. ColorCore is validated
+> against **colorjs.io 0.7.0** (pinned exact) — 6,384
 > conversions, 1,368 gamut mappings and 108 contrast pairs — plus independent
 > definitional anchors, and **405 CVD vectors** over Machado's Table 1.
 >
@@ -920,11 +921,13 @@ ordinary thing for a person to have.
   over the swatch as an overlay, was swallowed whole — absent from the tree entirely — and
   `savedColor-N` began matching *two* elements, breaking an existing recall test that had
   nothing to do with the change. It is a `ZStack` sibling now.
-- **`.draggable` on a `Button` never starts.** The button consumes the press the drag
-  needs. It belongs on the tile that wraps the button.
 - **XCUITest cannot start an AppKit dragging session.** Its synthesized events move the
   pointer without the drag beginning, so a drag-driven test fails whether the feature works
   or not — including with `press(forDuration:thenDragTo:withVelocity:thenHoldForDuration:)`.
+- `.draggable` ended up on the tile rather than on the swatch Button, on the theory that a
+  Button consumes the press a drag needs. **That theory is unverified and should not be
+  repeated as fact:** the test failed identically before and after the move, because of the
+  point above. It is recorded as a placement, not a finding.
 
 That last one forced a question worth more than the test: **a drag-only reorder is
 unusable from the keyboard and from VoiceOver**, which would have made this the one thing

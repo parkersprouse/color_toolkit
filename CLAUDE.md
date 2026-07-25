@@ -386,8 +386,10 @@ the accessibility-tree conventions before writing UI tests.
   *and* makes the Button's own identifier match twice, which breaks unrelated tests
   querying it. Interactive siblings go in a `ZStack`, not an overlay. Decorative ones
   (a selection ring) are fine inside the label.
-- **`.draggable` on a `Button` never starts a drag** — the button consumes the press.
-  Put it on the view that wraps the button.
+- `.draggable`/`.dropDestination` sit on the tile that wraps the swatch Button, not on
+  the Button. Whether a Button would consume the press is **not established** — the test
+  that would have shown it cannot drive a drag either way (next bullet), and moving the
+  modifier changed nothing observable. Recorded as a placement, not a rule.
 - **XCUITest cannot drive a drag-and-drop.** `.draggable`/`.dropDestination` open an
   AppKit dragging session, and XCUITest's synthesized events move the pointer without the
   session ever beginning — including with
