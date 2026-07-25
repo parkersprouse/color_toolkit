@@ -5,9 +5,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 A native macOS color toolkit for web development. Built: CSS Color 4 parsing and
 conversion across 14 spaces, a menu bar panel, a screen eyedropper with a global
 shortcut, WCAG 2.2 / APCA contrast checking, a gamut-aware HSV/OKLCH picker, OKLCH
-transforms — adjustment, harmonies, shade ramps and a contrast solver — and export to
-CSS declarations, custom properties, JSON and both Tailwind generations. Planned: saved
-projects. Swift 6, SwiftUI, no third-party runtime dependencies.
+transforms — adjustment, harmonies, shade ramps and a contrast solver — export to CSS
+declarations, custom properties, JSON and both Tailwind generations, and saved projects
+on SwiftData. Every planned milestone (M0–M9) is built. Swift 6, SwiftUI, no third-party
+runtime dependencies.
 
 **[PLAN.md](PLAN.md) is the source of truth** for milestone status, what is deferred
 and why, and the reasoning behind every decision recorded below. This file is the
@@ -160,6 +161,10 @@ Layered so the numeric core stays independently testable and UI-free:
 - **`Features/Shell/ColorStore.swift`** — `@MainActor @Observable`, one instance
   injected into both scenes (menu bar + window). Holds a *pair* of `ColorField`s
   (foreground + background) and which `Tool` the window is showing.
+- **`Persistence/`** — the only SwiftData in the app. `ColorRecord` is a plain value
+  type bridging `ColorValue` to flat, queryable columns; `ProjectModels` holds the three
+  `@Model` classes; `ProjectLibrary` owns every mutation so the rules are testable
+  against a container; `PersistenceStack` builds the one container both scenes share.
 - **`Features/`, `DesignSystem/`** — SwiftUI, one folder per tool. `Services/` wraps
   AppKit (pasteboard, `NSColorSampler`, Carbon hot keys).
 
@@ -278,6 +283,32 @@ Layered so the numeric core stays independently testable and UI-free:
   so the *string* is out of sRGB while the `ColorValue` is inside. Worst case across hues
   at four decimals is 1.7e-3 of a channel — 0.43 of an 8-bit step. Known and accepted:
   biasing export rounding inward would make the clipboard disagree with the preview.
+- **A SwiftData to-many relationship is unordered — measured, not assumed.** Read an
+  eleven-stop ramp off `palette.entries` without sorting and it comes back
+  `600, 400, 100, …`, in the same context, right after the save. `SavedColor.sortIndex`
+  plus `orderedEntries` / `orderedColors` is the fix; never iterate the raw array where
+  order carries meaning, or Tailwind's keys name the wrong colors and the output still
+  looks well-formed.
+- **Both `@Relationship`s into `SavedColor` declare their `inverse:` explicitly.** It is
+  the destination of two to-many relationships, and SwiftData resolves inverses when the
+  *container* is built — leave them inferred and everything compiles and the app throws
+  on launch. `ProjectStoreTests` opens by asserting the container builds, which is what
+  turns that into a test failure.
+- **`ColorStore` must not import SwiftData.** `ProjectsPanel` owns the app's only
+  `@Query` and `modelContext`; palettes cross the boundary as `[PaletteEntry]`, and the
+  selected project is remembered as a plain `UUID` (hence `Project.uuid` alongside
+  `PersistentIdentifier`). This is what keeps `ExportStoreTests` free of a
+  `ModelContainer` — and what made `ExportSource.saved` one enum case instead of a second
+  path through the export layer.
+- **Stored colors keep their authored text as well as their components**, for the reason
+  `RecentColor` does: re-deriving a spelling canonicalizes, and a saved `rebeccapurple`
+  would come back `#663399`. The `missing` mask is stored too — the parser sets it for
+  CSS `none`. A test requires that parsing the text reproduces the components, because
+  two spellings of one claim will otherwise drift.
+- **UI tests that touch projects must launch with `UITestInMemoryStore`** — see
+  `ProjectsSmokeTests`. Without it XCUITest writes into the real library and the next run
+  finds it. The argument carries no leading hyphen on purpose; `NSUserDefaults` claims
+  anything that starts with one.
 - New tool panels: add a `Tool` case, a folder under `Features/`, and a branch in
   `ContentView`. Keep spec facts in ColorCore and wording in the panel — see
   `RequirementPresentation`.
@@ -312,6 +343,10 @@ the accessibility-tree conventions before writing UI tests.
 - **Never write a fallback chain of XCUITest queries.** One named query, and dump
   `app.debugDescription` on failure. A chain that silently matches on index is a test
   that cannot fail — one hid a picker announcing its SF Symbol name to VoiceOver.
+- **Query the right element kind, and scope dialogs.** A SwiftUI `Picker` is a
+  `popUpButton`; a `Menu` is a `menuButton` — the wrong one simply never matches. A
+  `confirmationDialog`'s buttons appear more than once app-wide, so query them through
+  `app.sheets`; an ambiguous query fails at the click with no tree to read.
 - Never write to the real pasteboard from a test.
 - **`.accessibilityIdentifier` on a `Text` publishes the string as the element's
   `value`, not its `label`.** `element.label` returns `""` and the assertion reports a

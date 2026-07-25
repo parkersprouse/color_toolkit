@@ -1,13 +1,20 @@
 # Color Toolkit — Implementation Plan
 
-> **Status (2026-07-24): M0–M8 and M5b (CVD) complete, every milestone reviewed on the
-> running app and the full suite green** — **257 Swift Testing functions across 31
-> suites plus 19 XCUITests**, which expand to 485 individual cases once parameterized
-> arguments are counted (the figure `xcresulttool` reports).
+> **Status (2026-07-25): M0–M9 and M5b (CVD) complete — every planned milestone is
+> built, each reviewed on the running app, and the full suite is green** — **281 Swift
+> Testing functions across 33 suites plus 22 XCUITests**, 303 test functions in total,
+> which expand to 536 individual cases once parameterized arguments are counted.
 > ColorCore is validated against **colorjs.io 0.7.0** (pinned exact) — 6,384
 > conversions, 1,368 gamut mappings and 108 contrast pairs — plus independent
-> definitional anchors, and **405 CVD vectors** over Machado's Table 1. Next up:
-> **M9 (projects)**.
+> definitional anchors, and **405 CVD vectors** over Machado's Table 1. What remains is
+> **M8b** (saving an export to a file) and the deferred list at the end.
+>
+> M9 closes the loop M8 left open, and its screenshots prove it end to end: a shade ramp
+> saved into a project as `brand` and exported from the other tool comes back as a
+> `:root` block reading `--brand-500: oklch(0.6231 0.188 259.81)` — the same value, to
+> the last digit, that M8 recorded against colorjs.io. Nothing was lost crossing the
+> store. Its screenshots also caught a banner announcing a failure that had not happened;
+> see the milestone.
 >
 > M8's exports were checked against the reference from the panel's own screenshots:
 > exporting `#3b82f6` as a shade ramp writes `--brand-500: oklch(0.6231 0.188 259.81)`,
@@ -248,6 +255,29 @@
 >   would no longer come out of its own ramp bit-for-bit — and in an unbounded gamut,
 >   where `maxChroma` correctly answers `.infinity`, it would set every chroma to
 >   infinity. Both failure modes were confirmed by mutation.
+> - **A SwiftData to-many relationship is unordered, and observably so.** Not a caveat
+>   from the documentation — a measurement. Read an eleven-stop ramp back off
+>   `palette.entries` instead of sorting it and the stops arrive `600, 400, 100, 200,
+>   900, 300, 800, 950, 500, 50, 700`, in the same context, immediately after the save
+>   that inserted them in order. Order that carries meaning gets an explicit `sortIndex`
+>   and a sort on read; otherwise Tailwind's eleven keys name eleven wrong colors and the
+>   exported block still looks perfectly well-formed.
+> - **SwiftData resolves relationship inverses when the *container* is built, not when
+>   the code compiles.** `SavedColor` is the destination of two to-many relationships (a
+>   project's loose colors and a palette's entries), and with the inverses left to
+>   inference every model still type-checks and the app throws on launch. Hence
+>   `@Relationship(inverse:)` on both sides and "the container initializes" as the first
+>   assertion in `ProjectStoreTests`.
+> - **`@Model` needs no `nonisolated` gymnastics under
+>   `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`.** The macro's generated `PersistentModel`
+>   conformance compiles unannotated, which was the one thing worth spiking before
+>   designing a schema around it — every other layer in this project needed the
+>   annotation.
+> - **One flag cannot describe two opposite situations.** The projects store is ephemeral
+>   both when the on-disk one fails to open and when a UI test asks for a throwaway, and
+>   an `isEphemeral` boolean made the app announce "the store could not be opened" during
+>   a run that had requested exactly that store. Three cases, and the banner fires for the
+>   failure alone: a warning shown when nothing is wrong is a warning nobody reads.
 
 ## Context
 
@@ -257,7 +287,7 @@ The single thing that determines whether this tool is worth relying on is **conv
 
 ### Current state
 
-M0–M8 are built. The stock SwiftData template (`Item.swift`, the `NavigationSplitView` list) is gone; what stands now is:
+M0–M9 are built. The stock SwiftData template (`Item.swift`, the `NavigationSplitView` list) is gone — M9 brought SwiftData back on its own terms rather than the template's. What stands now is:
 
 | Layer | Files |
 |---|---|
@@ -276,12 +306,15 @@ M0–M8 are built. The stock SwiftData template (`Item.swift`, the `NavigationSp
 | CVD UI | [CVDPanel.swift](Color%20Toolkit/Features/CVD/CVDPanel.swift) |
 | Transform UI | [TransformPanel.swift](Color%20Toolkit/Features/Transform/TransformPanel.swift) |
 | Export UI | [ExportPanel.swift](Color%20Toolkit/Features/Export/ExportPanel.swift), [ExportPresentation.swift](Color%20Toolkit/Features/Export/ExportPresentation.swift) |
+| Persistence | [ColorRecord.swift](Color%20Toolkit/Persistence/ColorRecord.swift), [ProjectModels.swift](Color%20Toolkit/Persistence/ProjectModels.swift), [ProjectLibrary.swift](Color%20Toolkit/Persistence/ProjectLibrary.swift), [PersistenceStack.swift](Color%20Toolkit/Persistence/PersistenceStack.swift) |
+| Projects UI | [ProjectsPanel.swift](Color%20Toolkit/Features/Projects/ProjectsPanel.swift) |
 | Design system | [ColorSwatch.swift](Color%20Toolkit/DesignSystem/ColorSwatch.swift), [ColorValue+SwiftUI.swift](Color%20Toolkit/DesignSystem/ColorValue+SwiftUI.swift) |
 | Services | [Clipboard.swift](Color%20Toolkit/Services/Clipboard.swift), [ScreenSampler.swift](Color%20Toolkit/Services/ScreenSampler.swift), [GlobalHotKey.swift](Color%20Toolkit/Services/GlobalHotKey.swift) |
 
-There is **no `Persistence/` folder** — M9 will create it. An earlier revision of this
-file said one existed and was empty; git does not track empty directories, so it never
-survived a clone and the claim was true only on the machine that made it.
+`Persistence/` exists as of M9 and holds four files, listed above. An earlier revision of
+this file claimed one existed and was empty long before that was true; git does not track
+empty directories, so it never survived a clone and the claim held only on the machine
+that made it.
 
 Key facts about the project, established during exploration and still current:
 
@@ -709,17 +742,93 @@ Saving to a file rather than the clipboard. It needs a sandbox entitlement plus 
 panel whose output is meant to be pasted into a stylesheet you already have open. Worth
 revisiting alongside M9, where a saved project is a file anyway.
 
-### M9 — Projects (SwiftData)
+### ✅ M9 — Projects (SwiftData)
 
-Keep `ColorCore` free of SwiftData; persist an explicit, queryable representation rather than an opaque blob:
+Built as planned: three `@Model` classes holding space ID plus raw components rather than
+a serialized string or a `Data` blob, so saved values stay lossless *and* queryable, with
+a small value-type bridge to and from `ColorValue`. `ColorCore` never learns SwiftData
+exists — and neither, it turns out, does `ColorStore`.
 
 ```swift
-@Model final class Project   { name, colors, palettes, createdAt, modifiedAt }
-@Model final class SavedColor { name, spaceID: String, c0/c1/c2: Double, alpha: Double, notes }
-@Model final class Palette    { name, kind: String, entries: [SavedColor] }
+@Model final class Project    { uuid, name, colors, palettes, createdAt, modifiedAt }
+@Model final class SavedColor { name, notes, sortIndex, spaceID, c0/c1/c2, alpha, missingMask, text }
+@Model final class Palette    { name, kindID, sortIndex, entries }
 ```
 
-Storing the space ID + raw components (instead of a serialized CSS string or `Data`) keeps values lossless *and* inspectable/queryable. A small `Codable` bridge maps to/from `ColorValue`.
+**The sketch above was missing two fields, and both are load-bearing.**
+
+- **`missingMask`.** The parser sets `ComponentMask` for CSS `none`, so without it a saved
+  `oklch(0.7 0.2 none)` comes back with a hue of exactly zero — a different color, with
+  nothing anywhere to say so.
+- **`text`, the authored spelling.** `RecentColor` already carries its text because
+  re-deriving one canonicalizes, and the same argument applies twice over to something
+  saved deliberately: a stored `rebeccapurple` recalled as `#663399` is the app rewriting
+  a choice the user made and then kept. Components remain the *value* and text is only how
+  it was written, so they are two spellings of one claim — and a test therefore requires
+  that parsing the text reproduces the components, which is the check that stops them
+  drifting.
+
+Decisions worth recording:
+
+- **`ColorStore` does not import SwiftData, and that is the load-bearing boundary.**
+  `ProjectsPanel` owns the app's only `@Query` and only `modelContext`; a palette leaves
+  it as `[PaletteEntry]`, the same value type a harmony produces. So `ExportSource.saved`
+  is one enum case rather than a second path through the export layer, `ExportStoreTests`
+  still needs no `ModelContainer`, and the selected project is remembered as a plain
+  `UUID` — which is why `Project` carries one alongside SwiftData's `PersistentIdentifier`.
+- **Staging carries the palette's *name*, not just its colors.** A set saved as `brand`
+  exports as `--brand-500` however the export panel was last configured. That is the whole
+  payoff M8 deferred, and forgetting the name would have made it half a feature.
+- **`SavedColor.name` doubles as the export key.** A ramp stop's key *is* the only sensible
+  thing to call it — `500` — so a second field would be two names for one string and an
+  invitation for them to disagree.
+- **`notes` got a UI rather than a deferral.** The sketch listed the field and the first
+  draft stored it with nothing anywhere to write it — a column that exists and does
+  nothing, which is the sort of thing this file exists to catch. It is a popover off the
+  swatch's context menu, because notes are the least-used thing in the panel and a
+  permanent text box under every tile would bury the colors it is describing.
+- **Mutations live in `ProjectLibrary`, not in the panel.** A thin wrapper over
+  `ModelContext` that owns the *rules* — where a position comes from, what counts as
+  touching a project, which relationship a color belongs to — so they can be asserted
+  against an in-memory container instead of through a rendered view. It saves explicitly
+  rather than leaning on autosave, which is fine for an app and useless for a test that
+  wants to fetch back what it just wrote.
+- **A store that will not open falls back to memory and says so.** Refusing to launch over
+  a corrupt file is the wrong trade for a tool opened dozens of times a day; accepting
+  saves that silently evaporate is worse than both. Hence a banner — and hence the
+  three-case `Status`, after the first version fired it during a UI test that had *asked*
+  for a throwaway store. See the finding above.
+- **UI tests launch with `UITestInMemoryStore`.** XCUITest drives the shipping app, so
+  without it a test that saves would deposit a project in the real library and the next run
+  would find it. The launch argument is the only way to reach that decision from outside
+  the process, and it carries no leading hyphen because `NSUserDefaults` claims the
+  argument domain for anything that starts with one.
+- **Schema versioning is deferred, deliberately.** Additive changes migrate on their own
+  and this is a personal-scope v1; a `VersionedSchema` would be ceremony around a
+  migration that has not happened yet. Worth adding the first time a field is *removed*
+  or retyped.
+
+**The seventh tool went in before Export rather than after.** Export is documented as
+terminal — every other tool answers a question about the color and this one writes the
+answer down — and Projects is the tool that *keeps* things, which happens before you
+write them out and is itself one of the things Export now reads. Seven segments still fit
+the switcher in the window body, which is the layout M8 moved it there to survive.
+
+**Testing splits along the boundary.** The mapping is a value type, so `ColorRecordTests`
+asserts every space's round trip, the `none` mask and the two spellings agreeing, with no
+container anywhere. `ProjectStoreTests` takes the things only SwiftData can answer —
+inverses, cascades, what comes back from a fetch. `ProjectsSmokeTests` covers what only a
+running app can show: clicking a saved swatch returns *your* spelling to the field, and a
+ramp saved in one tool exports under its own name in another.
+
+Four mutations confirm the tests bite: dropping the `missing` mask fails two, nullifying
+the palette cascade fails two, canonicalizing the stored text fails six, and removing the
+sort fails thirteen. **The last one is the interesting one** — it did not merely risk
+disorder, it produced it on the first run, which is what turned an assumption about
+SwiftData into the measurement recorded above.
+
+*Done, and reviewed on the running app from its own screenshots — see the status note for
+the ramp that survived a round trip through the store unchanged.*
 
 ---
 
@@ -734,7 +843,8 @@ Per milestone:
 - **M6:** the plane is a `Canvas`, so nothing about the pixels reaches the accessibility tree — the numeric readout is the assertable surface, and the boundary figures it prints were checked against the oracle from the panel's own screenshots. See [PickerSmokeTests](Color%20ToolkitUITests/PickerSmokeTests.swift).
 - **M7:** the transforms have no oracle, so ColorCore asserts their defining properties and every load-bearing one was confirmed by mutation (see the milestone above). What *can* be cross-checked is the pipeline end to end, and was: the OKLCH string the panel wrote after adopting a triad member agrees with colorjs.io to ten decimals. See [TransformSmokeTests](Color%20ToolkitUITests/TransformSmokeTests.swift), where each derived swatch is a button labelled with its own CSS — the only handle a test has on a row of colored rectangles, and the thing a bare swatch owes VoiceOver anyway.
 - **M8:** the only milestone whose output is *text a machine will read*, so the parser is the oracle — [ExportTests](Color%20ToolkitTests/ExportTests.swift) round-trips every exportable format back through `CSSColorParser` and requires the color to survive. Syntax is pinned with exact strings, and the identifier rules (JavaScript key quoting, CSS sanitizing) have their own parameterized cases, because a config that will not load is the failure mode and it is invisible from inside Swift. The source-to-entries mapping is asserted on `ColorStore` rather than through the UI — see [ExportStoreTests](Color%20ToolkitTests/ExportStoreTests.swift) — which is why that mapping lives on the store. [ExportSmokeTests](Color%20ToolkitUITests/ExportSmokeTests.swift) covers only what a running app can show: that the controls reach the document. It never clicks Copy, for the reason no test here touches the pasteboard.
-- **M3/M4/M9 (UI):** run the app and verify interactively. Spot-check conversions against a browser's DevTools color picker, which implements the same spec — a fast, honest end-to-end sanity check.
+- **M9:** three levels, split on what each can actually answer. [ColorRecordTests](Color%20ToolkitTests/ColorRecordTests.swift) takes the mapping with no container in sight — every space, the `none` mask, and the stored components agreeing with the stored spelling. [ProjectStoreTests](Color%20ToolkitTests/ProjectStoreTests.swift) takes what only SwiftData can answer, opening with the assertion that the container builds at all, because inverses are resolved there rather than at compile time. [ProjectsSmokeTests](Color%20ToolkitUITests/ProjectsSmokeTests.swift) takes the round trip through a running app — and launches every one with `UITestInMemoryStore`, because the alternative is writing into the real library. The end-to-end cross-check is the ramp in the status note: saved, reloaded, exported, and identical to the value M8 checked against colorjs.io.
+- **M3/M4 (UI):** run the app and verify interactively. Spot-check conversions against a browser's DevTools color picker, which implements the same spec — a fast, honest end-to-end sanity check.
 
 The scheme is shared and works from the command line:
 
@@ -827,5 +937,7 @@ git worktree add -q --detach /tmp/wt <sha> && cd /tmp/wt && xcodebuild -project 
 ## Deferred (worth revisiting)
 
 Relative color syntax (`rgb(from …)`), `calc()` in parsing, full `none`/powerless-component semantics, color interpolation & mixing (`color-mix()`), CSS `@media (color-gamut)` awareness, Raycast/Alfred or CLI front-end reusing `ColorCore`, palette import from Figma/Tailwind configs.
+
+From M9: a `VersionedSchema` and an explicit migration plan (additive changes migrate on their own, so this is owed the first time a field is removed or retyped), reordering colors within a project by drag, and saving a *loose* set of colors as a palette without going through a harmony or a ramp.
 
 *Note for later:* the APCA algorithm has carried usage/attribution terms. Irrelevant for personal use, but worth checking before ever distributing the app publicly.
