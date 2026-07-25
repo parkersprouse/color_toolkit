@@ -73,6 +73,14 @@ nonisolated struct ExportOptions: Sendable, Equatable {
 
   static let `default` = ExportOptions()
 
+  /// What an unnamed export is called: the starting value, the fallback when the field
+  /// is cleared, and the placeholder a panel shows in the empty field.
+  ///
+  /// One constant for all three so they cannot drift. They did: the field prompted
+  /// `brand` while an empty name exported `--color`, because the fallback came from
+  /// ``cssIdentifier(_:fallback:)``'s own default rather than from here.
+  static let defaultName = "brand"
+
   var shape: ExportShape = .customProperties
   var template: ExportTemplate = .color
 
@@ -81,14 +89,6 @@ nonisolated struct ExportOptions: Sendable, Equatable {
   /// palette ships in — so an exported theme sits beside the stock one without looking
   /// foreign.
   var format: CSSOutputFormat = .oklch
-
-  /// What an unnamed export is called: the starting value, the fallback when the field
-  /// is cleared, and the placeholder a panel shows in the empty field.
-  ///
-  /// One constant for all three so they cannot drift. They did: the field prompted
-  /// `brand` while an empty name exported `--color`, because the fallback came from
-  /// ``cssIdentifier(_:fallback:)``'s own default rather than from here.
-  static let defaultName = "brand"
 
   /// The family name: `brand` yields `--brand-500` and `colors: { brand: … }`.
   ///
@@ -107,7 +107,9 @@ nonisolated struct ExportOptions: Sendable, Equatable {
     var pendingHyphen = false
     for character in text {
       if character.isASCII, character.isLetter || character.isNumber || character == "_" {
-        if pendingHyphen, !out.isEmpty { out.append("-") }
+        if pendingHyphen, !out.isEmpty {
+          out.append("-")
+        }
         pendingHyphen = false
         out.append(character)
       } else {

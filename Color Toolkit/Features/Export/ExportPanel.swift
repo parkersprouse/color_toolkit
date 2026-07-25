@@ -107,9 +107,9 @@ struct ExportPanel: View {
             text: $store.exportOptions.name,
             prompt: Text(ExportOptions.defaultName),
           )
-            .textFieldStyle(.roundedBorder)
-            .frame(maxWidth: 200)
-            .accessibilityIdentifier("exportName")
+          .textFieldStyle(.roundedBorder)
+          .frame(maxWidth: 200)
+          .accessibilityIdentifier("exportName")
         }
       }
 
@@ -230,8 +230,6 @@ struct ExportPanel: View {
       .padding(.vertical, 2)
     }
   }
-
-  // MARK: - Actions
 
   private func copy() {
     store.copyExport()

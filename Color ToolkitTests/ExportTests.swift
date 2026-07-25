@@ -19,6 +19,8 @@ import Testing
 /// and it fails loudly if any link rounds when it should not.
 @Suite("Export round trip")
 struct ExportRoundTripTests {
+  // MARK: Internal
+
   /// In sRGB and already on the 8-bit grid, so *every* exportable format can name it
   /// exactly. A wide color would be gamut-mapped by hex, and the round trip would then
   /// be measuring the mapper rather than the exporter.
@@ -97,6 +99,8 @@ struct ExportRoundTripTests {
       )
     }
   }
+
+  // MARK: Private
 
   /// Extracts the value from every `--name: value;` line.
   private static func propertyValues(in document: String) -> [String] {
