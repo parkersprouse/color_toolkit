@@ -948,30 +948,69 @@ were mutated.
 Not user-visible on its own, and three later milestones are wrong without it.
 
 `ColorValue.converted(to:)` drops all three component `missing` flags and carries only
-`.alpha`. CSS requires missingness to survive into a space with **analogous** components —
-an `h` that is `none` in `hsl` is still `none` in `oklch` — and nothing in the codebase can
-express "analogous" today. `componentLabels` is the closest thing and is display copy, not
-a fact.
+`.alpha`. When two colors are *interpolated*, CSS requires missingness to survive into a
+space with **analogous** components — an `h` that is `none` in `hsl` is still `none` in
+`oklch` — and nothing in the codebase can express "analogous" today. `componentLabels` is
+the closest thing and is display copy, not a fact.
+
+**Two things this milestone was originally scoped to do are wrong, and reading CSS Color 4
+§4.4.1 and §13.2 rather than reasoning from the enum is what caught them.** Both are
+recorded here because the mistaken version is the intuitive one.
+
+**Carry-forward is an *interpolation* rule, not a conversion rule.** The plan said to carry
+missing flags at all three conversion sites. The spec scopes carrying to interpolation, and
+says something different about plain conversion: *"if a color is automatically produced by
+color space conversion, then any powerless components in the result must instead be set to
+missing"* — the result's own powerless components, not the source's missing ones. So
+`converted(to:)` stays a pure numeric conversion, and carry-forward becomes an explicit
+operation that interpolation asks for. Whether the serializer marks powerless components
+stays where it is, behind `noneForPowerlessComponents`, because that is a presentation
+choice and printing `none` at people unasked is not an improvement.
+
+**The powerless rules are hue-only, and the existing implementation already covers them.**
+The plan invented "HSL saturation at `l == 0` or `100`"; the spec has no such rule — it says
+only that such a color *displays* as black or white "due to gamut mapping to the display".
+The complete list is HSL hue at `s == 0`, HWB hue when achromatic (`w + b >= 100%`), and
+LCH/OKLCH hue at zero chroma, plus a UA rule to treat hue as powerless below an epsilon of
+colorfulness. `markingPowerlessComponents()` already decides this with one OKLab-based
+`isAchromatic` test, which lands on the correct answer for all four spaces by a different
+route — and the epsilon rule is explicitly blessed. **Nothing to add here. Do not
+"complete" it.**
+
+What is actually owed:
 
 - **`ComponentRole`**, and `ColorSpace.componentRoles`, beside `componentLabels` but
   categorically different from it. Derive `hueIndex` from it so the two cannot drift.
-- **Carry flags at all three conversion sites**, not one: `converted(to:)`,
-  `Adjustment.derivedOKLCH`, and `CVDSimulation` each drop them independently.
-- **The rest of the powerless rules.** `markingPowerlessComponents()` handles only
-  hue-at-zero-chroma; CSS also has HSL hue at `s == 0`, HSL saturation at `l == 0` or `100`,
-  and HWB hue at `w + b >= 100`.
-- **Collapse `CSSFormatter.prepare`'s `space == target` special case**, which exists purely
-  to paper over the dropped flags, and **resolve `ParseError.noneNotAllowedInLegacy`** —
-  declared with a message and never thrown.
+  **Transcribe the spec's table; do not derive it from the labels** — three of its
+  groupings are not guessable. `r` and `x` are the *same* category, because XYZ counts as
+  a "super-saturated RGB space" (likewise `g`/`y` and `b`/`z`). Chroma and Saturation are
+  one category, "despite Saturation being Lightness-dependent". Whiteness and Blackness
+  have **no** analog in any space. And `b` means different things in different spaces —
+  Blues in RGB, Opponent b in Lab — so roles are per-space and never read off a letter.
+- **Analogous *sets*, which are a second mechanism and easy to miss entirely.** After
+  removing individually-analogous components, whatever remains on each side forms a set,
+  and if *every* member of the source's set is missing, the whole destination set is
+  missing. This is what makes `lab(50% none none)` → `lch(50% none none)` rather than
+  `lch(50% 0 0)`, and `rgb(none none none)` → `oklab(none none none)` even though sRGB and
+  OKLab share no individual component. Alpha is analogous to alpha.
+- **Resolve `ParseError.noneNotAllowedInLegacy`** — declared with a message and never
+  thrown.
+
+The spec's own worked examples are the test cases: the two above, plus
+`lch(50% 0.02 none)` and `color(display-p3 0.7 0.5 none)` interpolated in OKLCH, where the
+missing hue carries and the missing blue does not.
 
 **No oracle, and that is measured rather than assumed:** colorjs.io resolves `none` on
 conversion (`hsl(none 50% 50%).to('oklch')` returns a real hue), so this is spec-derived
-and property-tested like `Transform/`. **Budget for revising existing tests too** —
-`CSSFormattingTests.nonePreserved()`, `powerlessHueOutput()`, the reference suite's
-`referenceSaysAchromatic` helper and `ColorRecordTests`' mask round-trips all sit on the
-current behavior. A test that changes because behavior deliberately changed is fine; one
-that changes because it was easier than reading the diff is how a suite stops meaning
-anything.
+and property-tested like `Transform/`.
+
+Because carry-forward is now additive — a new operation rather than a change to
+`converted(to:)` — the blast radius is much smaller than first thought and existing tests
+should mostly stand. **If one does need revising, `referenceSaysAchromatic` in
+`ReferenceVectorTests` is the one to be careful with.** It derives its expectation from the
+*reference's* output, so a change there can make it agree for a new reason and quietly stop
+discriminating — weakening oracle validation rather than tracking a deliberate change. Any
+edit to it wants a written justification, not just a green run.
 
 Storage is safe: `ColorRecord.missingMask` is an `Int` and the `& 0b1111` truncation is
 only on the read path, so this sets existing bits and forces no schema change.
