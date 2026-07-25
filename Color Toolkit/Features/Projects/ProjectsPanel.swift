@@ -14,9 +14,16 @@ import UniformTypeIdentifiers
 /// leaving the process — `PersistentIdentifier` is not `Codable` in a form another app
 /// could act on, which is the right outcome here anyway.
 ///
-/// The private content type is what keeps this drag *inside* the grid. With a plain-text
+/// The app-owned content type is what keeps this drag *inside* the grid. With a plain-text
 /// representation the tiles would happily accept any string dragged in from any app and
 /// try to read a position out of it.
+///
+/// ``UTType/savedColorPosition`` is declared in `UTExportedTypeDeclarations` in the repo
+/// root's `Info.plist`. `UTType(exportedAs:)` yields a working identifier without it — the
+/// drag functions, since both ends compare the same string — but the system never
+/// registers the type and every launch logs that it was expected to be declared. Deleting
+/// the declaration brings that warning back rather than breaking anything, which is
+/// exactly why it is easy to lose.
 private nonisolated struct SavedColorDrag: Codable, Transferable {
   nonisolated static var transferRepresentation: some TransferRepresentation {
     CodableRepresentation(contentType: .savedColorPosition)
@@ -350,9 +357,11 @@ struct ProjectsPanel: View {
 
         selectionBadge(saved, index: index)
       }
-      // On the tile, not on the button inside it. A `Button` consumes the press that a
-      // drag needs in order to start, so `.draggable` attached to one never begins a
-      // dragging session — the swatch simply looks undraggable.
+      // On the tile, not on the button inside it. Recorded as a placement, not a rule:
+      // whether a `Button` would consume the press a drag needs is *not* established.
+      // Moving the modifier here changed nothing observable, and the test that would
+      // have settled it cannot drive a drag either way — see the note on XCUITest and
+      // dragging sessions in CLAUDE.md.
       //
       // Position in, position out. The drop lands on a *tile*, so the target index is
       // where the color should end up rather than an `onMove` slot — `move(from:to:)`

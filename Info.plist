@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- This file holds only what GENERATE_INFOPLIST_FILE cannot express. Every scalar
+	     key stays an INFOPLIST_KEY_* build setting; Xcode merges those in on top of this
+	     file. UTExportedTypeDeclarations is an array of dictionaries, which has no
+	     INFOPLIST_KEY_ spelling, so it has to live here.
+
+	     It sits at the repo root rather than in "Color Toolkit/" because that folder is a
+	     PBXFileSystemSynchronizedRootGroup: it claims every file inside it, so an
+	     Info.plist there is both the target's Info.plist *and* a bundled resource. That
+	     builds, and warns, and ships a duplicate in Contents/Resources.
+
+	     The declared type is the drag payload behind ProjectsPanel's swatch reordering.
+	     Without this declaration UTType(exportedAs:) still yields a usable identifier —
+	     the drag worked — but the system never registers it, and every launch logs
+	     "was expected to be declared and exported in the Info.plist". -->
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>me.parkersprouse.color-toolkit.saved-color-position</string>
+			<key>UTTypeDescription</key>
+			<string>Color Toolkit Saved Color Position</string>
+			<!-- CodableRepresentation encodes as JSON, so this is what it actually is.
+			     public.json already conforms to public.data. -->
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.json</string>
+			</array>
+			<!-- No UTTypeTagSpecification on purpose: this type never becomes a file or
+			     crosses a MIME boundary. It exists to name a pasteboard flavour, which is
+			     what keeps a swatch drag from accepting arbitrary dragged content. -->
+			<key>UTTypeTagSpecification</key>
+			<dict/>
+		</dict>
+	</array>
+</dict>
+</plist>

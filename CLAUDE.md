@@ -206,7 +206,19 @@ Layered so the numeric core stays independently testable and UI-free:
   `.swift` files compile automatically — do not edit `project.pbxproj` to add them.
   There are **two** root groups feeding the app target, `ColorCore/` and
   `Color Toolkit/`; a file dropped in either compiles. Editing the project file is for
-  adding a *target*, nothing else.
+  adding a *target*, or a build setting with nowhere else to live — never for adding
+  files.
+- **`Info.plist` sits at the repo root, and that is the only place it can.** The app is
+  otherwise `GENERATE_INFOPLIST_FILE = YES`, so every scalar stays an `INFOPLIST_KEY_*`
+  build setting; the file exists solely for `UTExportedTypeDeclarations`, which is an
+  array of dictionaries and has no `INFOPLIST_KEY_` spelling. Setting `INFOPLIST_FILE`
+  alongside the generator **merges** rather than replaces — measured, 24 generated keys
+  in and 24 plus the declaration out — but set it in *both* the Debug and Release blocks,
+  because the type declaration is only read at runtime and a Release-only omission is
+  invisible from a Debug build. It cannot live in `Color Toolkit/`: that folder is a
+  synchronized root group, so it claims the file and the plist becomes the target's
+  `Info.plist` *and* a bundled resource, which builds, warns, and ships a duplicate in
+  `Contents/Resources`.
 - **A SwiftData `VersionedSchema`'s statics need `nonisolated`**, like everything else
   under this project's default actor isolation. `PersistenceStack.schema` is built from
   `ColorToolkitSchemaV1`; the migration plan is deliberately empty, and a test asserting
