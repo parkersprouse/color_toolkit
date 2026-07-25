@@ -173,7 +173,6 @@ struct PickerPanel: View {
           .onEnded { _ in rememberWhenSettled() },
       )
     }
-    .aspectRatio(1, contentMode: .fit)
     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     .overlay {
       RoundedRectangle(cornerRadius: 8, style: .continuous)
