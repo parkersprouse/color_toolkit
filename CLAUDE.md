@@ -7,7 +7,11 @@ conversion across 14 spaces, a menu bar panel, a screen eyedropper with a global
 shortcut, WCAG 2.2 / APCA contrast checking, a gamut-aware HSV/OKLCH picker, OKLCH
 transforms — adjustment, harmonies, shade ramps and a contrast solver — export to CSS
 declarations, custom properties, JSON and both Tailwind generations, and saved projects
-on SwiftData. Every planned milestone (M0–M9) is built. Swift 6, SwiftUI, no third-party
+on SwiftData with reordering and hand-picked palettes. M0–M11 are built. **M12–M18 are
+planned and not started** — the CSS syntaxes the parser still rejects (`calc()`,
+`rgb(from …)`, `color-mix()`), the missing-component semantics those rest on, a
+`@media (color-gamut)` export shape, design-token import, and a CLI over `ColorCore`.
+M12 is the spine; everything after it depends on it. Swift 6, SwiftUI, no third-party
 runtime dependencies.
 
 **[PLAN.md](PLAN.md) is the source of truth** for milestone status, what is deferred
@@ -141,6 +145,14 @@ standard library**: it reads a vendored, pinned copy of Machado's Table 1 in
 python3 Tools/generate-cvd-matrices.py    # → ColorCore/Analysis/CVDMatrices.swift, Fixtures/cvd-vectors.json
 ```
 
+**Regenerating `cvd-vectors.json` on a different machine produces spurious churn — leave
+it.** 26 of its 405 vectors come back differing in the last ULP. The generator is
+idempotent on any given host, so this is not nondeterminism: `**` on Python floats calls
+libm `pow`, which IEEE-754 does not require to be correctly rounded, so the result varies
+by platform and libm version. The differences are ~1e-16, far inside every tolerance the
+CVD tests use. Committing a regenerated fixture just moves the churn to the next person.
+`CVDMatrices.swift` itself regenerates byte-identically, which is the check that matters.
+
 Ask the oracle rather than reasoning about gamuts:
 
 ```bash
@@ -151,7 +163,11 @@ cd Tools && node -e "import('colorjs.io').then(({default:C}) => console.log(new 
 
 Layered so the numeric core stays independently testable and UI-free:
 
-- **`ColorCore/`** — pure value types, no AppKit, no SwiftUI. `ColorValue` +
+- **`ColorCore/`** — at the **repo root**, not inside `Color Toolkit/`. It is its own
+  `PBXFileSystemSynchronizedRootGroup` so a second target (a CLI) can list it without an
+  exclusion list to maintain; the sources still compile *into* the app module, which is why
+  everything in it stays `internal` and tests still reach it with
+  `@testable import Color_Toolkit`. Pure value types, no AppKit, no SwiftUI. `ColorValue` +
   `ColorSpace`, 14 spaces routed through XYZ D65, CSS Color 4 §13 gamut mapping,
   a hand-written recursive-descent CSS parser, a serializer, `Analysis/`
   (WCAG 2.2 and APCA contrast), `Convert/GamutBoundary.swift` (how much chroma
@@ -186,6 +202,23 @@ Layered so the numeric core stays independently testable and UI-free:
   gamma-space one; do not "simplify" the pipeline by dropping the linearization.
 - The project uses file-system-synchronized groups (`objectVersion = 77`). New
   `.swift` files compile automatically — do not edit `project.pbxproj` to add them.
+  There are **two** root groups feeding the app target, `ColorCore/` and
+  `Color Toolkit/`; a file dropped in either compiles. Editing the project file is for
+  adding a *target*, nothing else.
+- **A SwiftData `VersionedSchema`'s statics need `nonisolated`**, like everything else
+  under this project's default actor isolation. `PersistenceStack.schema` is built from
+  `ColorToolkitSchemaV1`; the migration plan is deliberately empty, and a test asserting
+  that it "works" would be asserting nothing — see PLAN.md.
+- **Reordering renumbers `sortIndex` densely; appending does not.** `nextIndex(after:)`
+  leaves gaps so a new color lands last after a deletion, and that is only safe while
+  positions are append-only — slotting a *moved* color into a gap means inventing a value
+  between neighbours, and two moves into one gap collide. `moveColors` is the only place
+  that renumbers. Do not "unify" the two.
+- **Two `savePalette` overloads, and merging them destroys data.** The `[PaletteEntry]`
+  one re-derives a spelling because ramp stops and harmony members never had one; the
+  `from: [SavedColor]` one copies `ColorRecord` so a user's typed `rebeccapurple` survives.
+  Palette keys from a hand-picked set are **deduplicated** — two entries sharing a key
+  collapse into one CSS property and a color vanishes from the export silently.
 - **Never assert a gamut-containment claim from reasoning.** Space "widths" do not
   nest (Rec.2020 does not contain Display P3). Query the oracle.
 - One predicate — `ColorValue.isGamutMapped(as:options:epsilon:)` — decides both the
@@ -348,6 +381,24 @@ the accessibility-tree conventions before writing UI tests.
 - **Never write a fallback chain of XCUITest queries.** One named query, and dump
   `app.debugDescription` on failure. A chain that silently matches on index is a test
   that cannot fail — one hid a picker announcing its SF Symbol name to VoiceOver.
+- **A SwiftUI `Button` is one accessibility element, so nothing layered over it is
+  visible.** A control put in a Button's `.overlay` disappears from the tree entirely
+  *and* makes the Button's own identifier match twice, which breaks unrelated tests
+  querying it. Interactive siblings go in a `ZStack`, not an overlay. Decorative ones
+  (a selection ring) are fine inside the label.
+- **`.draggable` on a `Button` never starts a drag** — the button consumes the press.
+  Put it on the view that wraps the button.
+- **XCUITest cannot drive a drag-and-drop.** `.draggable`/`.dropDestination` open an
+  AppKit dragging session, and XCUITest's synthesized events move the pointer without the
+  session ever beginning — including with
+  `press(forDuration:thenDragTo:withVelocity:thenHoldForDuration:)`. A drag-driven test
+  fails whether the feature works or not, so do not write one and do not read its failure
+  as a bug. Give the same action a menu or keyboard command, test *that*, and let the two
+  share one handler. This is worth doing regardless: a drag-only affordance is unusable
+  from the keyboard and from VoiceOver.
+- A palette swatch is `app.otherElements[…]`; a saved color is `app.buttons[…]`. Both
+  publish their label, but they are different element kinds and the wrong query never
+  matches. A palette swatch's label is its **key**, not its CSS.
 - **Query the right element kind, and scope dialogs.** A SwiftUI `Picker` is a
   `popUpButton`; a `Menu` is a `menuButton` — the wrong one simply never matches. A
   `confirmationDialog`'s buttons appear more than once app-wide, so query them through
