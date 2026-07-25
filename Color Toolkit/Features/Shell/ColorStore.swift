@@ -123,6 +123,10 @@ enum Tool: String, CaseIterable, Identifiable, Sendable {
   /// After contrast, because both are accessibility questions about the same color —
   /// "can it be read" and "can it be told apart".
   case cvd
+  /// Last, because it is terminal: every other tool answers a question about the color,
+  /// and this one writes the answer down. It is also the only tool that reads the
+  /// *others'* output — the harmony and the ramp — rather than only the input field.
+  case export
 
   // MARK: Internal
 
@@ -139,6 +143,7 @@ enum Tool: String, CaseIterable, Identifiable, Sendable {
     case .transform: "Transform"
     case .contrast: "Contrast"
     case .cvd: "CVD"
+    case .export: "Export"
     }
   }
 }
@@ -212,6 +217,18 @@ final class ColorStore {
   /// audit actually checks.
   var contrastTarget: ContrastRequirement = .aaNormalText
 
+  /// What the export panel is writing, and in what shape. Preferences, on the store for
+  /// the same reason as ``pickerMode`` — and more strongly here, because the family name
+  /// is *typed*: losing `brand` on every trip to the contrast tool would mean retyping
+  /// it, which is the difference between a preference and a chore.
+  ///
+  /// Note that these deliberately do **not** include precision or hex casing. Those are
+  /// ``formatOptions``, shared with every other panel and with the toolbar menu, so the
+  /// export panel's precision control is a second surface onto one setting rather than a
+  /// second setting. Two knobs where one silently wins is the failure mode.
+  var exportSource: ExportSource = .color
+  var exportOptions = ExportOptions.default
+
   private(set) var recents: [RecentColor] = []
 
   // MARK: - Screen sampling
@@ -262,6 +279,70 @@ final class ColorStore {
   /// Every format for the current color, or nothing if the field has no valid color.
   var formats: [FormattedColor] {
     color?.allFormats(options: formatOptions) ?? []
+  }
+
+  /// The colors ``exportSource`` currently names, each under the key it will be written
+  /// out as.
+  ///
+  /// Here rather than in the panel so that "the ramp exports eleven entries keyed 50 to
+  /// 950" is a claim a unit test can make. A panel-side version would be reachable only
+  /// through XCUITest, which would mean asserting it against a rendered string.
+  ///
+  /// A lone color gets an **empty key** on purpose — see ``PaletteEntry`` — so it is
+  /// written `--brand` rather than `--brand-1`, a suffix nothing would reference.
+  var exportEntries: [PaletteEntry] {
+    guard let color else { return [] }
+    switch exportSource {
+    case .color:
+      return [PaletteEntry(color: color)]
+    case .harmony:
+      let members = color.harmony(harmony, options: harmonyOptions)
+      let keys = PaletteNaming.harmonyKeys(harmony, options: harmonyOptions)
+      return zip(keys, members).map { PaletteEntry(key: $0, color: $1) }
+    case .ramp:
+      let stops = shadeRamp.generated(from: color)
+      let keys = PaletteNaming.rampKeys(count: stops.count)
+      return zip(keys, stops).map { PaletteEntry(key: $0, color: $1) }
+    case .recents:
+      // Positional keys, because a recent's own text is the thing that makes it
+      // recognizable and `--brand-rebeccapurple` is not a name anyone wants in a
+      // stylesheet. Newest first, matching the order they are shown in.
+      return recents.enumerated().map {
+        PaletteEntry(key: String($0.offset + 1), color: $0.element.color)
+      }
+    }
+  }
+
+  /// The export document as it currently stands.
+  ///
+  /// Generated in ColorCore and merely *displayed* here, which is what lets the panel be
+  /// a preview and a copy button with no string-building of its own — and what lets the
+  /// tests assert the output without ever touching the real pasteboard.
+  var exportDocument: String {
+    exportOptions.render(exportEntries, formatting: formatOptions)
+  }
+
+  /// How many entries the chosen format cannot express without moving them.
+  ///
+  /// Uses ``ColorValue/isGamutMapped(as:options:epsilon:)`` — the same predicate behind
+  /// the conversion panel's "mapped" badge and behind the serializer's own decision — so
+  /// the warning above the preview cannot disagree with the document below it.
+  var exportGamutMappedCount: Int {
+    exportEntries.count {
+      $0.color.isGamutMapped(
+        as: exportOptions.format,
+        options: formatOptions,
+        epsilon: ColorValue.gamutNoiseTolerance,
+      )
+    }
+  }
+
+  /// Copies the export document and files the color, since reaching for a value is the
+  /// clearest signal you intend to use it — the same rule ``copy(_:)`` follows.
+  func copyExport() {
+    guard !exportDocument.isEmpty else { return }
+    Clipboard.copy(exportDocument)
+    remember()
   }
 
   /// Exchanges foreground and background, text and all.

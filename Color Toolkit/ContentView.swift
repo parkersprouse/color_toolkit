@@ -18,7 +18,31 @@ struct ContentView: View {
       // Every tool is a different question asked about the same color, so moving
       // it inside a tab would imply each one has a color of its own.
       ColorInputField()
-        .padding(16)
+        .padding(.horizontal, 16)
+        .padding(.top, 16)
+
+      // In the window rather than the toolbar, which is where it used to live.
+      // `ToolbarItem(placement: .principal)` is *centered*, so its width budget is
+      // not what the toolbar has spare but `width - 2 × max(leading, trailing)` —
+      // and the window title alone spends that twice over. Six segments crossed
+      // the line and macOS swept the entire switcher into a "more toolbar items"
+      // overflow menu, taking every tool with it, at a window size well above the
+      // 520pt minimum. M9 adds a seventh, so raising the minimum would only defer
+      // it.
+      //
+      // Text, not `Label`. A segmented control renders a `Label` icon-only and
+      // then hands VoiceOver the SF Symbol name — the picker literally announced
+      // "arrow.left.arrow.right" instead of "Convert". Two words are also plainer
+      // than two glyphs for a switcher nobody has seen before.
+      Picker("Tool", selection: $store.tool) {
+        ForEach(Tool.allCases) { tool in
+          Text(tool.title).tag(tool)
+        }
+      }
+      .pickerStyle(.segmented)
+      .labelsHidden()
+      .padding(.horizontal, 16)
+      .padding(.vertical, 12)
 
       Divider()
 
@@ -41,6 +65,8 @@ struct ContentView: View {
         ContrastPanel()
       case .cvd:
         CVDPanel()
+      case .export:
+        ExportPanel()
       }
     }
     .frame(minWidth: 520, minHeight: 460)
@@ -48,22 +74,6 @@ struct ContentView: View {
     // first, because neither scene is guaranteed to be on screen.
     .task { store.activateGlobalShortcut() }
     .toolbar {
-      ToolbarItem(placement: .principal) {
-        // Text, not `Label`. A segmented control renders a `Label` icon-only
-        // and then hands VoiceOver the SF Symbol name — the picker literally
-        // announced "arrow.left.arrow.right" instead of "Convert". Two words
-        // are also plainer than two glyphs for a switcher nobody has seen
-        // before: neither an arrow pair nor a half-filled circle says which
-        // tool it is.
-        Picker("Tool", selection: $store.tool) {
-          ForEach(Tool.allCases) { tool in
-            Text(tool.title).tag(tool)
-          }
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .fixedSize()
-      }
       ToolbarItem {
         OutputOptionsMenu()
       }

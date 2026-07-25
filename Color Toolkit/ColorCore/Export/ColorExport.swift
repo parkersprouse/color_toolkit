@@ -36,6 +36,13 @@ nonisolated enum ExportShape: String, CaseIterable, Sendable, Hashable, Identifi
   var usesTemplate: Bool {
     self == .declaration
   }
+
+  /// Whether the shape uses ``ExportOptions/name``. The complement of ``usesTemplate``,
+  /// and not by coincidence: a bare declaration is the one output with nowhere to put a
+  /// family name, because it names a CSS property instead of introducing an identifier.
+  var usesName: Bool {
+    self != .declaration
+  }
 }
 
 nonisolated extension CSSOutputFormat {
