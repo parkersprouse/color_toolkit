@@ -24,7 +24,16 @@ final class ProjectsSmokeTests: XCTestCase {
   override func setUpWithError() throws {
     continueAfterFailure = false
     app = XCUIApplication()
-    app.launchArguments = ["UITestInMemoryStore"]
+    // The opt-out is not decoration. AppKit's `NSTreatUnknownArgumentsAsOpen` defaults
+    // to on, so it reads a bare launch argument as a *file to open* — and an app asked
+    // to open a document does not create its default window. The app still launches and
+    // still reaches `.runningForeground`; it simply has a menu bar and nothing else, so
+    // every query here fails against a tree with no window in it and the symptom reads
+    // as a broken panel rather than a broken launch. Measured, not guessed: adding any
+    // meaningless argument to a passing suite reproduced it exactly, and this pair fixed
+    // it. The store argument itself keeps its bare spelling — a leading hyphen would be
+    // claimed by `NSUserDefaults` instead, which is the opposite trap.
+    app.launchArguments = ["-NSTreatUnknownArgumentsAsOpen", "NO", "UITestInMemoryStore"]
     app.launch()
     XCTAssertTrue(
       app.wait(for: .runningForeground, timeout: 30),

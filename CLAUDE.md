@@ -346,8 +346,18 @@ Layered so the numeric core stays independently testable and UI-free:
   two spellings of one claim will otherwise drift.
 - **UI tests that touch projects must launch with `UITestInMemoryStore`** — see
   `ProjectsSmokeTests`. Without it XCUITest writes into the real library and the next run
-  finds it. The argument carries no leading hyphen on purpose; `NSUserDefaults` claims
-  anything that starts with one.
+  finds it. **Both spellings of a launch argument are claimed by something, so it takes
+  three strings, not one:** `["-NSTreatUnknownArgumentsAsOpen", "NO", "UITestInMemoryStore"]`.
+  A leading hyphen goes to `NSUserDefaults`, which reads the next argument as its value;
+  a bare one goes to AppKit, whose `NSTreatUnknownArgumentsAsOpen` defaults to on and
+  treats it as a **file to open** — and an app launched to open a document never creates
+  its default window. The app still launches and still reaches `.runningForeground`; it
+  just has a menu bar and nothing else, so every query fails against a tree with no
+  window and it reads as a broken panel rather than a broken launch. This is not
+  hypothetical and not specific to projects: adding *any* meaningless argument to
+  `ConversionSmokeTests` reproduced it exactly, and the opt-out pair fixed it. macOS
+  drifted here — the six projects tests fail this way at pre-M11 commits too, so the
+  green runs recorded in the M9 and M11 commit messages no longer reproduce.
 - **An in-memory container cannot test persistence.** It proves round tripping inside one
   context and says nothing about surviving a quit, which is what "saved" means — so
   `dataSurvivesAReopen` writes a real store, drops the container and reopens it. Use a

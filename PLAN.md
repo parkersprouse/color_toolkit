@@ -829,6 +829,18 @@ Decisions worth recording:
   would find it. The launch argument is the only way to reach that decision from outside
   the process, and it carries no leading hyphen because `NSUserDefaults` claims the
   argument domain for anything that starts with one.
+
+  That turned out to be half the story, discovered later: a *bare* argument is claimed
+  too, by AppKit, whose `NSTreatUnknownArgumentsAsOpen` defaults to on and reads it as a
+  file to open — and an app launched to open a document never creates its default window.
+  So the launch is three strings, `["-NSTreatUnknownArgumentsAsOpen", "NO",
+  "UITestInMemoryStore"]`. The failure it causes is worth naming because it is unreadable
+  from the outside: the app launches, reaches `.runningForeground`, publishes a full menu
+  bar, and has no window, so all six tests fail on element queries and look like a broken
+  panel. It is not specific to this suite — adding any meaningless argument to
+  `ConversionSmokeTests` reproduced it, which is what identified the cause. Nor is it a
+  regression: the same six fail at pre-M11 commits, so this is macOS drift and the green
+  runs recorded in the M9 and M11 commit messages no longer reproduce on a current host.
 - **Schema versioning is deferred, deliberately.** Additive changes migrate on their own
   and this is a personal-scope v1; a `VersionedSchema` would be ceremony around a
   migration that has not happened yet. Worth adding the first time a field is *removed*
