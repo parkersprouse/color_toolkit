@@ -1,4 +1,4 @@
---exclude Color Toolkit/ColorCore/Spaces/Matrices.swift,Color Toolkit/ColorCore/Spaces/NamedColors.swift,Color Toolkit/ColorCore/Analysis/CVDMatrices.swift
+--exclude ColorCore/Spaces/Matrices.swift,ColorCore/Spaces/NamedColors.swift,ColorCore/Analysis/CVDMatrices.swift
 
 --acronyms
 --allman false

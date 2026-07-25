@@ -16,7 +16,7 @@ import KEYWORDS from "colorjs.io/src/keywords.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const SRC = join(here, "node_modules", "colorjs.io", "src");
-const OUT = join(here, "..", "Color Toolkit", "ColorCore", "Spaces");
+const OUT = join(here, "..", "ColorCore", "Spaces");
 
 const pkgVersion = JSON.parse(
   readFileSync(join(here, "node_modules", "colorjs.io", "package.json"), "utf8"),
