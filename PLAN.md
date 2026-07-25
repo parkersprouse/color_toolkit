@@ -1,10 +1,17 @@
 # Color Toolkit — Implementation Plan
 
-> **Status (2026-07-24): M0–M7 and M5b (CVD) complete, every milestone reviewed on the
-> running app and the full suite green.** ColorCore is validated against **colorjs.io
-> 0.7.0** (pinned exact) — 6,384 conversions, 1,368 gamut mappings and 108 contrast
-> pairs — plus independent definitional anchors, and **405 CVD vectors** over
-> Machado's Table 1. Next up: **M8 (export)**.
+> **Status (2026-07-24): M0–M8 and M5b (CVD) complete, every milestone reviewed on the
+> running app and the full suite green** — 484 test cases, 19 of them XCUITests.
+> ColorCore is validated against **colorjs.io 0.7.0** (pinned exact) — 6,384
+> conversions, 1,368 gamut mappings and 108 contrast pairs — plus independent
+> definitional anchors, and **405 CVD vectors** over Machado's Table 1. Next up:
+> **M9 (projects)**.
+>
+> M8's exports were checked against the reference from the panel's own screenshots:
+> exporting `#3b82f6` as a shade ramp writes `--brand-500: oklch(0.6231 0.188 259.81)`,
+> and colorjs.io agrees to six decimals. Its **tool switcher moved out of the toolbar**
+> in the process — a sixth segment made macOS sweep the whole switcher into an overflow
+> menu, taking every tool with it. See the milestone below.
 >
 > M7's harmonies were checked against the reference from the panel's own screenshots:
 > adopting the triad member of `#3b82f6` writes
@@ -248,7 +255,7 @@ The single thing that determines whether this tool is worth relying on is **conv
 
 ### Current state
 
-M0–M7 are built. The stock SwiftData template (`Item.swift`, the `NavigationSplitView` list) is gone; what stands now is:
+M0–M8 are built. The stock SwiftData template (`Item.swift`, the `NavigationSplitView` list) is gone; what stands now is:
 
 | Layer | Files |
 |---|---|
@@ -260,11 +267,13 @@ M0–M7 are built. The stock SwiftData template (`Item.swift`, the `NavigationSp
 | Shell | [ColorStore.swift](Color%20Toolkit/Features/Shell/ColorStore.swift), [MenuBarPanel.swift](Color%20Toolkit/Features/Shell/MenuBarPanel.swift), [ContentView.swift](Color%20Toolkit/ContentView.swift) |
 | Analysis | [WCAGContrast.swift](Color%20Toolkit/ColorCore/Analysis/WCAGContrast.swift), [APCAContrast.swift](Color%20Toolkit/ColorCore/Analysis/APCAContrast.swift), [CVDSimulation.swift](Color%20Toolkit/ColorCore/Analysis/CVDSimulation.swift), [CVDMatrices.swift](Color%20Toolkit/ColorCore/Analysis/CVDMatrices.swift) (**generated**) |
 | Transform | [Adjustment.swift](Color%20Toolkit/ColorCore/Transform/Adjustment.swift), [LightnessCurve.swift](Color%20Toolkit/ColorCore/Transform/LightnessCurve.swift), [Harmony.swift](Color%20Toolkit/ColorCore/Transform/Harmony.swift), [ShadeRamp.swift](Color%20Toolkit/ColorCore/Transform/ShadeRamp.swift), [ContrastSolver.swift](Color%20Toolkit/ColorCore/Transform/ContrastSolver.swift) |
+| Export | [ExportTemplate.swift](Color%20Toolkit/ColorCore/Export/ExportTemplate.swift), [ColorExport.swift](Color%20Toolkit/ColorCore/Export/ColorExport.swift) |
 | Conversion UI | [ColorInputField.swift](Color%20Toolkit/Features/Conversion/ColorInputField.swift), [ConversionPanel.swift](Color%20Toolkit/Features/Conversion/ConversionPanel.swift), [FormatPresentation.swift](Color%20Toolkit/Features/Conversion/FormatPresentation.swift) |
 | Contrast UI | [ContrastPanel.swift](Color%20Toolkit/Features/Contrast/ContrastPanel.swift) |
 | Picker UI | [PickerState.swift](Color%20Toolkit/Features/Picker/PickerState.swift), [PickerPlane.swift](Color%20Toolkit/Features/Picker/PickerPlane.swift), [PickerPanel.swift](Color%20Toolkit/Features/Picker/PickerPanel.swift) |
 | CVD UI | [CVDPanel.swift](Color%20Toolkit/Features/CVD/CVDPanel.swift) |
 | Transform UI | [TransformPanel.swift](Color%20Toolkit/Features/Transform/TransformPanel.swift) |
+| Export UI | [ExportPanel.swift](Color%20Toolkit/Features/Export/ExportPanel.swift), [ExportPresentation.swift](Color%20Toolkit/Features/Export/ExportPresentation.swift) |
 | Design system | [ColorSwatch.swift](Color%20Toolkit/DesignSystem/ColorSwatch.swift), [ColorValue+SwiftUI.swift](Color%20Toolkit/DesignSystem/ColorValue+SwiftUI.swift) |
 | Services | [Clipboard.swift](Color%20Toolkit/Services/Clipboard.swift), [ScreenSampler.swift](Color%20Toolkit/Services/ScreenSampler.swift), [GlobalHotKey.swift](Color%20Toolkit/Services/GlobalHotKey.swift) |
 
@@ -584,9 +593,106 @@ five.
 *Done, and reviewed on the running app from its own screenshots — see the status note
 above for the colorjs.io cross-check of an adopted triad member.*
 
-### M8 — Export
+### ✅ M8 — Export
 
-Template-driven: `color`, `background-color`, `border`, `outline`, `box-shadow`, `text-shadow`, `fill`/`stroke`, plus custom-property blocks. Applies to a single color or a whole palette. Output-format picker (hex / rgb / hsl / oklch / …) and precision control. Also JSON and Tailwind config export.
+Template-driven, as planned: `color`, `background-color`, `border`, `outline`,
+`box-shadow`, `text-shadow`, `fill`/`stroke`, plus custom-property blocks, JSON and
+Tailwind — applied to a single color or to a whole palette, with a format picker and a
+precision control.
+
+**The plan's one word for two different things was "template".** Splitting them is the
+decision the rest of the milestone hangs off. A *template* is per color — how one value
+is spelled inside a declaration. A *shape* is per document — what wraps the set. They
+look like one control and are not: `background-color:` repeated eleven times is not a
+stylesheet, and a `:root` block holding a single `border` shorthand is not a custom
+property. So `ExportTemplate` has the eight declarations and `ExportShape` has the five
+documents, and exactly one shape consumes a template. The panel hides the control that
+does not apply rather than leaving it there doing nothing — `usesTemplate` and `usesName`
+are complements, and a test pins that.
+
+Decisions worth recording:
+
+- **"A whole palette" means the sets the app already has**: the harmony, the ramp, and
+  recents. There is no `Palette` type, deliberately — that is M9's, and inventing one
+  here to have something to point at would be building the next milestone early and
+  worse.
+- **Keys are a correctness problem, not a naming one.** A palette entry's key becomes a
+  CSS identifier *and* a JavaScript object key, and the two have different rules:
+  Tailwind writes shade keys bare because `50:` is a legal numeric key, but a bare
+  `triad-2:` parses as a subtraction and the config fails to load. Keys must also be
+  unique, since two entries sharing one silently collapse into a single property and a
+  color disappears with nothing to show for it.
+- **Tailwind's scale was checked, not recalled.** Eleven keys, `50` through `950`; the
+  `950` step is a later addition than the rest, so a list ending at `900` looks right and
+  is a version out of date. That `ShadeRamp` defaults to eleven stops is not a
+  coincidence — its `lightest` was chosen to sit where Tailwind's `50` does — but it is
+  not a guarantee either, so `PaletteNaming.rampKeys(count:)` falls back to indices.
+  `Harmony.monochromatic` asks for five, so that path is live, not hypothetical.
+- **Both Tailwind versions ship.** v4 configures colors in CSS (`@theme`, with the
+  load-bearing `--color-` namespace prefix — `--brand-500` generates no utility at all)
+  and v3 in JavaScript. Which you want is decided by your project's major version and by
+  nothing else, so picking one and being wrong for half of them is not a simplification.
+- **`.keyword` is excluded from the format picker structurally**, not by a fallback. It
+  names 148 colors, so a palette of eleven shades would come back with two spelled as
+  keywords and nine as something else, and nothing in the file would say a substitution
+  happened. That is fine in the conversion panel, where a format that cannot name the
+  color simply has no row. Every remaining format is *total*, which is what makes
+  `cssStringOrHex`'s fallback unreachable rather than merely unused.
+- **JSON is hand-shaped.** `ColorValue` is `Codable`, so `JSONEncoder` is one line away —
+  and it would emit a `space` string, a `components` array and a `missing` bitmask. That
+  is a serialization of the program, not of the color, and it is the same reasoning that
+  made M9 reject an opaque blob. What a consumer wants is the CSS string they would have
+  pasted.
+- **Precision is one setting shown twice**, not two settings. The toolbar's output menu
+  already owns `formatOptions`, and the panel writes through to the same property — so
+  raising precision in either place moves the export. Two knobs where one silently wins
+  was the alternative.
+
+**The tool switcher moved out of the toolbar**, which was not planned and was not
+optional. A sixth segment made macOS sweep the entire switcher into a *"more toolbar
+items"* overflow menu — taking every tool with it, not just Export — at a window 745pt
+wide, well above the 520pt minimum. `ToolbarItem(placement: .principal)` is *centered*,
+so its width budget is not the toolbar's spare room but `width − 2 × max(leading,
+trailing)`, and the window title alone spends that twice over. Raising the minimum would
+only defer it, since M9 adds a seventh tool. In the window body it also makes the
+hierarchy `ContentView` already described in its comment literal rather than implied:
+field, then switcher, then panel. Every existing UI test kept passing unchanged, because
+they query `radioButtons` by label and never cared where it lived.
+
+**A measured characteristic, not a defect:** a ramp stop sitting exactly on the gamut
+boundary can round *outward* at display precision. `--brand-50` for `#3b82f6` prints
+`oklch(0.97 0.0142 259.81)`, and the true boundary at that lightness and hue is
+`0.014177` — so the printed value is 2.3e-5 of chroma past it and colorjs.io calls the
+string out of gamut, while the `ColorValue` it came from is inside. Swept across hues at
+four decimals the worst excursion is **1.7e-3 of a channel, 0.43 of an 8-bit step**, so a
+browser clamping it lands on the same pixel or one adjacent. It is not worth engineering
+around: biasing export rounding inward would make the clipboard disagree with the
+preview, which is a worse property than the one it fixes, and `Fine` or `Maximum`
+precision removes it entirely.
+
+**Testing has an oracle here for the first time since M5 — this app's own parser.**
+`Transform/` had none, because colorjs.io has no notion of a harmony or a ramp. An
+exported declaration is different: it is CSS, and CSS is what `CSSColorParser` reads. So
+the discriminating test pulls the value back out of the document, parses it, and requires
+the color that comes back to be the color that went in, for every exportable format. The
+syntax assertions are exact strings, which is the right standard here and the wrong one
+in `HarmonyPresentation` — a `:root` block either has its braces or is not one.
+
+Three mutations confirm the tests bite: a shape ignoring its `formatting` argument,
+unquoted JavaScript keys, and a ramp claiming Tailwind's scale at every stop count. **The
+first initially passed**, and that is the useful part — the plumbing test rendered only a
+single entry, while `json` and `tailwindConfig` fork on cardinality, so the broken
+multi-entry branch was never reached. It now asserts at both.
+
+*Done, and reviewed on the running app from its own screenshots — see the status note
+above for the colorjs.io cross-check of an exported ramp stop.*
+
+### M8b — Deferred from export
+
+Saving to a file rather than the clipboard. It needs a sandbox entitlement plus an
+`NSSavePanel` wrapper in `Services/`, and clipboard-only is the coherent scope for a
+panel whose output is meant to be pasted into a stylesheet you already have open. Worth
+revisiting alongside M9, where a saved project is a file anyway.
 
 ### M9 — Projects (SwiftData)
 
@@ -612,7 +718,8 @@ Per milestone:
 - **M5:** two different standards of proof, because the oracle only covers one of them. **APCA** is validated against colorjs.io directly (`node Tools/generate-contrast-fixtures.mjs`) at 1e-9, both polarities — real external validation, since the Swift is transcribed from that package. **WCAG** cannot be, because colorjs.io implements a different definition; correctness there comes from anchors that hold under any variant (`#000` on `#fff` = 21:1, a color against itself = 1:1) plus one pair chosen to *disagree* between the definitions, asserted both ways round.
 - **M6:** the plane is a `Canvas`, so nothing about the pixels reaches the accessibility tree — the numeric readout is the assertable surface, and the boundary figures it prints were checked against the oracle from the panel's own screenshots. See [PickerSmokeTests](Color%20ToolkitUITests/PickerSmokeTests.swift).
 - **M7:** the transforms have no oracle, so ColorCore asserts their defining properties and every load-bearing one was confirmed by mutation (see the milestone above). What *can* be cross-checked is the pipeline end to end, and was: the OKLCH string the panel wrote after adopting a triad member agrees with colorjs.io to ten decimals. See [TransformSmokeTests](Color%20ToolkitUITests/TransformSmokeTests.swift), where each derived swatch is a button labelled with its own CSS — the only handle a test has on a row of colored rectangles, and the thing a bare swatch owes VoiceOver anyway.
-- **M3/M4/M8–M9 (UI):** run the app and verify interactively. Spot-check conversions against a browser's DevTools color picker, which implements the same spec — a fast, honest end-to-end sanity check.
+- **M8:** the only milestone whose output is *text a machine will read*, so the parser is the oracle — [ExportTests](Color%20ToolkitTests/ExportTests.swift) round-trips every exportable format back through `CSSColorParser` and requires the color to survive. Syntax is pinned with exact strings, and the identifier rules (JavaScript key quoting, CSS sanitizing) have their own parameterized cases, because a config that will not load is the failure mode and it is invisible from inside Swift. The source-to-entries mapping is asserted on `ColorStore` rather than through the UI — see [ExportStoreTests](Color%20ToolkitTests/ExportStoreTests.swift) — which is why that mapping lives on the store. [ExportSmokeTests](Color%20ToolkitUITests/ExportSmokeTests.swift) covers only what a running app can show: that the controls reach the document. It never clicks Copy, for the reason no test here touches the pasteboard.
+- **M3/M4/M9 (UI):** run the app and verify interactively. Spot-check conversions against a browser's DevTools color picker, which implements the same spec — a fast, honest end-to-end sanity check.
 
 The scheme is shared and works from the command line:
 

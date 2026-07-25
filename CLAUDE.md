@@ -4,9 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A native macOS color toolkit for web development. Built: CSS Color 4 parsing and
 conversion across 14 spaces, a menu bar panel, a screen eyedropper with a global
-shortcut, WCAG 2.2 / APCA contrast checking, a gamut-aware HSV/OKLCH picker, and OKLCH
-transforms — adjustment, harmonies, shade ramps and a contrast solver. Planned: CSS
-export, saved projects. Swift 6, SwiftUI, no third-party runtime dependencies.
+shortcut, WCAG 2.2 / APCA contrast checking, a gamut-aware HSV/OKLCH picker, OKLCH
+transforms — adjustment, harmonies, shade ramps and a contrast solver — and export to
+CSS declarations, custom properties, JSON and both Tailwind generations. Planned: saved
+projects. Swift 6, SwiftUI, no third-party runtime dependencies.
 
 **[PLAN.md](PLAN.md) is the source of truth** for milestone status, what is deferred
 and why, and the reasoning behind every decision recorded below. This file is the
@@ -137,8 +138,9 @@ Layered so the numeric core stays independently testable and UI-free:
   `ColorSpace`, 14 spaces routed through XYZ D65, CSS Color 4 §13 gamut mapping,
   a hand-written recursive-descent CSS parser, a serializer, `Analysis/`
   (WCAG 2.2 and APCA contrast), `Convert/GamutBoundary.swift` (how much chroma
-  a lightness and hue have left), and `Transform/` (relative adjustment, the S-curve,
-  harmonies, shade ramps, the contrast solver — all in OKLCH).
+  a lightness and hue have left), `Transform/` (relative adjustment, the S-curve,
+  harmonies, shade ramps, the contrast solver — all in OKLCH), and `Export/`
+  (declaration templates and five document shapes).
 - **`Features/Shell/ColorStore.swift`** — `@MainActor @Observable`, one instance
   injected into both scenes (menu bar + window). Holds a *pair* of `ColorField`s
   (foreground + background) and which `Tool` the window is showing.
@@ -227,6 +229,39 @@ Layered so the numeric core stays independently testable and UI-free:
   last wrote — a boolean "am I writing" flag does not work, because observation fires
   after the synchronous reparse. Each mode writes a format that can hold its output:
   `oklch()` at `.lossless`, or hex for HSV.
+- **An export `template` and an export `shape` are not the same control** and must not
+  be merged back. A template is per color (`border: 1px solid X`); a shape is per
+  document (`:root {}`, JSON, a Tailwind config). Exactly one shape consumes a template,
+  which is why `usesTemplate` and `usesName` are complements — a bare declaration has
+  nowhere to put a family name. Merging them produces `background-color:` eleven times
+  and calls it a stylesheet.
+- **Palette keys are syntax, not labels.** They become CSS identifiers *and* JavaScript
+  object keys, and Tailwind writes shade keys bare — legal for `50:`, fatal for
+  `triad-2:`, which parses as a subtraction and stops the config loading. They must also
+  be unique: two entries sharing a key silently collapse into one property and a color
+  vanishes. `ExportOptions.javaScriptKey` and `cssIdentifier` are the only places that
+  decide this; do not format a key inline.
+- **`.keyword` is excluded from `CSSOutputFormat.exportable` on purpose.** It names 148
+  colors, so an eleven-shade palette would come back part keyword and part something
+  else with nothing in the document to say so. Every other catalog format is *total*,
+  which is what makes `cssStringOrHex`'s fallback unreachable in the export path rather
+  than merely unused — a test pins it. Do not "simplify" by adding keyword back with a
+  fallback.
+- **Never encode `ColorValue` with `JSONEncoder` for export.** It is `Codable`, so the
+  one-liner compiles and emits `space`/`components`/`missing` — the program's internals,
+  not the color. Export carries CSS strings, the same ones you would have pasted. M9's
+  storage model rejects an opaque blob for the same reason.
+- **The tool switcher lives in the window body, not the toolbar.** It was a
+  `ToolbarItem(placement: .principal)` until a sixth tool made macOS sweep the entire
+  switcher into a *"more toolbar items"* overflow menu — every tool gone, at a window
+  745pt wide. Principal placement is *centered*, so its budget is
+  `width − 2 × max(leading, trailing)`, and the window title alone spends that twice
+  over. Do not move it back; M9 adds a seventh tool.
+- **A ramp stop on the gamut boundary can round outward at display precision.** The
+  printed `oklch(0.97 0.0142 259.81)` is 2.3e-5 of chroma past a boundary at `0.014177`,
+  so the *string* is out of sRGB while the `ColorValue` is inside. Worst case across hues
+  at four decimals is 1.7e-3 of a channel — 0.43 of an 8-bit step. Known and accepted:
+  biasing export rounding inward would make the clipboard disagree with the preview.
 - New tool panels: add a `Tool` case, a folder under `Features/`, and a branch in
   `ContentView`. Keep spec facts in ColorCore and wording in the panel — see
   `RequirementPresentation`.
@@ -248,6 +283,13 @@ the accessibility-tree conventions before writing UI tests.
   away, every stop in gamut, the answer passes `meets` and one step back fails) rather
   than recorded output — which stays true if the arithmetic is rewritten. The
   conversions underneath are oracle-validated already; do not re-test them here.
+- **`Export/` does have an oracle: this app's own parser.** Its output is CSS, so the
+  discriminating test pulls the value back out of the document, parses it with
+  `CSSColorParser`, and requires the color to survive. Exact-string assertions are
+  correct for the *syntax* (a `:root` block either has its braces or is not one) and
+  still wrong for presentation copy. When adding a shape, check it at **both
+  cardinalities** — `json` and `tailwindConfig` fork on a lone color versus a scale, and
+  a single-entry test happily passed a broken multi-entry branch.
 - **Swatch buttons carry their CSS as an `accessibilityLabel`.** A colored rectangle
   says nothing to VoiceOver *or* to XCUITest, so a row of derived colors is otherwise
   untestable — and a harmony that emitted one color three times would pass.
