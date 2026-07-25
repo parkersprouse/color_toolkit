@@ -82,12 +82,20 @@ nonisolated struct ExportOptions: Sendable, Equatable {
   /// foreign.
   var format: CSSOutputFormat = .oklch
 
+  /// What an unnamed export is called: the starting value, the fallback when the field
+  /// is cleared, and the placeholder a panel shows in the empty field.
+  ///
+  /// One constant for all three so they cannot drift. They did: the field prompted
+  /// `brand` while an empty name exported `--color`, because the fallback came from
+  /// ``cssIdentifier(_:fallback:)``'s own default rather than from here.
+  static let defaultName = "brand"
+
   /// The family name: `brand` yields `--brand-500` and `colors: { brand: … }`.
   ///
   /// Free text, so it is sanitized into a CSS identifier at the point of use rather
   /// than validated on the way in — rejecting keystrokes while somebody is typing is a
   /// worse experience than accepting them and writing something valid.
-  var name: String = "brand"
+  var name: String = ExportOptions.defaultName
 
   /// `text` reduced to something usable as a CSS identifier and a JavaScript key.
   ///
@@ -156,8 +164,11 @@ nonisolated struct ExportOptions: Sendable, Equatable {
 
   /// The family name, sanitized. Computed rather than stored so ``name`` stays exactly
   /// what the user typed and the field does not fight them mid-word.
+  ///
+  /// Every shape goes through this rather than calling ``cssIdentifier(_:fallback:)``
+  /// itself, so an emptied field cannot produce one name in CSS and another in JSON.
   private var identifier: String {
-    Self.cssIdentifier(name)
+    Self.cssIdentifier(name, fallback: Self.defaultName)
   }
 
   /// `--brand-500`, or `--brand` for a palette of one.
@@ -260,7 +271,7 @@ nonisolated struct ExportOptions: Sendable, Equatable {
   /// them. Values need no escaping because CSS color syntax has no `"` or `\` in it —
   /// hex digits, function names, numbers and separators are the whole alphabet.
   private func json(_ entries: [PaletteEntry], formatting: CSSFormatOptions) -> String {
-    let family = Self.cssIdentifier(name)
+    let family = identifier
     if let single = soleEntry(entries) {
       return "{\n  \"\(family)\": \"\(value(for: single.color, formatting: formatting))\"\n}"
     }

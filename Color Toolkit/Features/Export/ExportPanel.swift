@@ -64,8 +64,11 @@ struct ExportPanel: View {
         .accessibilityIdentifier("exportSource")
       }
 
-      // A menu rather than a segmented control: five titles, two of them two words
-      // long, do not fit across a 520pt window without truncating to initials.
+      // A menu rather than a segmented control, unlike Source above. Five options
+      // against four, and "Custom properties" is more than twice the length of the
+      // longest source title — a segmented control divides its width evenly, so the
+      // short options would pay for the long one. The tool switcher is the cautionary
+      // tale: segments that stop fitting do not degrade gracefully.
       LabeledContent("Shape") {
         Picker("Shape", selection: $store.exportOptions.shape) {
           ForEach(ExportShape.allCases) { shape in
@@ -95,7 +98,15 @@ struct ExportPanel: View {
 
       if store.exportOptions.shape.usesName {
         LabeledContent("Name") {
-          TextField("Name", text: $store.exportOptions.name, prompt: Text("brand"))
+          // The prompt is the *same constant* the empty field falls back to, so what
+          // is shown greyed out is what you actually get. Hardcoding it here let the
+          // two drift: the placeholder read `brand` while an empty name exported
+          // `--color`, the default of `cssIdentifier`.
+          TextField(
+            "Name",
+            text: $store.exportOptions.name,
+            prompt: Text(ExportOptions.defaultName),
+          )
             .textFieldStyle(.roundedBorder)
             .frame(maxWidth: 200)
             .accessibilityIdentifier("exportName")

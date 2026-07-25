@@ -323,6 +323,33 @@ struct ExportIdentifierTests {
     """)
   }
 
+  /// Clearing the field produces the name the panel showed in it while it was empty.
+  ///
+  /// These were two literals before: the prompt read `brand` while an emptied name
+  /// exported `--color`, because the fallback came from `cssIdentifier`'s own default.
+  /// Now both are ``ExportOptions/defaultName``, and the failure mode — a property you
+  /// were never shown — is a test away rather than a reading away.
+  @Test("An emptied name falls back to what the placeholder promises")
+  func emptyNameUsesTheDefault() {
+    var options = ExportOptions.default
+    options.format = .hex
+    options.name = ""
+
+    for shape in [ExportShape.customProperties, .json, .tailwindConfig] {
+      options.shape = shape
+      let rendered = options.render([PaletteEntry(color: ExportShapeTests.blue)])
+      #expect(
+        rendered.contains(ExportOptions.defaultName),
+        "\(shape) named an emptied family something other than the placeholder:\n\(rendered)",
+      )
+      #expect(!rendered.contains("color\""), "\(shape) fell back to cssIdentifier's default")
+    }
+
+    // And the starting value is the same constant, so a fresh panel and an emptied
+    // one export identically.
+    #expect(ExportOptions.default.name == ExportOptions.defaultName)
+  }
+
   /// Every exportable format can name any color, which is what makes
   /// ``ExportOptions/value(for:formatting:)``'s fallback unreachable rather than merely
   /// unused. `.keyword` is the one that cannot, and it is excluded for exactly this
