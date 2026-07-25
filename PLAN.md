@@ -1,7 +1,9 @@
 # Color Toolkit — Implementation Plan
 
 > **Status (2026-07-24): M0–M8 and M5b (CVD) complete, every milestone reviewed on the
-> running app and the full suite green** — 484 test cases, 19 of them XCUITests.
+> running app and the full suite green** — **257 Swift Testing functions across 31
+> suites plus 19 XCUITests**, which expand to 485 individual cases once parameterized
+> arguments are counted (the figure `xcresulttool` reports).
 > ColorCore is validated against **colorjs.io 0.7.0** (pinned exact) — 6,384
 > conversions, 1,368 gamut mappings and 108 contrast pairs — plus independent
 > definitional anchors, and **405 CVD vectors** over Machado's Table 1. Next up:
@@ -277,7 +279,9 @@ M0–M8 are built. The stock SwiftData template (`Item.swift`, the `NavigationSp
 | Design system | [ColorSwatch.swift](Color%20Toolkit/DesignSystem/ColorSwatch.swift), [ColorValue+SwiftUI.swift](Color%20Toolkit/DesignSystem/ColorValue+SwiftUI.swift) |
 | Services | [Clipboard.swift](Color%20Toolkit/Services/Clipboard.swift), [ScreenSampler.swift](Color%20Toolkit/Services/ScreenSampler.swift), [GlobalHotKey.swift](Color%20Toolkit/Services/GlobalHotKey.swift) |
 
-`Persistence/` exists as an empty folder awaiting M9.
+There is **no `Persistence/` folder** — M9 will create it. An earlier revision of this
+file said one existed and was empty; git does not track empty directories, so it never
+survived a clone and the claim was true only on the machine that made it.
 
 Key facts about the project, established during exploration and still current:
 
@@ -421,7 +425,7 @@ Round-trip tests: parse → serialize → parse must be idempotent.
 
 - **WCAG 2.2** — [WCAGContrast.swift](Color%20Toolkit/ColorCore/Analysis/WCAGContrast.swift). Spec-literal `0.03928`, AA/AAA × normal/large, plus 1.4.11's 3:1 non-text threshold.
 - **APCA** — [APCAContrast.swift](Color%20Toolkit/ColorCore/Analysis/APCAContrast.swift). Transcribed from colorjs.io 0.7.0's implementation of **0.0.98G**, matching to 1e-9 across 108 pairs in both polarities.
-- **UI** — [ContrastPanel.swift](Color%20Toolkit/Features/Contrast/ContrastPanel.swift), reached by a tool switcher in the toolbar. The store now holds a *pair* of colors via `ColorField`, so the background gets the foreground's editing behavior rather than a second implementation of it.
+- **UI** — [ContrastPanel.swift](Color%20Toolkit/Features/Contrast/ContrastPanel.swift), reached by the tool switcher (which sat in the toolbar until M8 moved it into the window body — see that milestone). The store now holds a *pair* of colors via `ColorField`, so the background gets the foreground's editing behavior rather than a second implementation of it.
 
 **No APCA pass/fail badges.** Its readability levels (Lc 90/75/60/45/30) could not be verified against a pinned source the way the algorithm was, and a threshold this app cannot stand behind has no business wearing a checkmark next to WCAG's, which it can. The panel shows the signed `Lc` and its polarity, nothing more.
 
@@ -684,6 +688,17 @@ first initially passed**, and that is the useful part — the plumbing test rend
 single entry, while `json` and `tailwindConfig` fork on cardinality, so the broken
 multi-entry branch was never reached. It now asserts at both.
 
+**One defect survived into a commit and was caught in review**: the Name field prompted
+`brand` while an emptied field exported `--color`. The placeholder was a literal in the
+panel and the fallback came from `cssIdentifier`'s own default, so nothing tied them
+together and clearing the field produced a property the user had never been shown.
+`ExportOptions.defaultName` is now the starting value, the fallback *and* the
+placeholder, and `json` reaches it through `identifier` like every other shape rather
+than calling `cssIdentifier` itself — which is how CSS and JSON could have disagreed
+about the same emptied name. The regression test fails three ways against the old code.
+The general lesson is the one this file keeps relearning: a constant duplicated across a
+layer boundary is a claim nothing checks.
+
 *Done, and reviewed on the running app from its own screenshots — see the status note
 above for the colorjs.io cross-check of an exported ramp stop.*
 
@@ -773,6 +788,33 @@ ps -Ao pid,ppid,stat,command | grep -E "debugserver|Color Toolkit.app" | grep -v
 
 The run was clean on retry, so this is a flake in the unit-test-host → UI-test
 handoff rather than anything in the app. Re-run before investigating.
+
+**One cause of these is now established, and it is self-inflicted: two `xcodebuild test`
+runs at once.** Found during M8. The symptoms are *"The test runner hung before
+establishing connection"* and *"Lost connection to the application"* mid-test, and they
+were reproduced twice by starting a second suite while the first was still alive — both
+runs share the same DerivedData and the same test host and fight over them. Worse, the
+loser leaves orphaned `UITests-Runner` and `Color Toolkit.app` processes reparented to
+`init`, which then poison the *next* run too. So before blaming the host:
+
+```bash
+ps -Ao pid,ppid,command | grep -E "xcodebuild|UITests-Runner|Color Toolkit.app/Contents" | grep -v grep
+```
+
+Anything with `ppid 1` is an orphan. Kill it, and any second `xcodebuild`, then re-run.
+
+**Two more ways to read a false pass**, both hit in the same session:
+
+- **Never delete the worktree or its `-derivedDataPath` while the run is still alive.**
+  Doing so removed `Color Toolkit.app` out from under the UI phase, and three tests
+  failed with *"Could not launch … no such file"* — a failure that looks like a
+  regression and is nothing but housekeeping. Confirm the process has exited first.
+- **`Test run with N tests in M suites passed` is the Swift Testing line, not the
+  verdict.** It prints minutes before the UI phase finishes. The only authoritative
+  markers are `** TEST SUCCEEDED **` and `** TEST FAILED **`, and there should be exactly
+  one; grep for those rather than for the word "passed". Note also that `Executed N
+  tests` counts *XCTest* only and reads `0` on a Swift-Testing-only run, which is why
+  the counts in the status note above are given per framework.
 
 ### Commit discipline
 

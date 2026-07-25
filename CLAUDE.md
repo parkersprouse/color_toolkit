@@ -22,11 +22,27 @@ Build:
 xcodebuild -project "Color Toolkit.xcodeproj" -scheme "Color Toolkit" -destination 'platform=macOS' build
 ```
 
-Full test suite:
+Full test suite (~5 minutes, most of it UI tests):
 
 ```bash
 xcodebuild -project "Color Toolkit.xcodeproj" -scheme "Color Toolkit" -destination 'platform=macOS' test
 ```
+
+**Run exactly one suite at a time, and read the right line for the verdict.** Both of
+these produced confidently wrong conclusions during M8:
+
+- **Two concurrent `xcodebuild test` runs fight** over the same DerivedData and test
+  host, which surfaces as *"The test runner hung before establishing connection"* or
+  *"Lost connection to the application"* — and leaves orphans that break the next run
+  too. If a long run gets backgrounded by a tool timeout it is still running; check
+  `ps -Ao pid,ppid,command | grep -E "xcodebuild|UITests-Runner"` before starting
+  another, and kill anything with `ppid 1`. See *Running the app* in PLAN.md.
+- **Read the verdict off the right line.** The only authoritative markers are
+  `** TEST SUCCEEDED **` and `** TEST FAILED **`, and there should be exactly one.
+  `Test run with N tests in M suites passed` is the Swift Testing line and prints
+  minutes before the UI phase ends, so reading it as the result announces a pass for a
+  run that has not finished. `Executed N tests` counts XCTest only and reads `0` on a
+  Swift-Testing-only run.
 
 **`xcodebuild` does not print Swift Testing failure text.** A failed run names the
 test and tells you nothing about why. Capture a result bundle and read the failure
@@ -317,6 +333,12 @@ before stacking the next one:
 ```bash
 git worktree add -q --detach /tmp/wt <sha> && cd /tmp/wt && xcodebuild -project "Color Toolkit.xcodeproj" -scheme "Color Toolkit" -destination 'platform=macOS' -derivedDataPath /tmp/dd test
 ```
+
+**Let it exit before cleaning up.** `git worktree remove` or `rm -rf /tmp/dd` while the
+run is still alive deletes `Color Toolkit.app` out from under the UI phase, and the
+remaining tests fail with *"Could not launch … no such file"* — which reads as a
+regression in the commit under test and is nothing of the kind. Check the process is
+gone, then check for exactly one `** TEST SUCCEEDED **`, then clean up.
 
 Commit the work **before** running `swiftformat .`, and commit the formatting on its
 own afterward — see *Formatting*. That ordering is what makes the pre-formatted state
