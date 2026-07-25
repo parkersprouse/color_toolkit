@@ -65,6 +65,8 @@ struct ContentView: View {
         ContrastPanel()
       case .cvd:
         CVDPanel()
+      case .projects:
+        ProjectsPanel()
       case .export:
         ExportPanel()
       }

@@ -35,9 +35,15 @@ struct ProjectStoreTests {
   /// The app's own factory, not just a hand-rolled container — the launch argument is
   /// the only thing standing between a UI test and the user's real library, so it is
   /// worth an assertion of its own.
-  @Test("The launch argument produces an ephemeral store")
-  func launchArgumentIsEphemeral() {
-    #expect(PersistenceStack.make(inMemory: true).isEphemeral)
+  ///
+  /// It reports ``PersistenceStack/Status/ephemeralByRequest`` rather than
+  /// ``PersistenceStack/Status/unavailable``, which is the distinction that keeps the
+  /// panel from warning about a failure that did not happen. The two were one flag until
+  /// the UI-test screenshots showed the app announcing a store it "could not open"
+  /// during a run that had asked for exactly that store.
+  @Test("The launch argument produces a store that says why it is ephemeral")
+  func launchArgumentIsEphemeralByRequest() {
+    #expect(PersistenceStack.make(inMemory: true).status == .ephemeralByRequest)
   }
 
   @Test("A saved color comes back as the color that went in")

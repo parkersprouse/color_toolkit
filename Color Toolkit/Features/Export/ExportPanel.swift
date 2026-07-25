@@ -23,7 +23,11 @@ struct ExportPanel: View {
   var body: some View {
     ScrollView {
       VStack(alignment: .leading, spacing: 18) {
-        if store.color == nil {
+        // A staged palette is exportable with an empty field — it is a set that was
+        // saved earlier, not something derived from what is being edited. Guarding on
+        // the color alone would hide the Source picker itself, leaving no way to reach
+        // the palette that is sitting right there.
+        if store.color == nil, store.stagedPalette.isEmpty {
           ContentUnavailableView(
             "No color yet",
             systemImage: "square.and.arrow.up",
@@ -164,14 +168,12 @@ struct ExportPanel: View {
       }
 
       if entries.isEmpty {
-        // Only reachable from Recents, which starts empty. Said plainly rather than
-        // shown as an empty code block, which reads as the panel having broken.
-        Label(
-          "Nothing to export yet — recents fill up as you copy and sample colors.",
-          systemImage: "clock",
-        )
-        .font(.callout)
-        .foregroundStyle(.secondary)
+        // Said plainly rather than shown as an empty code block, which reads as the
+        // panel having broken. The wording belongs to the *source* — Recents and Saved
+        // are empty for unrelated reasons, and one sentence cannot be true of both.
+        Label(store.exportSource.emptyMessage, systemImage: "clock")
+          .font(.callout)
+          .foregroundStyle(.secondary)
       } else {
         if mapped > 0 {
           HStack(spacing: 8) {

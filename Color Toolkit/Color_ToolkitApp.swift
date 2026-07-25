@@ -5,10 +5,20 @@
 //  Created by Parker Sprouse on 7/23/26.
 //
 
+import SwiftData
 import SwiftUI
 
 enum WindowID {
   static let main = "main"
+}
+
+/// What kind of projects store the app opened. See ``PersistenceStack/Status``.
+///
+/// An environment value rather than a property on ``ColorStore``, because it is a fact
+/// about how the *app* was launched rather than app state — nothing can change it, and
+/// only one view ever reads it.
+extension EnvironmentValues {
+  @Entry var projectStoreStatus = PersistenceStack.Status.persistent
 }
 
 @main
@@ -22,8 +32,10 @@ struct Color_ToolkitApp: App {
     Window("Color Toolkit", id: WindowID.main) {
       ContentView()
         .environment(store)
+        .environment(\.projectStoreStatus, persistence.status)
     }
     .defaultSize(width: 620, height: 700)
+    .modelContainer(persistence.container)
 
     MenuBarExtra {
       MenuBarPanel()
@@ -33,6 +45,10 @@ struct Color_ToolkitApp: App {
         .environment(store)
     }
     .menuBarExtraStyle(.window)
+    // The same container, for the same reason both scenes share one `ColorStore`: two
+    // containers over one store would compile and then disagree, and a project created
+    // in one would be invisible to the other until something forced a refetch.
+    .modelContainer(persistence.container)
   }
 
   // MARK: Private
@@ -43,6 +59,10 @@ struct Color_ToolkitApp: App {
   /// diverge: colors filed from the menu bar would never reach the window, and the
   /// two would disagree about what the current color even is.
   @State private var store = ColorStore()
+
+  /// Built once, here, rather than by `.modelContainer(for:)` on each scene — that
+  /// modifier makes a container per call site.
+  @State private var persistence = PersistenceStack.make()
 }
 
 /// The menu bar icon, which doubles as the only feedback a global capture gets.

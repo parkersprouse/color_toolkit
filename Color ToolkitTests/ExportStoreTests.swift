@@ -131,6 +131,84 @@ struct ExportSourceTests {
   }
 }
 
+/// The seam M8 deferred: a palette saved in a project, exported.
+///
+/// Asserted on ``ColorStore`` with no `ModelContainer` in sight, which is the point of
+/// staging plain ``PaletteEntry`` values rather than handing the export layer a
+/// `Palette` — see ``ColorStore/stagedPalette``. What the persistence side of the same
+/// journey does is in ``ProjectStoreTests``.
+@MainActor
+@Suite("Staged palettes")
+struct StagedPaletteTests {
+  /// Staging is four changes at once, and every one of them is load-bearing: the source
+  /// switches, the family name follows the palette, the tool changes, and the entries
+  /// arrive. Miss the name and a palette saved as `brand` exports under whatever the
+  /// panel was last set to.
+  @Test("Staging a palette carries its name into the export")
+  func stagingCarriesTheName() {
+    let store = ColorStore(initialInput: "#3b82f6")
+    let entries = [
+      PaletteEntry(key: "50", color: .srgb8(0xEF, 0xF6, 0xFF)),
+      PaletteEntry(key: "500", color: .srgb8(0x3B, 0x82, 0xF6)),
+    ]
+
+    store.stage(entries, named: "brand")
+
+    #expect(store.exportSource == .saved)
+    #expect(store.exportOptions.name == "brand")
+    #expect(store.tool == .export)
+    #expect(store.exportEntries.map(\.key) == ["50", "500"])
+    #expect(store.exportDocument.contains("--brand-500:"))
+  }
+
+  /// The one source that does not read the input field. A saved palette was chosen
+  /// earlier and does not stop existing because the field was cleared — and the panel
+  /// guards on this exact property, since hiding the controls would hide the Source
+  /// picker that reaches the palette.
+  @Test("A staged palette outlives the field it was not derived from")
+  func stagedPaletteSurvivesAnEmptyField() {
+    let store = ColorStore(initialInput: "#3b82f6")
+    store.stage([PaletteEntry(key: "base", color: .srgb8(0x3B, 0x82, 0xF6))], named: "brand")
+
+    store.inputText = ""
+
+    #expect(store.color == nil)
+    #expect(store.exportEntries.count == 1)
+    #expect(!store.exportDocument.isEmpty)
+  }
+
+  /// The Projects panel saves "the harmony" while the export panel is set to something
+  /// else entirely, so the lookup has to be independent of ``ColorStore/exportSource``.
+  /// Sharing one function is also what stops a saved ramp and an exported ramp being
+  /// keyed differently.
+  @Test("Any source can be asked for its colors, whichever one is selected")
+  func entriesAreIndependentOfSelection() {
+    let store = ColorStore(initialInput: "#3b82f6")
+    store.exportSource = .color
+
+    #expect(store.entries(for: .ramp).map(\.key) == PaletteNaming.tailwindScale)
+    #expect(
+      store.entries(for: .harmony).map(\.key)
+        == PaletteNaming.harmonyKeys(store.harmony, options: store.harmonyOptions),
+    )
+    // …and the selected source is untouched by having asked.
+    #expect(store.exportSource == .color)
+    #expect(store.exportEntries.count == 1)
+  }
+
+  /// A palette records where it came from, so the kinds have to line up with the sources
+  /// that can produce one. The two that cannot are `custom` rather than a guess.
+  @Test("Every savable source names a palette kind", arguments: ExportSource.allCases)
+  func sourcesMapToKinds(source: ExportSource) {
+    switch source {
+    case .harmony: #expect(source.paletteKind == .harmony)
+    case .ramp: #expect(source.paletteKind == .ramp)
+    case .recents: #expect(source.paletteKind == .recents)
+    case .color, .saved: #expect(source.paletteKind == .custom)
+    }
+  }
+}
+
 /// The export panel's own wording and controls.
 ///
 /// Unlike ``FormatSection``, the presentation here is written as exhaustive `switch`es,
@@ -167,6 +245,19 @@ struct ExportPresentationTests {
   @Test("Template and name apply to opposite shapes", arguments: ExportShape.allCases)
   func templateAndNameAreComplementary(shape: ExportShape) {
     #expect(shape.usesTemplate != shape.usesName)
+  }
+
+  /// Source titles share a segmented control, and its empty-state copy has to be true of
+  /// the source it is shown for. Recents and Saved are both legitimately empty and empty
+  /// for unrelated reasons — one fills up as you work, the other waits on a palette being
+  /// staged — so one sentence cannot serve both. That is M8's placeholder defect exactly:
+  /// wording that belongs to one case, reused where it is false.
+  @Test("Every source has usable copy, and the two empty cases differ")
+  func sourceCopyIsUsable() {
+    let titles = ExportSource.allCases.map(\.title)
+    #expect(Set(titles).count == titles.count)
+    #expect(ExportSource.allCases.allSatisfy { !$0.emptyMessage.isEmpty })
+    #expect(ExportSource.recents.emptyMessage != ExportSource.saved.emptyMessage)
   }
 
   /// Every tool the switcher offers has a panel behind it. `ContentView`'s `switch` is

@@ -17,8 +17,29 @@ import SwiftData
 /// there — and the next run would find it. The launch argument is the only way in: the
 /// app is a separate process, so nothing else a test does can reach this decision.
 enum PersistenceStack {
+  /// What kind of store the app ended up with.
+  ///
+  /// Three cases rather than an `isEphemeral` flag, because two of them are ephemeral for
+  /// opposite reasons and only one is worth telling anyone about. The first draft
+  /// conflated them, and the UI-test screenshots showed the app announcing that the store
+  /// "could not be opened" during a run that had *asked* for a throwaway one — a banner
+  /// stating something false, which is precisely what a warning must never do.
+  enum Status: Sendable, Hashable {
+    /// The real store, on disk.
+    case persistent
+    /// A throwaway store, because a UI test asked for one. Nothing to report: this is
+    /// the store working as instructed.
+    case ephemeralByRequest
+    /// The on-disk store could not be opened, so saving will not outlive the session.
+    /// The one case the panel warns about.
+    case unavailable
+  }
+
   /// Passed by ``XCUIApplication`` in the UI tests to get a store that evaporates.
-  static let inMemoryLaunchArgument = "-in-memory-store"
+  ///
+  /// No leading hyphen, deliberately: `NSUserDefaults` claims the argument domain for
+  /// anything starting with `-` and would read the next argument as its value.
+  static let inMemoryLaunchArgument = "UITestInMemoryStore"
 
   static let schema = Schema([Project.self, Palette.self, SavedColor.self])
 
@@ -27,20 +48,18 @@ enum PersistenceStack {
     ProcessInfo.processInfo.arguments.contains(inMemoryLaunchArgument)
   }
 
-  /// The container, and whether it is the ephemeral one.
+  /// The container, and why it is the one it is.
   ///
   /// The fallback is deliberate and so is reporting it. A store that will not open —
   /// corrupt, or written by a version that knows a model this build does not — leaves
   /// two choices: refuse to launch, or run without persistence. For a tool opened dozens
   /// of times a day the second is far better, *provided it says so*: silently accepting
-  /// saves that vanish at quit would be the worst of the three. ``ProjectsPanel`` shows a
-  /// banner when `isEphemeral` is true, which is why this returns the flag rather than
-  /// swallowing it.
-  static func make(inMemory: Bool = wantsInMemoryStore) -> (container: ModelContainer, isEphemeral: Bool) {
+  /// saves that vanish at quit would be the worst of the three.
+  static func make(inMemory: Bool = wantsInMemoryStore) -> (container: ModelContainer, status: Status) {
     if !inMemory {
       let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
       if let container = try? ModelContainer(for: schema, configurations: configuration) {
-        return (container, false)
+        return (container, .persistent)
       }
     }
 
@@ -53,6 +72,6 @@ enum PersistenceStack {
       // unreachable in a shipped build.
       fatalError("The SwiftData schema is invalid; no container could be created.")
     }
-    return (container, true)
+    return (container, inMemory ? .ephemeralByRequest : .unavailable)
   }
 }

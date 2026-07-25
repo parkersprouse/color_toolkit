@@ -123,9 +123,15 @@ enum Tool: String, CaseIterable, Identifiable, Sendable {
   /// After contrast, because both are accessibility questions about the same color —
   /// "can it be read" and "can it be told apart".
   case cvd
+  /// Second to last, because it is the only tool that *keeps* anything. Every other one
+  /// answers a question and forgets it the moment the field changes. Before export
+  /// rather than after, because saving a set and then writing it out is the order those
+  /// two happen in — and because a saved palette is one of the things export reads.
+  case projects
   /// Last, because it is terminal: every other tool answers a question about the color,
   /// and this one writes the answer down. It is also the only tool that reads the
-  /// *others'* output — the harmony and the ramp — rather than only the input field.
+  /// *others'* output — the harmony, the ramp, and now a saved palette — rather than
+  /// only the input field.
   case export
 
   // MARK: Internal
@@ -143,6 +149,7 @@ enum Tool: String, CaseIterable, Identifiable, Sendable {
     case .transform: "Transform"
     case .contrast: "Contrast"
     case .cvd: "CVD"
+    case .projects: "Projects"
     case .export: "Export"
     }
   }
@@ -229,7 +236,30 @@ final class ColorStore {
   var exportSource: ExportSource = .color
   var exportOptions = ExportOptions.default
 
+  /// Which project the Projects panel is showing.
+  ///
+  /// A `UUID` rather than SwiftData's own `PersistentIdentifier`, and that is the point:
+  /// this type holds app state and knows nothing about persistence, exactly as ColorCore
+  /// knows nothing about either. ``ProjectLibrary/project(uuid:)`` does the lookup. It is
+  /// also the reason ``ExportStoreTests`` still needs no `ModelContainer`.
+  ///
+  /// On the store rather than in the panel for the reason ``pickerMode`` gives — leaving
+  /// a tool tears its panel down, and which project you are working in is a preference
+  /// that should survive the trip.
+  var selectedProjectID: UUID?
+
   private(set) var recents: [RecentColor] = []
+
+  // MARK: - Staged palette
+
+  /// A saved palette handed to the export panel, as plain values.
+  ///
+  /// The whole reason the Projects tool can feed Export without SwiftData reaching this
+  /// far: ``Palette/paletteEntries`` converts at the boundary and what arrives here is
+  /// the same `[PaletteEntry]` a harmony or a ramp produces. Downstream, nothing can tell
+  /// the difference — which is what makes ``ExportSource/saved`` one line rather than a
+  /// second code path through the export layer.
+  private(set) var stagedPalette: [PaletteEntry] = []
 
   // MARK: - Screen sampling
 
@@ -291,8 +321,23 @@ final class ColorStore {
   /// A lone color gets an **empty key** on purpose — see ``PaletteEntry`` — so it is
   /// written `--brand` rather than `--brand-1`, a suffix nothing would reference.
   var exportEntries: [PaletteEntry] {
+    entries(for: exportSource)
+  }
+
+  /// The colors any source names, whether or not it is the one being exported.
+  ///
+  /// Split out from ``exportEntries`` when the Projects panel arrived: saving "the
+  /// current harmony" as a palette needs the harmony's entries while the export source
+  /// is something else entirely. One function, so a saved ramp and an exported ramp
+  /// cannot be keyed differently.
+  func entries(for source: ExportSource) -> [PaletteEntry] {
+    // Independent of the input field, because a staged palette is a set that was saved
+    // earlier — it does not stop existing because the field was cleared.
+    if source == .saved {
+      return stagedPalette
+    }
     guard let color else { return [] }
-    switch exportSource {
+    switch source {
     case .color:
       return [PaletteEntry(color: color)]
     case .harmony:
@@ -310,7 +355,22 @@ final class ColorStore {
       return recents.enumerated().map {
         PaletteEntry(key: String($0.offset + 1), color: $0.element.color)
       }
+    case .saved:
+      return stagedPalette
     }
+  }
+
+  /// Hands a saved palette to the export panel and switches to it.
+  ///
+  /// The name travels with the colors and becomes ``ExportOptions/name``, so a palette
+  /// saved as `brand` exports as `--brand-500` rather than under whatever family name
+  /// the panel was last set to. That is the payoff M8 deferred: the set you saved months
+  /// ago comes back spelled the way you saved it.
+  func stage(_ palette: [PaletteEntry], named name: String) {
+    stagedPalette = palette
+    exportSource = .saved
+    exportOptions.name = name
+    tool = .export
   }
 
   /// The export document as it currently stands.
