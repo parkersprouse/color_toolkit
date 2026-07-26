@@ -7,12 +7,12 @@ conversion across 14 spaces, a menu bar panel, a screen eyedropper with a global
 shortcut, WCAG 2.2 / APCA contrast checking, a gamut-aware HSV/OKLCH picker, OKLCH
 transforms — adjustment, harmonies, shade ramps and a contrast solver — export to CSS
 declarations, custom properties, JSON and both Tailwind generations, and saved projects
-on SwiftData with reordering and hand-picked palettes. M0–M11 are built. **M12–M18 are
-planned and not started** — the CSS syntaxes the parser still rejects (`calc()`,
-`rgb(from …)`, `color-mix()`), the missing-component semantics those rest on, a
-`@media (color-gamut)` export shape, design-token import, and a CLI over `ColorCore`.
-M12 is the spine; everything after it depends on it. Swift 6, SwiftUI, no third-party
-runtime dependencies.
+on SwiftData with reordering and hand-picked palettes, and CSS Color 4 §13.2's
+missing-component carry-forward. M0–M12 are built. **M13–M18 are planned and not
+started** — the CSS syntaxes the parser still rejects (`calc()`, `rgb(from …)`,
+`color-mix()`), a `@media (color-gamut)` export shape, design-token import, and a CLI
+over `ColorCore`. M12 was the spine and is done, so each of those is now only the work
+it says it is. Swift 6, SwiftUI, no third-party runtime dependencies.
 
 **[PLAN.md](PLAN.md) is the source of truth** for milestone status, what is deferred
 and why, and the reasoning behind every decision recorded below. This file is the
@@ -27,7 +27,7 @@ Build:
 xcodebuild -project "Color Toolkit.xcodeproj" -scheme "Color Toolkit" -destination 'platform=macOS' build
 ```
 
-Full test suite (~7 minutes, nearly all of it UI tests — the 291 Swift Testing functions
+Full test suite (~7 minutes, nearly all of it UI tests — the 308 Swift Testing functions
 finish in under a second, the 25 XCUITests take about six minutes):
 
 ```bash
@@ -238,6 +238,26 @@ Layered so the numeric core stays independently testable and UI-free:
 - One predicate — `ColorValue.isGamutMapped(as:options:epsilon:)` — decides both the
   serialized string and the UI's "mapped" badge. Adding a second rule lets the badge
   lie about the value beside it.
+- **`ColorSpace.componentRoles` is transcribed from CSS Color 4 §13.2, never derived
+  from `componentLabels`.** Same rule as the matrices, for the same reason: three of
+  its groupings are not guessable. XYZ shares sRGB's three roles ("super-saturated RGB
+  space"), Saturation shares Chroma's, and `b` names Blue in an RGB space and Opponent
+  b in Lab — a letter-based derivation conflates the last pair and silently carries a
+  missing `b` from `lab()` into sRGB's blue channel. `hueIndex` is *derived* from this
+  table, so a mistyped role moves the picker's hue axis too.
+- **Carry-forward is an interpolation rule; `converted(to:)` stays numeric.** Missing
+  components cross a conversion only through `convertedForInterpolation(to:)` /
+  `carriedForwardMissing(to:)` in `Convert/MissingComponents.swift`. Two mechanisms,
+  and the second is the one that gets lost: components pair off individually by role,
+  *and* whatever is left on each side forms a set that carries only when **every**
+  member of it is missing. Turning that `allSatisfy` into a `contains` fails three
+  tests; deleting the set rule fails three others and leaves `rgb(none none none)` →
+  `oklab(0 0 0)`.
+- **Carry-forward runs before `markingPowerlessComponents()`, never after.** The spec
+  is explicit, and the two flags mean different things downstream: a carried-forward
+  component takes the *other* color's value when interpolated, where a powerless one is
+  zero. Marking first destroys the value the spec wants preserved. Powerless marking
+  also *blanks* what it flags; carry-forward must not.
 - `ColorStore` keeps **text** as its source of truth, so an adopted color is
   serialized and immediately re-parsed. Storage precision (`CSSFormatOptions.lossless`)
   and display precision (`store.formatOptions.precision`) are separate settings; a
@@ -391,6 +411,13 @@ the accessibility-tree conventions before writing UI tests.
   to regress against, mutate the feature instead — every load-bearing claim in
   `Transform/` was checked that way, which is what proved the ramp's conditional clamp
   is a correctness rule and not an optimization.
+- **Missing-component semantics have no oracle either, and the reason is different.**
+  colorjs.io *resolves* `none` on conversion — `hsl(none 50% 50%).to("oklch")` comes
+  back with a real hue — so it cannot answer §13.2's question at all. The spec's worked
+  examples are the fixtures. Where the spec prints a converted value, assert that our
+  value **rounds to it** rather than picking a tolerance: a printed `0.0001` is a
+  bucket, the true chroma is `5.9e-5`, and `|x − 0.0001| < 5e-5` passes by 9e-6 while
+  reading like agreement to four decimals.
 - **`Transform/` and `GamutBoundary` have no oracle, deliberately.** colorjs.io has no
   notion of a harmony, a ramp or a solver, so assert the *property* (a hue exactly 180°
   away, every stop in gamut, the answer passes `meets` and one step back fails) rather

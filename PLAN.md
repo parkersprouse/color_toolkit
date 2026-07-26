@@ -1,15 +1,16 @@
 # Color Toolkit — Implementation Plan
 
-> **Status (2026-07-25): M0–M11 and M5b (CVD) complete**, with the full suite green —
-> **291 Swift Testing functions across 34 suites plus 25 XCUITests**, both read off a run
+> **Status (2026-07-25): M0–M12 and M5b (CVD) complete**, with the full suite green —
+> **308 Swift Testing functions across 35 suites plus 25 XCUITests**, both read off a run
 > rather than counted by hand. ColorCore is validated against **colorjs.io 0.7.0** (pinned
 > exact) — 6,384 conversions, 1,368 gamut mappings and 108 contrast pairs — plus
 > independent definitional anchors, and **405 CVD vectors** over Machado's Table 1.
 >
-> M0–M9 were each reviewed on the running app. **Two later things were not, and should
-> not be read as if they were:** M10 changed no behavior and has no UI to look at, and
-> M11's *drag* gesture is untestable by XCUITest and unconfirmed by hand — its Move
-> Left/Right commands, which share the same handler, are covered end to end.
+> M0–M9 were each reviewed on the running app. **Three later things were not, and should
+> not be read as if they were:** M10 changed no behavior and has no UI to look at, M11's
+> *drag* gesture is untestable by XCUITest and unconfirmed by hand — its Move Left/Right
+> commands, which share the same handler, are covered end to end — and M12 is core-only,
+> reachable from no panel.
 >
 > **M10–M18 take up what the deferred list had been holding**: the CSS syntaxes the
 > parser still rejects (`calc()`, `rgb(from …)`, `color-mix()`), the missing-component
@@ -17,8 +18,15 @@
 > import, and a CLI over `ColorCore`. M10 (relocating `ColorCore`) and M11 (the three items
 > M9 deferred) are done, plus the two housekeeping commits recorded after M11 — the
 > exported `UTType` declaration M11's drag was missing, and Xcode's recommended build
-> settings; **M12 is the spine and everything after it waits on M12**. What remains beyond
+> settings. **M12, the spine, is done too**: `ComponentRole` and carry-forward exist, so
+> M13–M15 and M17 are unblocked and each is now the work it says it is. What remains beyond
 > that is **M8b** (saving an export to a file) and the shorter deferred list at the end.
+>
+> **M12 is the first milestone with no oracle *and* nothing to look at**, so its standard
+> of proof is the spec's own worked examples plus five mutations. Two of its findings are
+> worth carrying: analogous *sets* are a second mechanism that an implementation doing only
+> individual matching loses entirely and still passes every same-family test, and a
+> spec-printed value should be asserted as a rounding rather than with a tolerance.
 >
 > M9 closes the loop M8 left open, and its screenshots prove it end to end: a shade ramp
 > saved into a project as `brand` and exported from the other tool comes back as a
@@ -289,6 +297,13 @@
 >   an `isEphemeral` boolean made the app announce "the store could not be opened" during
 >   a run that had requested exactly that store. Three cases, and the banner fires for the
 >   failure alone: a warning shown when nothing is wrong is a warning nobody reads.
+> - **A component's letter is not its meaning, and CSS Color 4 §13.2's table says so
+>   twice.** `b` is Blue in an RGB space and Opponent b in Lab — unrelated quantities
+>   sharing a letter — while `r` and `x` are the *same* category, because the spec counts
+>   XYZ as a super-saturated RGB space. Deriving analogy from `componentLabels` gets both
+>   backwards, which is why the role table is transcribed like a matrix rather than
+>   computed. Confirmed by mutation: collapsing Opponent b into Blues carries a missing
+>   `lab()` b into sRGB's blue channel, and one test catches it.
 
 ## Context
 
@@ -298,13 +313,13 @@ The single thing that determines whether this tool is worth relying on is **conv
 
 ### Current state
 
-M0–M11 are built. The stock SwiftData template (`Item.swift`, the `NavigationSplitView` list) is gone — M9 brought SwiftData back on its own terms rather than the template's, and M11 versioned that schema. `ColorCore/` now sits at the repo root as its own synchronized group rather than inside the app's, which is what makes a second target possible. What stands now is:
+M0–M12 are built. The stock SwiftData template (`Item.swift`, the `NavigationSplitView` list) is gone — M9 brought SwiftData back on its own terms rather than the template's, and M11 versioned that schema. `ColorCore/` now sits at the repo root as its own synchronized group rather than inside the app's, which is what makes a second target possible. What stands now is:
 
 | Layer | Files |
 |---|---|
 | Core model | [ColorValue.swift](ColorCore/ColorValue.swift), [ColorSpace.swift](ColorCore/ColorSpace.swift) |
 | Spaces | [Matrices.swift](ColorCore/Spaces/Matrices.swift) and [NamedColors.swift](ColorCore/Spaces/NamedColors.swift) (**generated**), [TransferFunctions.swift](ColorCore/Spaces/TransferFunctions.swift), [ColorMatrix.swift](ColorCore/Spaces/ColorMatrix.swift) |
-| Convert | [Conversion.swift](ColorCore/Convert/Conversion.swift), [GamutMapping.swift](ColorCore/Convert/GamutMapping.swift), [GamutBoundary.swift](ColorCore/Convert/GamutBoundary.swift), [HSV.swift](ColorCore/Convert/HSV.swift) |
+| Convert | [Conversion.swift](ColorCore/Convert/Conversion.swift), [GamutMapping.swift](ColorCore/Convert/GamutMapping.swift), [GamutBoundary.swift](ColorCore/Convert/GamutBoundary.swift), [HSV.swift](ColorCore/Convert/HSV.swift), [MissingComponents.swift](ColorCore/Convert/MissingComponents.swift) |
 | Parse | [CSSTokenizer.swift](ColorCore/Parse/CSSTokenizer.swift), [ColorSyntax.swift](ColorCore/Parse/ColorSyntax.swift), [CSSColorParser.swift](ColorCore/Parse/CSSColorParser.swift) |
 | Format | [CSSFormatter.swift](ColorCore/Format/CSSFormatter.swift), [FormatCatalog.swift](ColorCore/Format/FormatCatalog.swift) |
 | Shell | [ColorStore.swift](Color%20Toolkit/Features/Shell/ColorStore.swift), [MenuBarPanel.swift](Color%20Toolkit/Features/Shell/MenuBarPanel.swift), [ContentView.swift](Color%20Toolkit/ContentView.swift) |
@@ -349,7 +364,7 @@ Key facts about the project, established during exploration and still current:
 
 ## Architecture
 
-Four layers, strictly one-directional. **`ColorCore` imports nothing but `Foundation`** — no SwiftUI, no AppKit, no SwiftData. Every one of its 26 files, measured rather than assumed. That constraint is what keeps it exhaustively testable and reusable, and M10 turned "reusable in principle" into "addressable by a second target": it now sits beside the app rather than inside it.
+Four layers, strictly one-directional. **`ColorCore` imports nothing but `Foundation`** — no SwiftUI, no AppKit, no SwiftData. Every one of its 27 files, measured rather than assumed. That constraint is what keeps it exhaustively testable and reusable, and M10 turned "reusable in principle" into "addressable by a second target": it now sits beside the app rather than inside it.
 
 ```
 Color Toolkit/                    ← repo root
@@ -1006,7 +1021,7 @@ Release links clean. `STRING_CATALOG_GENERATE_SYMBOLS` is inert today — no `.x
 files exist and all three targets already override it — and is set at the project level
 only, to seed the default for M18's CLI target.
 
-### M12 — Missing-component semantics ⭐ *the spine*
+### ✅ M12 — Missing-component semantics ⭐ *the spine*
 
 Not user-visible on its own, and three later milestones are wrong without it.
 
@@ -1040,11 +1055,15 @@ colorfulness. `markingPowerlessComponents()` already decides this with one OKLab
 route — and the epsilon rule is explicitly blessed. **Nothing to add here. Do not
 "complete" it.**
 
-What is actually owed:
+What was owed, and what was built:
 
-- **`ComponentRole`**, and `ColorSpace.componentRoles`, beside `componentLabels` but
-  categorically different from it. Derive `hueIndex` from it so the two cannot drift.
-  **Transcribe the spec's table; do not derive it from the labels** — three of its
+- **[`ComponentRole`](ColorCore/ColorSpace.swift)**, with `ColorSpace.componentRoles`
+  beside `componentLabels` but categorically different from it — copy that may be reworded
+  freely versus a fact with behavior hanging off it. `hueIndex` is now *derived* from the
+  table (`componentIndex(of: .hue)`) so the two cannot drift, and a test pins the
+  derivation against the four answers it gave as a hand-written list, because a mistyped
+  role would otherwise move the picker's hue axis with nothing to say so.
+  **The table is transcribed from the spec, not derived from the labels** — three of its
   groupings are not guessable. `r` and `x` are the *same* category, because XYZ counts as
   a "super-saturated RGB space" (likewise `g`/`y` and `b`/`z`). Chroma and Saturation are
   one category, "despite Saturation being Lightness-dependent". Whiteness and Blackness
@@ -1056,27 +1075,47 @@ What is actually owed:
   missing. This is what makes `lab(50% none none)` → `lch(50% none none)` rather than
   `lch(50% 0 0)`, and `rgb(none none none)` → `oklab(none none none)` even though sRGB and
   OKLab share no individual component. Alpha is analogous to alpha.
-- **Resolve `ParseError.noneNotAllowedInLegacy`** — declared with a message and never
-  thrown.
+  **A set travels whole or not at all**, which is the half that is easy to get backwards:
+  `lab(50% 0 none)` → `lch` carries *nothing*, because one of the two set members is
+  present. Both halves are tested, and swapping the `allSatisfy` for a `contains` fails
+  three of them.
+- **[`MissingComponents.swift`](ColorCore/Convert/MissingComponents.swift)** —
+  `carriedForwardMissing(to:)` returns the mask, `convertedForInterpolation(to:)` is the
+  operation M15 will call. `converted(to:)` is untouched, so the blast radius is nil and
+  no existing test needed revising — `referenceSaysAchromatic` was never approached.
+- **`ParseError.noneNotAllowedInLegacy` is gone**, which is the honest resolution rather
+  than making it throwable. The parser deliberately *warns* here
+  (`ParseWarning.noneInLegacySyntax`) because the intent is unambiguous, so the error case
+  was a second, unreachable answer to a question already answered. A note where the warning
+  is declared says so, since the tempting fix is to start throwing it.
 
-The spec's own worked examples are the test cases: the two above, plus
-`lch(50% 0.02 none)` and `color(display-p3 0.7 0.5 none)` interpolated in OKLCH, where the
-missing hue carries and the missing blue does not.
+**The ordering the spec demands is recorded at the API, because M15 will not have the spec
+in front of it.** Carry-forward runs *before* powerless marking, never after: a
+carried-forward missing component takes the **other** color's value when interpolated,
+where a powerless one is zero, so marking first would convert a value the spec wants
+preserved into a zero. Two tests hold the line — a carried hue keeps the value the
+conversion produced, and a plain gray carries *nothing* even though its hue is powerless in
+every polar space. Folding the two operations together would pass one and fail the other.
+
+The spec's own worked examples are the tests: the two set cases above, plus
+`lch(50% 0.02 none)` and `color(display-p3 0.7 0.5 none)` in OKLCH, where the missing hue
+carries and the missing blue does not. The spec also prints what that pair converts to, so
+those numbers are asserted too — **as roundings rather than with a tolerance**, because a
+printed `0.0001` is a bucket and the true chroma is `5.9e-5`. Asserting `|x − 0.0001| <
+5e-5` would have passed by 9e-6 and looked like agreement to four decimals, which it is
+not.
 
 **No oracle, and that is measured rather than assumed:** colorjs.io resolves `none` on
 conversion (`hsl(none 50% 50%).to('oklch')` returns a real hue), so this is spec-derived
 and property-tested like `Transform/`.
 
-Because carry-forward is now additive — a new operation rather than a change to
-`converted(to:)` — the blast radius is much smaller than first thought and existing tests
-should mostly stand. **If one does need revising, `referenceSaysAchromatic` in
-`ReferenceVectorTests` is the one to be careful with.** It derives its expectation from the
-*reference's* output, so a change there can make it agree for a new reason and quietly stop
-discriminating — weakening oracle validation rather than tracking a deliberate change. Any
-edit to it wants a written justification, not just a green run.
+**Five mutations confirm the tests bite**, each failing exactly the tests that encode the
+rule it breaks: collapsing Opponent b into Blues fails one, deleting the set rule fails
+three, reordering HSL's roles fails four (including the `hueIndex` pin), turning the set
+rule's `allSatisfy` into `contains` fails three, and dropping alpha's carry fails one.
 
-Storage is safe: `ColorRecord.missingMask` is an `Int` and the `& 0b1111` truncation is
-only on the read path, so this sets existing bits and forces no schema change.
+Storage was safe as predicted: `ColorRecord.missingMask` is an `Int` and the `& 0b1111`
+truncation is only on the read path, so this sets existing bits and forces no schema change.
 
 ### M13 — `calc()`, scoped
 
@@ -1093,8 +1132,8 @@ all.
 
 ### M14 — Relative color syntax
 
-Depends on M13 (`calc(l * 0.5)` is where most of the value lives) and M12 (`none` in an
-origin channel). Both hook points already exist as dead ends: `parseFunction` extracts a
+Depends on M13 (`calc(l * 0.5)` is where most of the value lives); M12's half — `none` in
+an origin channel — is already in place. Both hook points already exist as dead ends: `parseFunction` extracts a
 `spaceIdentifier` and discards it with `_ = spaceIdentifier`, and the `.ident` throw in
 `scanArguments` is the single gate for every channel keyword. The origin resolves in the
 **output function's** space. `ColorNotation` gains a case, which reaches
@@ -1102,7 +1141,10 @@ origin channel). Both hook points already exist as dead ends: `parseFunction` ex
 
 ### M15 — `color-mix()`
 
-Depends on M12. Nothing to reuse: `ShadeRamp` interpolates one scalar from one color,
+M12 is done, and this is the milestone that consumes it: convert each side with
+`convertedForInterpolation(to:)` rather than `converted(to:)`, and do it **before** any
+powerless handling — see that milestone for why the ordering is a correctness rule rather
+than a preference. Nothing else to reuse: `ShadeRamp` interpolates one scalar from one color,
 `Harmony` rotates a hue, and `CVDSimulation`'s `lerp` is over matrix coefficients. New
 `Convert/Interpolation.swift` with premultiplied alpha and the four hue methods.
 
@@ -1135,7 +1177,8 @@ contents, so editing one color would silently change which properties exist.
 
 ### M17 — W3C Design Tokens import
 
-Depends on M12: DTCG `components` accept `"none"`.
+Depended on M12, which is done: DTCG `components` accept `"none"`, and a decoded token now
+has somewhere honest to put one.
 
 **Checked against the Color Module rather than assumed, and the first assumption was
 wrong.** `$value` is an **object** — `{colorSpace, components, alpha?, hex?}`, the first
@@ -1187,6 +1230,7 @@ Per milestone:
 - **M9:** three levels, split on what each can actually answer. [ColorRecordTests](Color%20ToolkitTests/ColorRecordTests.swift) takes the mapping with no container in sight — every space, the `none` mask, and the stored components agreeing with the stored spelling. [ProjectStoreTests](Color%20ToolkitTests/ProjectStoreTests.swift) takes what only SwiftData can answer, opening with the assertion that the container builds at all, because inverses are resolved there rather than at compile time. [ProjectsSmokeTests](Color%20ToolkitUITests/ProjectsSmokeTests.swift) takes the round trip through a running app — and launches every one with `UITestInMemoryStore`, because the alternative is writing into the real library. The end-to-end cross-check is the ramp in the status note: saved, reloaded, exported, and identical to the value M8 checked against colorjs.io.
 - **M10:** the milestone has no behavior to test, so the test suite proves nothing beyond "still compiles". The real check is that **re-running all four generators reproduces every generated Swift file byte-for-byte** — that is what shows the output paths moved with the sources rather than quietly writing somewhere stale. (`cvd-vectors.json` is the exception and stays as committed; see the libm note in CLAUDE.md.)
 - **M11:** the store rules are in [ProjectStoreTests](Color%20ToolkitTests/ProjectStoreTests.swift), each confirmed against a mutation of the rule it covers — dropping the move's offset discount, skipping the dense renumber, disabling key dedup, re-deriving stored text, and moving colors instead of copying them all fail the suite. Reordering is checked across a real store close and reopen, since an in-memory container proves only that the objects in hand were mutated. [ProjectsSmokeTests](Color%20ToolkitUITests/ProjectsSmokeTests.swift) covers the wiring — **through the menu commands, not the drag**, because XCUITest cannot start a dragging session and a drag-driven test would fail whether the feature worked or not. **The drag gesture itself is not covered by any automated test and wants a human to try it once.**
+- **M12:** [MissingComponentTests](Color%20ToolkitTests/MissingComponentTests.swift), and the standard of proof is the spec rather than a reference implementation — colorjs.io resolves `none` on conversion, so it cannot answer this at all. Each test names the spec example or role-table property it encodes, and all five load-bearing rules were confirmed by mutation (see the milestone). The spec's *printed* conversions are asserted as roundings, not with a tolerance, because that is the claim actually available from a displayed figure.
 - **M3/M4 (UI):** run the app and verify interactively. Spot-check conversions against a browser's DevTools color picker, which implements the same spec — a fast, honest end-to-end sanity check.
 
 The scheme is shared and works from the command line:
