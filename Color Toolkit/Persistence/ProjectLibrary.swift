@@ -116,6 +116,38 @@ struct ProjectLibrary {
     try context.save()
   }
 
+  /// Moves loose colors within a project, in `onMove` terms: `source` indexes the current
+  /// order, and `destination` is a position in that *same, pre-removal* order.
+  ///
+  /// Positions are renumbered densely from zero afterwards, which is the one place that
+  /// happens. ``nextIndex(after:)`` leaves gaps on purpose so a new color lands last even
+  /// after deletions, but a gap is only safe while positions are append-only: slotting a
+  /// moved color *into* one means picking a value between two neighbours, and two moves
+  /// into the same gap collide. Renumbering costs a write per color and removes the
+  /// question. Appending still works off the maximum, so `newColorsLandLast` is unaffected.
+  func moveColors(fromOffsets source: IndexSet, toOffset destination: Int, in project: Project) throws {
+    var ordered = project.orderedColors
+    guard let lowest = source.min(), lowest >= 0, let highest = source.max(),
+          highest < ordered.count, (0 ... ordered.count).contains(destination)
+    else { return }
+
+    let moved = source.map { ordered[$0] }
+    // Back to front, so the indices still ahead of the cursor stay valid.
+    for index in source.sorted(by: >) {
+      ordered.remove(at: index)
+    }
+    // `destination` counted the pre-removal order, so discount whatever was lifted out
+    // from in front of it.
+    let insertion = destination - source.filter { $0 < destination }.count
+    ordered.insert(contentsOf: moved, at: insertion)
+
+    for (index, color) in ordered.enumerated() {
+      color.sortIndex = index
+    }
+    project.touch()
+    try context.save()
+  }
+
   // MARK: - Palettes
 
   /// Saves a set of colors as a palette, keeping their order and their keys.
@@ -154,6 +186,46 @@ struct ProjectLibrary {
     return palette
   }
 
+  /// Saves a hand-picked set of a project's loose colors as a palette.
+  ///
+  /// Separate from the ``PaletteEntry`` overload rather than converting into it, and the
+  /// difference is the whole reason this exists. That one takes *derived* colors — a ramp
+  /// stop, a harmony member — which have no authored spelling of their own, so it invents
+  /// one with ``ColorRecord/derived(_:preferring:)``. These colors already have one, typed
+  /// by the user; routing them through the same door would canonicalize `rebeccapurple`
+  /// into `oklch(…)` and quietly contradict the panel's own promise that a saved color
+  /// keeps the spelling it was saved with. Copying ``SavedColor/record`` carries the text,
+  /// the components and the `missing` mask across intact.
+  ///
+  /// The colors are copied, not moved: a loose color put into a palette stays loose too.
+  /// `SavedColor` belongs to a project *or* a palette, so the alternative is removing it
+  /// from the grid it was just selected in.
+  @discardableResult
+  func savePalette(
+    from colors: [SavedColor],
+    named name: String,
+    to project: Project,
+  ) throws -> Palette {
+    let palette = Palette(
+      name: Self.cleaned(name, fallback: PaletteKind.custom.title),
+      kind: .custom,
+      sortIndex: Self.nextIndex(after: project.palettes.map(\.sortIndex)),
+    )
+    context.insert(palette)
+    palette.project = project
+
+    let keys = Self.paletteKeys(for: colors)
+    for (index, color) in colors.enumerated() {
+      let copy = SavedColor(record: color.record, name: keys[index], sortIndex: index)
+      context.insert(copy)
+      copy.palette = palette
+    }
+
+    project.touch()
+    try context.save()
+    return palette
+  }
+
   func rename(_ palette: Palette, to name: String) throws {
     palette.name = Self.cleaned(name, fallback: palette.kind.title)
     palette.project?.touch()
@@ -183,5 +255,31 @@ struct ProjectLibrary {
   /// next insert would reuse position 2.
   private static func nextIndex(after existing: [Int]) -> Int {
     (existing.max() ?? -1) + 1
+  }
+
+  /// Export keys for a hand-picked set: the color's own name where it has one, its
+  /// position where it does not.
+  ///
+  /// The deduplication is not defensive tidying. A key becomes a CSS custom property and a
+  /// JavaScript object key, so two entries sharing one do not produce a duplicate — they
+  /// produce a *single* property, and a color disappears from the export with nothing in
+  /// the document to say so. Derived palettes never hit this because their keys are
+  /// generated distinct; a set the user assembled by hand has no such guarantee, and two
+  /// colors named "blue" is an ordinary thing to have.
+  private static func paletteKeys(for colors: [SavedColor]) -> [String] {
+    var used: Set<String> = []
+    return colors.enumerated().map { index, color in
+      let named = color.name.trimmingCharacters(in: .whitespacesAndNewlines)
+      var key = named.isEmpty ? String(index + 1) : named
+      if used.contains(key) {
+        var suffix = 2
+        while used.contains("\(key)-\(suffix)") {
+          suffix += 1
+        }
+        key = "\(key)-\(suffix)"
+      }
+      used.insert(key)
+      return key
+    }
   }
 }

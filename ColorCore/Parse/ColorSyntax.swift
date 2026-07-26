@@ -19,7 +19,6 @@ nonisolated enum ParseError: Error, Equatable, Sendable {
   case inconsistentSeparators
   case alphaWithoutSlash
   case missingAlphaAfterSlash
-  case noneNotAllowedInLegacy
   case percentageRequiredInLegacy(function: String)
   case mixedNumberAndPercentageInLegacy(function: String)
   case invalidHexLength(Int)
@@ -53,8 +52,6 @@ nonisolated enum ParseError: Error, Equatable, Sendable {
       "A fourth component needs “/” before it in modern syntax."
     case .missingAlphaAfterSlash:
       "Expected an alpha value after “/”."
-    case .noneNotAllowedInLegacy:
-      "“none” is not allowed in comma-separated (legacy) syntax."
     case let .percentageRequiredInLegacy(fn):
       "Legacy \(fn)() requires percentages for saturation and lightness."
     case let .mixedNumberAndPercentageInLegacy(fn):
@@ -105,6 +102,11 @@ nonisolated enum UnsupportedFunctions {
 /// would be unhelpful — but emitting them would be wrong, and silently accepting them
 /// could let invalid CSS reach a stylesheet. Everything else in the grammar is a hard
 /// error.
+///
+/// `none` in legacy syntax lives here rather than in ``ParseError`` on purpose. A
+/// `ParseError.noneNotAllowedInLegacy` was declared alongside this for a while,
+/// carrying a message and never being thrown — two answers to one question, one of
+/// them unreachable. The warning is the answer; the error case is gone.
 nonisolated enum ParseWarning: Equatable, Sendable {
   case commasInModernFunction(String)
   case noneInLegacySyntax

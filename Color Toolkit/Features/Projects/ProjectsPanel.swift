@@ -5,6 +5,38 @@
 
 import SwiftData
 import SwiftUI
+import UniformTypeIdentifiers
+
+/// What a dragged swatch carries: its position in the grid, and nothing else.
+///
+/// A position rather than an identity because ``ProjectLibrary/moveColors(fromOffsets:toOffset:in:)``
+/// already speaks in offsets, and because `SavedColor` has no identifier that survives
+/// leaving the process — `PersistentIdentifier` is not `Codable` in a form another app
+/// could act on, which is the right outcome here anyway.
+///
+/// The app-owned content type is what keeps this drag *inside* the grid. With a plain-text
+/// representation the tiles would happily accept any string dragged in from any app and
+/// try to read a position out of it.
+///
+/// ``UTType/savedColorPosition`` is declared in `UTExportedTypeDeclarations` in the repo
+/// root's `Info.plist`. `UTType(exportedAs:)` yields a working identifier without it — the
+/// drag functions, since both ends compare the same string — but the system never
+/// registers the type and every launch logs that it was expected to be declared. Deleting
+/// the declaration brings that warning back rather than breaking anything, which is
+/// exactly why it is easy to lose.
+private nonisolated struct SavedColorDrag: Codable, Transferable {
+  nonisolated static var transferRepresentation: some TransferRepresentation {
+    CodableRepresentation(contentType: .savedColorPosition)
+  }
+
+  let position: Int
+}
+
+private nonisolated extension UTType {
+  static let savedColorPosition = UTType(
+    exportedAs: "me.parkersprouse.color-toolkit.saved-color-position",
+  )
+}
 
 /// The colors you decided to keep.
 ///
@@ -75,6 +107,14 @@ struct ProjectsPanel: View {
   /// Which saved color's notes are open. A `@Model` is `Identifiable`, so this drives
   /// `.popover(item:)` directly.
   @State private var noteTarget: SavedColor?
+
+  /// Which colors are ticked for "Save Selection".
+  ///
+  /// Held by `PersistentIdentifier` rather than by position, because a reorder or a delete
+  /// renumbers positions underneath it and the selection would silently come to mean
+  /// different colors. Stale identifiers are filtered at read time rather than pruned on
+  /// every change — a deleted color simply stops matching.
+  @State private var selection: Set<PersistentIdentifier> = []
 
   private var library: ProjectLibrary {
     ProjectLibrary(context)
@@ -202,11 +242,20 @@ struct ProjectsPanel: View {
         }
         .fixedSize()
         .accessibilityIdentifier("saveSet")
+
+        // A set the user assembled by hand, rather than one a tool produced. Kept beside
+        // the generated sets because it answers the same question — what is worth keeping
+        // together — and disabled rather than hidden so the tick marks have a visible
+        // destination before anything is ticked.
+        Button("Save Selection") { saveSelection(to: project) }
+          .disabled(selectedColors(in: project).isEmpty)
+          .accessibilityIdentifier("saveSelection")
       }
 
       Text(
         "Saved colors keep the spelling you typed, so a recalled color comes back as "
-          + "you wrote it rather than canonicalized.",
+          + "you wrote it rather than canonicalized. Drag a swatch to reorder, or tick "
+          + "several and save them as a palette.",
       )
       .font(.caption)
       .foregroundStyle(.tertiary)
@@ -273,28 +322,70 @@ struct ProjectsPanel: View {
   /// the only handle a UI test has on a grid of them.
   private func savedColorTile(_ saved: SavedColor, index: Int) -> some View {
     VStack(spacing: 4) {
-      Button {
-        // The stored text, not a re-serialization: this is the entire reason the
-        // spelling was kept. `rebeccapurple` goes back in as `rebeccapurple`.
-        store.inputText = saved.text
-      } label: {
-        ZStack {
-          if let color = saved.colorValue {
-            ColorSwatch(color: color, cornerRadius: 6)
-          } else {
-            // A row this build cannot read. Shown rather than hidden, because a color
-            // silently missing from a project is worse than one that says it is.
-            RoundedRectangle(cornerRadius: 6).fill(.quaternary)
-            Image(systemName: "questionmark").foregroundStyle(.secondary)
+      // The tick is a *sibling* of the swatch, not an overlay on it. A SwiftUI `Button`
+      // is a single accessibility element, so anything layered over one is swallowed:
+      // the tick vanished from the tree entirely, and `savedColor-N` began matching two
+      // elements at once and broke a test that had nothing to do with any of this.
+      ZStack(alignment: .topTrailing) {
+        Button {
+          // The stored text, not a re-serialization: this is the entire reason the
+          // spelling was kept. `rebeccapurple` goes back in as `rebeccapurple`.
+          store.inputText = saved.text
+        } label: {
+          ZStack {
+            if let color = saved.colorValue {
+              ColorSwatch(color: color, cornerRadius: 6)
+            } else {
+              // A row this build cannot read. Shown rather than hidden, because a color
+              // silently missing from a project is worse than one that says it is.
+              RoundedRectangle(cornerRadius: 6).fill(.quaternary)
+              Image(systemName: "questionmark").foregroundStyle(.secondary)
+            }
+          }
+          .frame(width: 44, height: 44)
+          // Decorative, so it can stay inside the label.
+          .overlay {
+            RoundedRectangle(cornerRadius: 6)
+              .strokeBorder(.tint, lineWidth: 2)
+              .opacity(selection.contains(saved.persistentModelID) ? 1 : 0)
           }
         }
-        .frame(width: 44, height: 44)
+        .buttonStyle(.plain)
+        .accessibilityLabel(saved.text)
+        .accessibilityIdentifier("savedColor-\(index)")
+        .help(tooltip(saved))
+
+        selectionBadge(saved, index: index)
       }
-      .buttonStyle(.plain)
-      .accessibilityLabel(saved.text)
-      .accessibilityIdentifier("savedColor-\(index)")
-      .help(tooltip(saved))
+      // On the tile, not on the button inside it. Recorded as a placement, not a rule:
+      // whether a `Button` would consume the press a drag needs is *not* established.
+      // Moving the modifier here changed nothing observable, and the test that would
+      // have settled it cannot drive a drag either way — see the note on XCUITest and
+      // dragging sessions in CLAUDE.md.
+      //
+      // Position in, position out. The drop lands on a *tile*, so the target index is
+      // where the color should end up rather than an `onMove` slot — `move(from:to:)`
+      // converts between the two.
+      .draggable(SavedColorDrag(position: index))
+      .dropDestination(for: SavedColorDrag.self) { items, _ in
+        guard let dragged = items.first, let project = saved.project else { return false }
+        move(from: dragged.position, to: index, in: project)
+        return true
+      }
       .contextMenu {
+        Button(selection.contains(saved.persistentModelID) ? "Deselect" : "Select") {
+          toggleSelection(saved)
+        }
+
+        // The same move the drag performs, reachable without one. A drag is the only
+        // affordance a pointer wants and the only one a keyboard or VoiceOver user
+        // cannot use at all, which would make reordering the one thing in this panel
+        // that some people simply could not do. Both paths call `move(from:to:)`.
+        Button("Move Left") { moveTile(saved, from: index, by: -1) }
+          .disabled(index == 0)
+        Button("Move Right") { moveTile(saved, from: index, by: 1) }
+          .disabled(index == (saved.project?.colors.count ?? 0) - 1)
+
         Button("Notes…") { noteTarget = saved }
         Button("Delete", role: .destructive) {
           // Cleared first: the popover holds this object, and leaving it pointed at a
@@ -313,6 +404,33 @@ struct ProjectsPanel: View {
         .truncationMode(.middle)
         .frame(maxWidth: 62)
     }
+  }
+
+  /// The tick that puts a color into "Save Selection".
+  ///
+  /// Always drawn rather than revealed on hover, and that is a testability decision as
+  /// much as a discoverability one: a control that only exists under the pointer is a
+  /// control XCUITest cannot wait on for hittability. Unselected it is faint enough to
+  /// read as chrome; the tinted ring on the swatch is what actually carries the state.
+  private func selectionBadge(_ saved: SavedColor, index: Int) -> some View {
+    let isSelected = selection.contains(saved.persistentModelID)
+
+    return Button {
+      toggleSelection(saved)
+    } label: {
+      Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+        .font(.system(size: 13))
+        .symbolRenderingMode(.palette)
+        .foregroundStyle(isSelected ? AnyShapeStyle(.white) : AnyShapeStyle(.secondary),
+                         isSelected ? AnyShapeStyle(.tint) : AnyShapeStyle(.clear))
+        .background(Circle().fill(.background).padding(1))
+    }
+    .buttonStyle(.plain)
+    // Kept inside the tile's bounds rather than hung off the corner: a control that
+    // straddles the edge of its container loses hittability at the overhang.
+    .offset(x: -2, y: 2)
+    .accessibilityLabel(isSelected ? "Deselect \(saved.text)" : "Select \(saved.text)")
+    .accessibilityIdentifier("selectColor-\(index)")
   }
 
   private func palettesSection(_ project: Project) -> some View {
@@ -392,6 +510,55 @@ struct ProjectsPanel: View {
     perform {
       try library.savePalette(entries, named: entryName, kind: source.paletteKind, to: project)
       entryName = ""
+    }
+  }
+
+  /// The ticked colors, in the order they appear rather than the order they were ticked.
+  ///
+  /// Derived from `orderedColors` rather than stored, so a selection made before a
+  /// reorder still exports in the order the grid is showing — and so identifiers left
+  /// behind by a deleted color drop out instead of having to be swept up.
+  private func selectedColors(in project: Project) -> [SavedColor] {
+    project.orderedColors.filter { selection.contains($0.persistentModelID) }
+  }
+
+  private func toggleSelection(_ saved: SavedColor) {
+    if selection.contains(saved.persistentModelID) {
+      selection.remove(saved.persistentModelID)
+    } else {
+      selection.insert(saved.persistentModelID)
+    }
+  }
+
+  private func saveSelection(to project: Project) {
+    let colors = selectedColors(in: project)
+    guard !colors.isEmpty else { return }
+    perform {
+      try library.savePalette(from: colors, named: entryName, to: project)
+      entryName = ""
+      selection = []
+    }
+  }
+
+  /// One step left or right, for the menu commands that stand in for the drag.
+  private func moveTile(_ saved: SavedColor, from index: Int, by step: Int) {
+    guard let project = saved.project else { return }
+    move(from: index, to: index + step, in: project)
+  }
+
+  /// Translates a drop *onto* a tile into the `onMove` offset the library expects.
+  ///
+  /// The two conventions differ by one in exactly one direction: dropping onto a tile
+  /// further down the grid means landing after it, and `onMove`'s destination indexes the
+  /// order before the dragged item is lifted out, so the target has to be stepped past.
+  private func move(from source: Int, to target: Int, in project: Project) {
+    guard source != target else { return }
+    perform {
+      try library.moveColors(
+        fromOffsets: IndexSet(integer: source),
+        toOffset: source < target ? target + 1 : target,
+        in: project,
+      )
     }
   }
 

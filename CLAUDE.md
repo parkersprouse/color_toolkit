@@ -7,8 +7,12 @@ conversion across 14 spaces, a menu bar panel, a screen eyedropper with a global
 shortcut, WCAG 2.2 / APCA contrast checking, a gamut-aware HSV/OKLCH picker, OKLCH
 transforms — adjustment, harmonies, shade ramps and a contrast solver — export to CSS
 declarations, custom properties, JSON and both Tailwind generations, and saved projects
-on SwiftData. Every planned milestone (M0–M9) is built. Swift 6, SwiftUI, no third-party
-runtime dependencies.
+on SwiftData with reordering and hand-picked palettes, and CSS Color 4 §13.2's
+missing-component carry-forward. M0–M12 are built. **M13–M18 are planned and not
+started** — the CSS syntaxes the parser still rejects (`calc()`, `rgb(from …)`,
+`color-mix()`), a `@media (color-gamut)` export shape, design-token import, and a CLI
+over `ColorCore`. M12 was the spine and is done, so each of those is now only the work
+it says it is. Swift 6, SwiftUI, no third-party runtime dependencies.
 
 **[PLAN.md](PLAN.md) is the source of truth** for milestone status, what is deferred
 and why, and the reasoning behind every decision recorded below. This file is the
@@ -23,7 +27,8 @@ Build:
 xcodebuild -project "Color Toolkit.xcodeproj" -scheme "Color Toolkit" -destination 'platform=macOS' build
 ```
 
-Full test suite (~5 minutes, most of it UI tests):
+Full test suite (~7 minutes, nearly all of it UI tests — the 308 Swift Testing functions
+finish in under a second, the 25 XCUITests take about six minutes):
 
 ```bash
 xcodebuild -project "Color Toolkit.xcodeproj" -scheme "Color Toolkit" -destination 'platform=macOS' test
@@ -141,6 +146,14 @@ standard library**: it reads a vendored, pinned copy of Machado's Table 1 in
 python3 Tools/generate-cvd-matrices.py    # → ColorCore/Analysis/CVDMatrices.swift, Fixtures/cvd-vectors.json
 ```
 
+**Regenerating `cvd-vectors.json` on a different machine produces spurious churn — leave
+it.** 26 of its 405 vectors come back differing in the last ULP. The generator is
+idempotent on any given host, so this is not nondeterminism: `**` on Python floats calls
+libm `pow`, which IEEE-754 does not require to be correctly rounded, so the result varies
+by platform and libm version. The differences are ~1e-16, far inside every tolerance the
+CVD tests use. Committing a regenerated fixture just moves the churn to the next person.
+`CVDMatrices.swift` itself regenerates byte-identically, which is the check that matters.
+
 Ask the oracle rather than reasoning about gamuts:
 
 ```bash
@@ -151,7 +164,11 @@ cd Tools && node -e "import('colorjs.io').then(({default:C}) => console.log(new 
 
 Layered so the numeric core stays independently testable and UI-free:
 
-- **`ColorCore/`** — pure value types, no AppKit, no SwiftUI. `ColorValue` +
+- **`ColorCore/`** — at the **repo root**, not inside `Color Toolkit/`. It is its own
+  `PBXFileSystemSynchronizedRootGroup` so a second target (a CLI) can list it without an
+  exclusion list to maintain; the sources still compile *into* the app module, which is why
+  everything in it stays `internal` and tests still reach it with
+  `@testable import Color_Toolkit`. Pure value types, no AppKit, no SwiftUI. `ColorValue` +
   `ColorSpace`, 14 spaces routed through XYZ D65, CSS Color 4 §13 gamut mapping,
   a hand-written recursive-descent CSS parser, a serializer, `Analysis/`
   (WCAG 2.2 and APCA contrast), `Convert/GamutBoundary.swift` (how much chroma
@@ -161,10 +178,11 @@ Layered so the numeric core stays independently testable and UI-free:
 - **`Features/Shell/ColorStore.swift`** — `@MainActor @Observable`, one instance
   injected into both scenes (menu bar + window). Holds a *pair* of `ColorField`s
   (foreground + background) and which `Tool` the window is showing.
-- **`Persistence/`** — the only SwiftData in the app. `ColorRecord` is a plain value
-  type bridging `ColorValue` to flat, queryable columns; `ProjectModels` holds the three
-  `@Model` classes; `ProjectLibrary` owns every mutation so the rules are testable
-  against a container; `PersistenceStack` builds the one container both scenes share.
+- **`Persistence/`** — the only SwiftData in the app, five files. `ColorRecord` is a plain
+  value type bridging `ColorValue` to flat, queryable columns; `ProjectModels` holds the
+  three `@Model` classes; `ProjectLibrary` owns every mutation so the rules are testable
+  against a container; `SchemaVersions` declares `ColorToolkitSchemaV1` and an empty
+  migration plan; `PersistenceStack` builds the one container both scenes share.
 - **`Features/`, `DesignSystem/`** — SwiftUI, one folder per tool. `Services/` wraps
   AppKit (pasteboard, `NSColorSampler`, Carbon hot keys).
 
@@ -186,11 +204,60 @@ Layered so the numeric core stays independently testable and UI-free:
   gamma-space one; do not "simplify" the pipeline by dropping the linearization.
 - The project uses file-system-synchronized groups (`objectVersion = 77`). New
   `.swift` files compile automatically — do not edit `project.pbxproj` to add them.
+  There are **two** root groups feeding the app target, `ColorCore/` and
+  `Color Toolkit/`; a file dropped in either compiles. Editing the project file is for
+  adding a *target*, or a build setting with nowhere else to live — never for adding
+  files.
+- **`Info.plist` sits at the repo root, and that is the only place it can.** The app is
+  otherwise `GENERATE_INFOPLIST_FILE = YES`, so every scalar stays an `INFOPLIST_KEY_*`
+  build setting; the file exists solely for `UTExportedTypeDeclarations`, which is an
+  array of dictionaries and has no `INFOPLIST_KEY_` spelling. Setting `INFOPLIST_FILE`
+  alongside the generator **merges** rather than replaces — measured, 24 generated keys
+  in and 24 plus the declaration out — but set it in *both* the Debug and Release blocks,
+  because the type declaration is only read at runtime and a Release-only omission is
+  invisible from a Debug build. It cannot live in `Color Toolkit/`: that folder is a
+  synchronized root group, so it claims the file and the plist becomes the target's
+  `Info.plist` *and* a bundled resource, which builds, warns, and ships a duplicate in
+  `Contents/Resources`.
+- **A SwiftData `VersionedSchema`'s statics need `nonisolated`**, like everything else
+  under this project's default actor isolation. `PersistenceStack.schema` is built from
+  `ColorToolkitSchemaV1`; the migration plan is deliberately empty, and a test asserting
+  that it "works" would be asserting nothing — see PLAN.md.
+- **Reordering renumbers `sortIndex` densely; appending does not.** `nextIndex(after:)`
+  leaves gaps so a new color lands last after a deletion, and that is only safe while
+  positions are append-only — slotting a *moved* color into a gap means inventing a value
+  between neighbours, and two moves into one gap collide. `moveColors` is the only place
+  that renumbers. Do not "unify" the two.
+- **Two `savePalette` overloads, and merging them destroys data.** The `[PaletteEntry]`
+  one re-derives a spelling because ramp stops and harmony members never had one; the
+  `from: [SavedColor]` one copies `ColorRecord` so a user's typed `rebeccapurple` survives.
+  Palette keys from a hand-picked set are **deduplicated** — two entries sharing a key
+  collapse into one CSS property and a color vanishes from the export silently.
 - **Never assert a gamut-containment claim from reasoning.** Space "widths" do not
   nest (Rec.2020 does not contain Display P3). Query the oracle.
 - One predicate — `ColorValue.isGamutMapped(as:options:epsilon:)` — decides both the
   serialized string and the UI's "mapped" badge. Adding a second rule lets the badge
   lie about the value beside it.
+- **`ColorSpace.componentRoles` is transcribed from CSS Color 4 §13.2, never derived
+  from `componentLabels`.** Same rule as the matrices, for the same reason: three of
+  its groupings are not guessable. XYZ shares sRGB's three roles ("super-saturated RGB
+  space"), Saturation shares Chroma's, and `b` names Blue in an RGB space and Opponent
+  b in Lab — a letter-based derivation conflates the last pair and silently carries a
+  missing `b` from `lab()` into sRGB's blue channel. `hueIndex` is *derived* from this
+  table, so a mistyped role moves the picker's hue axis too.
+- **Carry-forward is an interpolation rule; `converted(to:)` stays numeric.** Missing
+  components cross a conversion only through `convertedForInterpolation(to:)` /
+  `carriedForwardMissing(to:)` in `Convert/MissingComponents.swift`. Two mechanisms,
+  and the second is the one that gets lost: components pair off individually by role,
+  *and* whatever is left on each side forms a set that carries only when **every**
+  member of it is missing. Turning that `allSatisfy` into a `contains` fails three
+  tests; deleting the set rule fails three others and leaves `rgb(none none none)` →
+  `oklab(0 0 0)`.
+- **Carry-forward runs before `markingPowerlessComponents()`, never after.** The spec
+  is explicit, and the two flags mean different things downstream: a carried-forward
+  component takes the *other* color's value when interpolated, where a powerless one is
+  zero. Marking first destroys the value the spec wants preserved. Powerless marking
+  also *blanks* what it flags; carry-forward must not.
 - `ColorStore` keeps **text** as its source of truth, so an adopted color is
   serialized and immediately re-parsed. Storage precision (`CSSFormatOptions.lossless`)
   and display precision (`store.formatOptions.precision`) are separate settings; a
@@ -278,6 +345,10 @@ Layered so the numeric core stays independently testable and UI-free:
   745pt wide. Principal placement is *centered*, so its budget is
   `width − 2 × max(leading, trailing)`, and the window title alone spends that twice
   over. Do not move it back — M9 added a seventh segment, and all seven fit in the body.
+  **Seven is the tested ceiling at `minWidth: 520`; an eighth is unmeasured risk.** This
+  is why M15's mixing folds into `Transform` and M17's import folds into `Projects`
+  rather than each taking a `Tool` case. Adding an eighth means budgeting for shorter
+  titles, a raised `minWidth`, or a different control — not just one more enum case.
 - **A ramp stop on the gamut boundary can round outward at display precision.** The
   printed `oklch(0.97 0.0142 259.81)` is 2.3e-5 of chroma past a boundary at `0.014177`,
   so the *string* is out of sRGB while the `ColorValue` is inside. Worst case across hues
@@ -307,8 +378,18 @@ Layered so the numeric core stays independently testable and UI-free:
   two spellings of one claim will otherwise drift.
 - **UI tests that touch projects must launch with `UITestInMemoryStore`** — see
   `ProjectsSmokeTests`. Without it XCUITest writes into the real library and the next run
-  finds it. The argument carries no leading hyphen on purpose; `NSUserDefaults` claims
-  anything that starts with one.
+  finds it. **Both spellings of a launch argument are claimed by something, so it takes
+  three strings, not one:** `["-NSTreatUnknownArgumentsAsOpen", "NO", "UITestInMemoryStore"]`.
+  A leading hyphen goes to `NSUserDefaults`, which reads the next argument as its value;
+  a bare one goes to AppKit, whose `NSTreatUnknownArgumentsAsOpen` defaults to on and
+  treats it as a **file to open** — and an app launched to open a document never creates
+  its default window. The app still launches and still reaches `.runningForeground`; it
+  just has a menu bar and nothing else, so every query fails against a tree with no
+  window and it reads as a broken panel rather than a broken launch. This is not
+  hypothetical and not specific to projects: adding *any* meaningless argument to
+  `ConversionSmokeTests` reproduced it exactly, and the opt-out pair fixed it. macOS
+  drifted here — the six projects tests fail this way at pre-M11 commits too, so the
+  green runs recorded in the M9 and M11 commit messages no longer reproduce.
 - **An in-memory container cannot test persistence.** It proves round tripping inside one
   context and says nothing about surviving a quit, which is what "saved" means — so
   `dataSurvivesAReopen` writes a real store, drops the container and reopens it. Use a
@@ -330,6 +411,13 @@ the accessibility-tree conventions before writing UI tests.
   to regress against, mutate the feature instead — every load-bearing claim in
   `Transform/` was checked that way, which is what proved the ramp's conditional clamp
   is a correctness rule and not an optimization.
+- **Missing-component semantics have no oracle either, and the reason is different.**
+  colorjs.io *resolves* `none` on conversion — `hsl(none 50% 50%).to("oklch")` comes
+  back with a real hue — so it cannot answer §13.2's question at all. The spec's worked
+  examples are the fixtures. Where the spec prints a converted value, assert that our
+  value **rounds to it** rather than picking a tolerance: a printed `0.0001` is a
+  bucket, the true chroma is `5.9e-5`, and `|x − 0.0001| < 5e-5` passes by 9e-6 while
+  reading like agreement to four decimals.
 - **`Transform/` and `GamutBoundary` have no oracle, deliberately.** colorjs.io has no
   notion of a harmony, a ramp or a solver, so assert the *property* (a hue exactly 180°
   away, every stop in gamut, the answer passes `meets` and one step back fails) rather
@@ -348,6 +436,26 @@ the accessibility-tree conventions before writing UI tests.
 - **Never write a fallback chain of XCUITest queries.** One named query, and dump
   `app.debugDescription` on failure. A chain that silently matches on index is a test
   that cannot fail — one hid a picker announcing its SF Symbol name to VoiceOver.
+- **A SwiftUI `Button` is one accessibility element, so nothing layered over it is
+  visible.** A control put in a Button's `.overlay` disappears from the tree entirely
+  *and* makes the Button's own identifier match twice, which breaks unrelated tests
+  querying it. Interactive siblings go in a `ZStack`, not an overlay. Decorative ones
+  (a selection ring) are fine inside the label.
+- `.draggable`/`.dropDestination` sit on the tile that wraps the swatch Button, not on
+  the Button. Whether a Button would consume the press is **not established** — the test
+  that would have shown it cannot drive a drag either way (next bullet), and moving the
+  modifier changed nothing observable. Recorded as a placement, not a rule.
+- **XCUITest cannot drive a drag-and-drop.** `.draggable`/`.dropDestination` open an
+  AppKit dragging session, and XCUITest's synthesized events move the pointer without the
+  session ever beginning — including with
+  `press(forDuration:thenDragTo:withVelocity:thenHoldForDuration:)`. A drag-driven test
+  fails whether the feature works or not, so do not write one and do not read its failure
+  as a bug. Give the same action a menu or keyboard command, test *that*, and let the two
+  share one handler. This is worth doing regardless: a drag-only affordance is unusable
+  from the keyboard and from VoiceOver.
+- A palette swatch is `app.otherElements[…]`; a saved color is `app.buttons[…]`. Both
+  publish their label, but they are different element kinds and the wrong query never
+  matches. A palette swatch's label is its **key**, not its CSS.
 - **Query the right element kind, and scope dialogs.** A SwiftUI `Picker` is a
   `popUpButton`; a `Menu` is a `menuButton` — the wrong one simply never matches. A
   `confirmationDialog`'s buttons appear more than once app-wide, so query them through

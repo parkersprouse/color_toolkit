@@ -13,8 +13,8 @@
 # It needs only the standard library — the vendored dataset is parsed without numpy.
 #
 # Emits:
-#   Color Toolkit/ColorCore/Analysis/CVDMatrices.swift   (the 33 matrices)
-#   Color ToolkitTests/Fixtures/cvd-vectors.json         (pipeline cross-check)
+#   ColorCore/Analysis/CVDMatrices.swift            (the 33 matrices)
+#   Color ToolkitTests/Fixtures/cvd-vectors.json    (pipeline cross-check)
 
 import ast
 import json
@@ -24,7 +24,7 @@ import types
 HERE = os.path.dirname(os.path.abspath(__file__))
 VENDOR = os.path.join(HERE, "vendor", "machado2010.py")
 SWIFT_OUT = os.path.join(
-    HERE, "..", "Color Toolkit", "ColorCore", "Analysis", "CVDMatrices.swift"
+    HERE, "..", "ColorCore", "Analysis", "CVDMatrices.swift"
 )
 FIXTURE_OUT = os.path.join(
     HERE, "..", "Color ToolkitTests", "Fixtures", "cvd-vectors.json"

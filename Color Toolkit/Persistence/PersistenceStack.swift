@@ -41,7 +41,9 @@ enum PersistenceStack {
   /// anything starting with `-` and would read the next argument as its value.
   static let inMemoryLaunchArgument = "UITestInMemoryStore"
 
-  static let schema = Schema([Project.self, Palette.self, SavedColor.self])
+  /// Built from ``ColorToolkitSchemaV1`` rather than a bare model list, so the store
+  /// records which version wrote it. See that type for why the migration plan is empty.
+  static let schema = Schema(versionedSchema: ColorToolkitSchemaV1.self)
 
   /// Whether this process was launched by a UI test.
   static var wantsInMemoryStore: Bool {

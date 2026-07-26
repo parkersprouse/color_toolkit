@@ -24,7 +24,16 @@ final class ProjectsSmokeTests: XCTestCase {
   override func setUpWithError() throws {
     continueAfterFailure = false
     app = XCUIApplication()
-    app.launchArguments = ["UITestInMemoryStore"]
+    // The opt-out is not decoration. AppKit's `NSTreatUnknownArgumentsAsOpen` defaults
+    // to on, so it reads a bare launch argument as a *file to open* — and an app asked
+    // to open a document does not create its default window. The app still launches and
+    // still reaches `.runningForeground`; it simply has a menu bar and nothing else, so
+    // every query here fails against a tree with no window in it and the symptom reads
+    // as a broken panel rather than a broken launch. Measured, not guessed: adding any
+    // meaningless argument to a passing suite reproduced it exactly, and this pair fixed
+    // it. The store argument itself keeps its bare spelling — a leading hyphen would be
+    // claimed by `NSUserDefaults` instead, which is the opposite trap.
+    app.launchArguments = ["-NSTreatUnknownArgumentsAsOpen", "NO", "UITestInMemoryStore"]
     app.launch()
     XCTAssertTrue(
       app.wait(for: .runningForeground, timeout: 30),
@@ -134,6 +143,97 @@ final class ProjectsSmokeTests: XCTestCase {
       "The panel should return to its empty state. Tree was:\n\(app.debugDescription)",
     )
     XCTAssertFalse(app.buttons["savedColor-0"].exists, "A deleted project's colors survived")
+  }
+
+  /// Reordering is proved against a container in `ProjectStoreTests`; what only a running
+  /// app can show is that a command in the panel reaches it, and that the grid redraws in
+  /// the new order rather than keeping a stale one.
+  ///
+  /// **This drives the menu commands, not the drag, and that is not a workaround.**
+  /// XCUITest cannot start an AppKit dragging session — its synthesized events move the
+  /// pointer without the drag ever beginning, so a drag-based test here would fail
+  /// whether the feature worked or not. The menu commands exist because a drag-only
+  /// reorder is unusable from the keyboard or VoiceOver in the first place; they share
+  /// `move(from:to:)` with the drop handler, so this covers the path both use and leaves
+  /// only the gesture that opens it uncovered.
+  func testMoveCommandsReorderTheGrid() {
+    click(radioButton: "Projects", "the tool switcher")
+    createProject()
+    saveColors(["#ff0000", "#00ff00", "#0000ff"])
+
+    XCTAssertEqual(swatchLabels(count: 3), ["#ff0000", "#00ff00", "#0000ff"])
+
+    // Right twice, so a handler that ignored its step or moved by a fixed amount fails.
+    contextMenu("savedColor-0", item: "Move Right")
+    XCTAssertTrue(
+      waitForSwatchLabels(["#00ff00", "#ff0000", "#0000ff"]),
+      "After one Move Right: \(swatchLabels(count: 3)). Tree was:\n\(app.debugDescription)",
+    )
+
+    contextMenu("savedColor-1", item: "Move Right")
+    XCTAssertTrue(
+      waitForSwatchLabels(["#00ff00", "#0000ff", "#ff0000"]),
+      "After two: \(swatchLabels(count: 3)). Tree was:\n\(app.debugDescription)",
+    )
+
+    contextMenu("savedColor-0", item: "Move Right")
+    contextMenu("savedColor-1", item: "Move Left")
+    XCTAssertTrue(
+      waitForSwatchLabels(["#00ff00", "#0000ff", "#ff0000"]),
+      "Left must undo Right: \(swatchLabels(count: 3)). Tree was:\n\(app.debugDescription)",
+    )
+  }
+
+  /// The reorder has to outlive the panel, not just the frame it happened in — the grid
+  /// reads `orderedColors`, so a move that never reached `sortIndex` would still look
+  /// right until something forced a refetch.
+  func testAReorderSurvivesLeavingThePanel() {
+    click(radioButton: "Projects", "the tool switcher")
+    createProject()
+    saveColors(["#ff0000", "#00ff00", "#0000ff"])
+
+    contextMenu("savedColor-2", item: "Move Left")
+    XCTAssertTrue(waitForSwatchLabels(["#ff0000", "#0000ff", "#00ff00"]))
+
+    click(radioButton: "Convert", "the tool switcher")
+    click(radioButton: "Projects", "the tool switcher")
+
+    XCTAssertTrue(
+      waitForSwatchLabels(["#ff0000", "#0000ff", "#00ff00"]),
+      "Order after returning: \(swatchLabels(count: 3)). Tree was:\n\(app.debugDescription)",
+    )
+  }
+
+  /// The other half of the loose-set feature: ticking colors the user chose by hand and
+  /// keeping them together. `ProjectStoreTests` covers what gets stored; this covers that
+  /// the tick marks and the button are wired to it at all.
+  func testSavingASelectionMakesAPalette() {
+    click(radioButton: "Projects", "the tool switcher")
+    createProject()
+    // Named, because a palette swatch publishes its *key* as its label and a hand-picked
+    // set takes its keys from the colors' names. That turns the labels into a statement
+    // about which colors were picked, rather than just how many.
+    saveColors(["rebeccapurple": "brand", "#00ff00": "leaf", "#0000ff": "sky"],
+               order: ["rebeccapurple", "#00ff00", "#0000ff"])
+
+    // The first and the third, so a palette of everything would also fail this.
+    clickButton("selectColor-0", "the first color's tick")
+    clickButton("selectColor-2", "the third color's tick")
+    clickButton("saveSelection", "the save-selection button")
+
+    // `otherElements`, not `buttons` — a palette swatch is a plain `ColorSwatch` with a
+    // label, where a saved color is a Button. The wrong query simply never matches.
+    let firstEntry = app.otherElements["palette-0-swatch-0"]
+    XCTAssertTrue(
+      firstEntry.waitForExistence(timeout: 15),
+      "No palette was saved. Tree was:\n\(app.debugDescription)",
+    )
+    XCTAssertEqual(firstEntry.label, "brand")
+    XCTAssertEqual(app.otherElements["palette-0-swatch-1"].label, "sky")
+    XCTAssertFalse(
+      app.otherElements["palette-0-swatch-2"].exists,
+      "Only the two ticked colors belong in the palette. Tree was:\n\(app.debugDescription)",
+    )
   }
 
   // MARK: Private
@@ -246,6 +346,60 @@ final class ProjectsSmokeTests: XCTestCase {
       return ""
     }
     return element.value as? String ?? ""
+  }
+
+  /// Types each CSS string into the field and saves it, leaving the grid in that order.
+  private func saveColors(_ css: [String]) {
+    saveColors([:], order: css)
+  }
+
+  /// The same, optionally naming each color as it is saved.
+  private func saveColors(_ names: [String: String], order css: [String]) {
+    for (index, text) in css.enumerated() {
+      setField(text)
+      if let name = names[text] {
+        typeInto("saveName", name)
+      }
+      clickButton("saveColor", "the save-color button")
+      XCTAssertTrue(
+        app.buttons["savedColor-\(index)"].waitForExistence(timeout: 15),
+        "\(text) was not saved. Tree was:\n\(app.debugDescription)",
+      )
+    }
+  }
+
+  /// Right-clicks a tile and picks one of its commands.
+  private func contextMenu(_ identifier: String, item title: String) {
+    let element = app.buttons[identifier]
+    guard element.waitForExistence(timeout: 15), waitUntilHittable(element) else {
+      XCTFail("No hittable \(identifier). Tree was:\n\(app.debugDescription)")
+      return
+    }
+    element.rightClick()
+
+    let item = app.menuItems[title]
+    guard item.waitForExistence(timeout: 15) else {
+      XCTFail("No item \(title) on \(identifier). Tree was:\n\(app.debugDescription)")
+      return
+    }
+    item.click()
+  }
+
+  /// The grid's swatches in order. Each carries its CSS as its accessibility label, which
+  /// is the only handle a test has on a row of colored rectangles.
+  private func swatchLabels(count: Int) -> [String] {
+    (0 ..< count).map { app.buttons["savedColor-\($0)"].label }
+  }
+
+  private func waitForSwatchLabels(_ expected: [String], timeout: TimeInterval = 15) -> Bool {
+    let deadline = Date().addingTimeInterval(timeout)
+    while Date() < deadline {
+      if swatchLabels(count: expected.count) == expected {
+        return true
+      }
+      RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+    }
+    return swatchLabels(count: expected.count) == expected
   }
 
   private func capture(_ name: String) {

@@ -40,6 +40,34 @@ nonisolated enum ColorSpace: String, Codable, Sendable, Hashable, CaseIterable {
   case xyzD65 = "xyz-d65"
 }
 
+/// What a component *means*, independent of the space that holds it.
+///
+/// Two components are "analogous" — CSS Color 4 §13.2's word — when they share a
+/// role, and that is the whole question interpolation needs answered: an `h` that
+/// was authored `none` in `hsl()` is still absent after conversion to `oklch()`,
+/// because both are hues, while a missing `b` in `lab()` says nothing about the
+/// blue channel of sRGB.
+///
+/// Distinct from ``ColorSpace/componentLabels``, which is display copy and may be
+/// reworded freely. This is a fact with behavior hanging off it.
+///
+/// ``whiteness`` and ``blackness`` are deliberately roles of their own: the spec
+/// states outright that HWB's two have no analog in any other space. They still
+/// take part in the *set* rule — see
+/// ``ColorValue/carriedForwardMissing(to:)`` — which is a separate mechanism.
+nonisolated enum ComponentRole: Sendable, Hashable, CaseIterable {
+  case reds
+  case greens
+  case blues
+  case lightness
+  case colorfulness
+  case hue
+  case opponentA
+  case opponentB
+  case whiteness
+  case blackness
+}
+
 nonisolated extension ColorSpace {
   /// Groups spaces that are alternate encodings of the same underlying values.
   ///
@@ -87,12 +115,58 @@ nonisolated extension ColorSpace {
   }
 
   /// Index of the hue component, for spaces that have one.
+  ///
+  /// Derived from ``componentRoles`` rather than listed separately, so the two
+  /// cannot drift: a space that gained a hue in one table and not the other would
+  /// interpolate one way and display another.
   var hueIndex: Int? {
+    componentIndex(of: .hue)
+  }
+
+  /// What each component *is*, for deciding which components correspond across
+  /// spaces. See ``ComponentRole``.
+  ///
+  /// Transcribed from CSS Color 4 §13.2's table, not read off ``componentLabels``.
+  /// Three of its groupings are not guessable from the letters: XYZ counts as a
+  /// super-saturated RGB space, so `x`/`y`/`z` share `r`/`g`/`b`'s categories;
+  /// Saturation shares Chroma's despite being lightness-dependent; and `b` names
+  /// two unrelated things — Blue in an RGB space, Opponent b in Lab — which is
+  /// exactly why roles are per-space and never inferred from a label.
+  var componentRoles: (ComponentRole, ComponentRole, ComponentRole) {
     switch self {
-    case .hsl, .hwb: 0
-    case .lch, .oklch: 2
-    default: nil
+    case .srgb, .srgbLinear, .displayP3, .a98RGB, .proPhotoRGB, .rec2020,
+         .xyzD50, .xyzD65:
+      (.reds, .greens, .blues)
+    case .hsl: (.hue, .colorfulness, .lightness)
+    case .hwb: (.hue, .whiteness, .blackness)
+    case .lab, .oklab: (.lightness, .opponentA, .opponentB)
+    case .lch, .oklch: (.lightness, .colorfulness, .hue)
     }
+  }
+
+  /// The role table in index order — the same three facts as ``componentRoles``,
+  /// shaped for walking rather than destructuring.
+  var orderedComponentRoles: [ComponentRole] {
+    let roles = componentRoles
+    return [roles.0, roles.1, roles.2]
+  }
+
+  /// Where this space keeps a given role, if it has one at all.
+  ///
+  /// A role appears at most once per space, so this is a lookup rather than a
+  /// search — which is what lets ``ComponentRole`` decide analogy by equality.
+  func componentIndex(of role: ComponentRole) -> Int? {
+    let roles = componentRoles
+    if roles.0 == role {
+      return 0
+    }
+    if roles.1 == role {
+      return 1
+    }
+    if roles.2 == role {
+      return 2
+    }
+    return nil
   }
 
   /// Whether this space can appear inside the CSS `color()` function.
