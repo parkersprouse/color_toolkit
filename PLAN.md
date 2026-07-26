@@ -15,9 +15,10 @@
 > parser still rejects (`calc()`, `rgb(from …)`, `color-mix()`), the missing-component
 > semantics all three of those rest on, a `@media (color-gamut)` export shape, design-token
 > import, and a CLI over `ColorCore`. M10 (relocating `ColorCore`) and M11 (the three items
-> M9 deferred) are done; **M12 is the spine and everything after it waits on M12**. What
-> remains beyond that is **M8b** (saving an export to a file) and the shorter deferred list
-> at the end.
+> M9 deferred) are done, plus the two housekeeping commits recorded after M11 — the
+> exported `UTType` declaration M11's drag was missing, and Xcode's recommended build
+> settings; **M12 is the spine and everything after it waits on M12**. What remains beyond
+> that is **M8b** (saving an export to a file) and the shorter deferred list at the end.
 >
 > M9 closes the loop M8 left open, and its screenshots prove it end to end: a shade ramp
 > saved into a project as `brand` and exported from the other tool comes back as a
@@ -967,6 +968,43 @@ offset discount, skipping the renumber, disabling dedup, re-deriving text, and m
 colors instead of copying them all fail the suite. The reorder is checked across a real
 store close and reopen, since an in-memory container proves only that the objects in hand
 were mutated.
+
+### ✅ Housekeeping after M11
+
+Two commits that belong to no milestone, recorded because both changed something outside
+the source tree and neither is visible from a Debug build.
+
+**The drag needed an `Info.plist`, and the app did not have one.** `UTType(exportedAs:)`
+returns a working identifier whether or not the type is declared, so M11's reorder drag
+functioned — both ends compare the same string — while every launch logged that
+`me.parkersprouse.color-toolkit.saved-color-position` "was expected to be declared and
+exported in the Info.plist … but it was not found". `GENERATE_INFOPLIST_FILE` covers every
+scalar through `INFOPLIST_KEY_*`, and `UTExportedTypeDeclarations` is an array of
+dictionaries with no such spelling, so a file is the only way to say it. Setting
+`INFOPLIST_FILE` alongside the generator **merges** rather than replaces — measured by
+diffing the built plist against a build without it, 24 keys in and the same 24 plus the
+declaration out — and it is set in *both* configurations, because the declaration is read
+only at runtime and a Release-only omission is invisible from a Debug build. The file sits
+at the **repo root**: `Color Toolkit/` is a synchronized root group, so a plist dropped
+there becomes the target's `Info.plist` *and* a bundled resource, which builds, warns, and
+ships a duplicate in `Contents/Resources`. Confirmed by building it that way first.
+`lsregister -dump` now finds the type; before, it did not.
+
+**This registered the type. It did not test the gesture** — that still wants a human to
+try it once, exactly as M11 recorded. The commit also corrected the comment above
+`.draggable`, which had restated the Button-consumes-the-press theory as fact after
+PLAN.md and CLAUDE.md had already walked it back.
+
+**Xcode's recommended build settings, accepted with one real consequence.**
+`DEAD_CODE_STRIPPING` was absent from every container and therefore resolved to `NO`, not
+the `YES` the templates imply, so the Release link now runs `-dead_strip`. It is written to
+the project and all three targets in both configurations, because the validator checks for
+the key's *presence* per container rather than its resolved value. Test discovery is
+runtime reflection with no static call site, so the check that stripping is safe is the
+**count**, not the verdict: 316 cases (291 Swift Testing + 25 XCUITests), unchanged, and
+Release links clean. `STRING_CATALOG_GENERATE_SYMBOLS` is inert today — no `.xcstrings`
+files exist and all three targets already override it — and is set at the project level
+only, to seed the default for M18's CLI target.
 
 ### M12 — Missing-component semantics ⭐ *the spine*
 
