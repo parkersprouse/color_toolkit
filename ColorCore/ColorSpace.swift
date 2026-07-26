@@ -156,9 +156,15 @@ nonisolated extension ColorSpace {
   /// search — which is what lets ``ComponentRole`` decide analogy by equality.
   func componentIndex(of role: ComponentRole) -> Int? {
     let roles = componentRoles
-    if roles.0 == role { return 0 }
-    if roles.1 == role { return 1 }
-    if roles.2 == role { return 2 }
+    if roles.0 == role {
+      return 0
+    }
+    if roles.1 == role {
+      return 1
+    }
+    if roles.2 == role {
+      return 2
+    }
     return nil
   }
 

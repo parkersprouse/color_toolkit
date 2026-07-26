@@ -17,6 +17,8 @@ import Testing
 
 @Suite("Missing components")
 struct MissingComponentTests {
+  // MARK: Internal
+
   // MARK: - The spec's worked examples
 
   @Test("lab(50% none none) carries both into LCH as a set")
