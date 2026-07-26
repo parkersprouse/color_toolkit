@@ -144,7 +144,8 @@ nonisolated extension ColorSpace {
     }
   }
 
-  /// ``componentRoles`` as an indexable list, for the loops that need one.
+  /// The role table in index order — the same three facts as ``componentRoles``,
+  /// shaped for walking rather than destructuring.
   var orderedComponentRoles: [ComponentRole] {
     let roles = componentRoles
     return [roles.0, roles.1, roles.2]

@@ -19,8 +19,9 @@
 > M9 deferred) are done, plus the two housekeeping commits recorded after M11 — the
 > exported `UTType` declaration M11's drag was missing, and Xcode's recommended build
 > settings. **M12, the spine, is done too**: `ComponentRole` and carry-forward exist, so
-> M13–M15 and M17 are unblocked and each is now the work it says it is. What remains beyond
-> that is **M8b** (saving an export to a file) and the shorter deferred list at the end.
+> every "depends on M12" is discharged — M15 and M17 are now unblocked outright, and M14
+> waits only on M13. What remains beyond that is **M8b** (saving an export to a file) and
+> the shorter deferred list at the end.
 >
 > **M12 is the first milestone with no oracle *and* nothing to look at**, so its standard
 > of proof is the spec's own worked examples plus five mutations. Two of its findings are
