@@ -148,6 +148,10 @@ struct CSSParseValidTests {
     #expect(try CSSColorParser.parse("rgb(255 0 0)").notation == .function(.rgb, legacy: false))
     #expect(try CSSColorParser.parse("rgb(255, 0, 0)").notation == .function(.rgb, legacy: true))
     #expect(try CSSColorParser.parse("rgba(255, 0, 0, 1)").notation == .function(.rgba, legacy: true))
+    // Relative syntax is its own case, carrying no `legacy:` — the spec rules that
+    // combination out, so the type has nowhere to express it.
+    #expect(try CSSColorParser.parse("rgb(from red r g b)").notation == .relative(.rgb))
+    #expect(try CSSColorParser.parse("color(from red srgb r g b)").notation == .relative(.color))
   }
 
   @Test("xyz is accepted as an alias for xyz-d65")

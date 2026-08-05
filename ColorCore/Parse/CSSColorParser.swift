@@ -10,6 +10,13 @@ nonisolated enum ColorNotation: Equatable, Sendable {
   case hex(digits: Int)
   case keyword(String)
   case function(ColorFunction, legacy: Bool)
+  /// `rgb(from …)` and friends — CSS Color 5 relative color syntax.
+  ///
+  /// A case of its own rather than a flag on ``function``, and it carries no
+  /// `legacy:` because there is no such thing: the spec says relative color syntax
+  /// applies to modern syntax only and that combining the two is an error. Encoding
+  /// that in the type means no caller has to remember it.
+  case relative(ColorFunction)
 }
 
 nonisolated struct ParseResult: Equatable, Sendable {
@@ -162,7 +169,16 @@ nonisolated enum CSSColorParser {
 
     var rest = tokens
     var space: ColorSpace
-    var spaceIdentifier: String?
+
+    // `from` comes before the space identifier, not after: the grammar is
+    // `color( [from <color>]? <space> …)`, so the origin is consumed first even
+    // though the space is what it will be converted into.
+    var origin: ColorValue?
+    if case let .ident(keyword)? = rest.first, keyword == "from" {
+      let (result, next) = try consumeColor(rest, from: 1)
+      origin = result.color
+      rest = Array(rest[next...])
+    }
 
     if function == .color {
       guard case let .ident(id)? = rest.first else {
@@ -172,20 +188,71 @@ nonisolated enum CSSColorParser {
         throw ParseError.unknownColorSpace(id)
       }
       space = resolved
-      spaceIdentifier = id
       rest = Array(rest.dropFirst())
     } else {
       space = function.space!
     }
-    _ = spaceIdentifier
 
-    let (values, separators) = try scanArguments(rest)
+    let channels = origin.map { ChannelBindings(origin: $0, function: function, space: space) }
+    let (values, separators) = try scanArguments(rest, channels: channels)
     return try assemble(
       function: function,
       space: space,
       values: values,
       separators: separators,
+      isRelative: origin != nil,
     )
+  }
+
+  /// Reads one complete color starting at `index`, returning it and the index just
+  /// past its last token.
+  ///
+  /// Needed because an origin color is a *nested* color written inside another
+  /// one's argument list, so the top-level string-based entry point cannot reach
+  /// it. Unlike a `calc()` body — which cannot nest, so its first `)` is its own —
+  /// color functions nest freely (`rgb(from color(display-p3 1 0 0) r g b)`, and
+  /// an origin may itself be relative), so the closing paren is found by depth.
+  private static func consumeColor(
+    _ tokens: [CSSToken],
+    from index: Int,
+  ) throws(ParseError) -> (ParseResult, Int) {
+    guard index < tokens.count else { throw ParseError.missingOriginColor }
+
+    switch tokens[index] {
+    case .closeParen:
+      // `rgb(from)`. There *is* a token, it just closes the function, so the
+      // bounds check above does not catch this one.
+      throw ParseError.missingOriginColor
+
+    case let .hash(digits):
+      return (try parseHex(digits), index + 1)
+
+    case let .ident(name):
+      guard let color = ColorValue.named(name) else {
+        throw ParseError.unknownKeyword(name)
+      }
+      return (ParseResult(color: color, notation: .keyword(name)), index + 1)
+
+    case let .function(name):
+      var depth = 1
+      var scan = index + 1
+      while scan < tokens.count, depth > 0 {
+        if case .function = tokens[scan] {
+          depth += 1
+        } else if tokens[scan] == .openParen {
+          depth += 1
+        } else if tokens[scan] == .closeParen {
+          depth -= 1
+        }
+        scan += 1
+      }
+      guard depth == 0 else { throw ParseError.unterminatedFunction(name) }
+      let body = Array(tokens[(index + 1) ..< scan])
+      return (try parseFunction(name, tokens: body), scan)
+
+    default:
+      throw ParseError.unexpectedToken(tokens[index].description)
+    }
   }
 
   /// Splits the argument list into values and the separators between them.
@@ -197,6 +264,7 @@ nonisolated enum CSSColorParser {
   /// thing that tells them apart is which side of `calc(`…`)` they fall on.
   private static func scanArguments(
     _ tokens: [CSSToken],
+    channels: ChannelBindings?,
   ) throws(ParseError) -> ([Value], [Separator]) {
     var values: [Value] = []
     var separators: [Separator] = []
@@ -213,7 +281,7 @@ nonisolated enum CSSColorParser {
       // Consumed whole, so `index` jumps past the closing paren rather than
       // advancing by one.
       if case let .function(name) = token, name == "calc" {
-        let (term, next) = try consumeCalc(tokens, openedAt: index)
+        let (term, next) = try consumeCalc(tokens, openedAt: index, channels: channels)
         try append(Value(term), &values, &separators, &pendingSeparator)
         index = next
         continue
@@ -251,7 +319,20 @@ nonisolated enum CSSColorParser {
         try append(.none, &values, &separators, &pendingSeparator)
 
       case let .ident(name):
-        throw ParseError.unexpectedToken(name)
+        // The single gate for every channel keyword. `channels` is nil outside a
+        // relative color function, so this stays the plain rejection it was —
+        // `rgb(r g b)` on its own is still a typo, not a color.
+        guard let value = channels?.value(for: name) else {
+          throw ParseError.unexpectedToken(name)
+        }
+        switch value {
+        case let .number(n):
+          try append(.number(n), &values, &separators, &pendingSeparator)
+        case .missing:
+          // Written bare, a missing channel stays missing. Inside a calc() the
+          // spec reads it as zero instead — see `CalcExpression.term`.
+          try append(.none, &values, &separators, &pendingSeparator)
+        }
 
       case let .function(name):
         throw ParseError.unexpectedToken(name)
@@ -287,12 +368,16 @@ nonisolated enum CSSColorParser {
   private static func consumeCalc(
     _ tokens: [CSSToken],
     openedAt: Int,
+    channels: ChannelBindings?,
   ) throws(ParseError) -> (term: CalcTerm, next: Int) {
     let bodyStart = openedAt + 1
     guard let close = tokens[bodyStart...].firstIndex(of: .closeParen) else {
       throw ParseError.calcUnterminated
     }
-    let term = try CalcExpression.evaluate(Array(tokens[bodyStart ..< close]))
+    let term = try CalcExpression.evaluate(
+      Array(tokens[bodyStart ..< close]),
+      channels: channels,
+    )
     return (term, close + 1)
   }
 
@@ -321,6 +406,7 @@ nonisolated enum CSSColorParser {
     space: ColorSpace,
     values: [Value],
     separators: [Separator],
+    isRelative: Bool,
   ) throws(ParseError) -> ParseResult {
     var warnings: [ParseWarning] = []
 
@@ -331,6 +417,12 @@ nonisolated enum CSSColorParser {
     }
 
     let isLegacy = hasComma
+    if isRelative, isLegacy {
+      // A hard error rather than a warning, unlike the other comma leniencies
+      // here. Those parse because the intent is unambiguous; this one the spec
+      // rules out outright — relative color syntax is modern-only.
+      throw ParseError.relativeSyntaxRequiresModernForm(function: function.rawValue)
+    }
     if isLegacy && !function.hasLegacyForm {
       // Unambiguous about intent, so parse it — but it is not valid CSS.
       warnings.append(.commasInModernFunction(function.rawValue))
@@ -416,7 +508,7 @@ nonisolated enum CSSColorParser {
     )
     return ParseResult(
       color: color,
-      notation: .function(function, legacy: isLegacy),
+      notation: isRelative ? .relative(function) : .function(function, legacy: isLegacy),
       warnings: warnings,
     )
   }

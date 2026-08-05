@@ -143,6 +143,8 @@ struct ColorInputField: View {
       legacy
         ? "\(function.rawValue)() · legacy comma syntax"
         : "\(function.rawValue)()"
+    case let .relative(function):
+      "\(function.rawValue)() · relative to an origin color"
     }
   }
 }

@@ -180,6 +180,36 @@ nonisolated extension ColorSpace {
     }
   }
 
+  /// The channel keywords CSS Color 5 relative color syntax exposes for this space,
+  /// in index order — the `r`, `g`, `b` of `rgb(from red r g b)`.
+  ///
+  /// Transcribed from the spec, and **never derived** — not from
+  /// ``componentLabels`` and not from ``componentRoles``. Both look like they would
+  /// work and both are wrong for different reasons:
+  ///
+  /// - `componentLabels` is display copy the UI layer owns and may reword freely.
+  ///   Today every label's first letter happens to be the right keyword, which makes
+  ///   the derivation tempting and the failure silent: rewording "Chroma" would make
+  ///   the parser accept `oklch(from red l o h)` and reject the spec's spelling.
+  ///   Syntax cannot hang off editorial copy.
+  /// - `componentRoles` genuinely disagrees. XYZ counts as a super-saturated RGB
+  ///   space there, so it shares `(.reds, .greens, .blues)` — but its keywords are
+  ///   `x`, `y`, `z`. A role-derived table would name them `r`, `g`, `b`.
+  ///
+  /// Keying on the *space* rather than the function is what makes one table enough:
+  /// `rgb()` and `color(srgb …)` both land on ``srgb`` and both spell it `r g b`.
+  var channelKeywords: (String, String, String) {
+    switch self {
+    case .srgb, .srgbLinear, .displayP3, .a98RGB, .proPhotoRGB, .rec2020:
+      ("r", "g", "b")
+    case .xyzD50, .xyzD65: ("x", "y", "z")
+    case .hsl: ("h", "s", "l")
+    case .hwb: ("h", "w", "b")
+    case .lab, .oklab: ("l", "a", "b")
+    case .lch, .oklch: ("l", "c", "h")
+    }
+  }
+
   /// Human-facing component labels, in order.
   var componentLabels: (String, String, String) {
     switch self {

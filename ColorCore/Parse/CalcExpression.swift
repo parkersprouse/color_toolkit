@@ -31,11 +31,18 @@ nonisolated enum CalcExpression {
 
   /// Evaluates the tokens of one `calc()` body — everything between the `calc(`
   /// that opened it and its closing `)`, neither included.
-  static func evaluate(_ body: [CSSToken]) throws(ParseError) -> CalcTerm {
+  ///
+  /// - Parameter channels: the origin color's channel keywords, when this `calc()`
+  ///   sits inside a relative color function. `nil` outside one, which is what
+  ///   keeps `rgb(calc(r * 2) 0 0)` an error rather than a silent zero.
+  static func evaluate(
+    _ body: [CSSToken],
+    channels: ChannelBindings? = nil,
+  ) throws(ParseError) -> CalcTerm {
     guard !body.isEmpty else { throw ParseError.calcEmpty }
 
     var index = 0
-    let result = try sum(body, &index)
+    let result = try sum(body, &index, channels)
     guard index == body.count else {
       // Two operands with no operator between them. The realistic way to get
       // here is `calc(1 -2)`, which CSS rejects for the same reason: without
@@ -50,14 +57,18 @@ nonisolated enum CalcExpression {
   // MARK: - Grammar
 
   /// `sum := product (('+' | '-') product)*`
-  private static func sum(_ body: [CSSToken], _ index: inout Int) throws(ParseError) -> CalcTerm {
-    var left = try product(body, &index)
+  private static func sum(
+    _ body: [CSSToken],
+    _ index: inout Int,
+    _ channels: ChannelBindings?,
+  ) throws(ParseError) -> CalcTerm {
+    var left = try product(body, &index, channels)
 
     while index < body.count, body[index] == .plus || body[index] == .minus {
       let adding = body[index] == .plus
       index += 1
       guard index < body.count else { throw ParseError.calcDanglingOperator }
-      let right = try product(body, &index)
+      let right = try product(body, &index, channels)
       left = try add(left, right, adding: adding)
     }
 
@@ -68,22 +79,27 @@ nonisolated enum CalcExpression {
   private static func product(
     _ body: [CSSToken],
     _ index: inout Int,
+    _ channels: ChannelBindings?,
   ) throws(ParseError) -> CalcTerm {
-    var left = try term(body, &index)
+    var left = try term(body, &index, channels)
 
     while index < body.count, body[index] == .asterisk || body[index] == .slash {
       let multiplying = body[index] == .asterisk
       index += 1
       guard index < body.count else { throw ParseError.calcDanglingOperator }
-      let right = try term(body, &index)
+      let right = try term(body, &index, channels)
       left = try multiplying ? multiply(left, right) : divide(left, by: right)
     }
 
     return left
   }
 
-  /// `term := number | percentage | dimension`
-  private static func term(_ body: [CSSToken], _ index: inout Int) throws(ParseError) -> CalcTerm {
+  /// `term := number | percentage | dimension | channel-keyword`
+  private static func term(
+    _ body: [CSSToken],
+    _ index: inout Int,
+    _ channels: ChannelBindings?,
+  ) throws(ParseError) -> CalcTerm {
     guard index < body.count else { throw ParseError.calcDanglingOperator }
     let token = body[index]
     index += 1
@@ -98,6 +114,22 @@ nonisolated enum CalcExpression {
         throw ParseError.calcUnsupportedSyntax("\(value)\(unit)")
       }
       return .angle(degrees)
+    case let .ident(name):
+      // A channel keyword, and only inside a relative color function — `channels`
+      // is nil everywhere else, so the throw below still catches `calc(r * 2)`
+      // written outside one.
+      guard let value = channels?.value(for: name) else {
+        throw ParseError.calcUnsupportedSyntax(name)
+      }
+      switch value {
+      case let .number(n):
+        return .number(n)
+      case .missing:
+        // The spec's rule, and it is *not* the same as the bare-keyword rule
+        // one level up: written on its own a missing channel stays missing,
+        // but arithmetic on `none` reads it as zero.
+        return .number(0)
+      }
     default:
       throw ParseError.calcUnsupportedSyntax(token.description)
     }

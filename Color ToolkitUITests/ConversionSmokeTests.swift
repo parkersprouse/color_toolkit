@@ -106,6 +106,28 @@ final class ConversionSmokeTests: XCTestCase {
     )
   }
 
+  /// M14, same reasoning as the calc() case above: core-only in code, but a user
+  /// reaches it by typing, so the running app is where the whole path gets checked.
+  ///
+  /// `oklch(from #3b82f6 calc(l * 0.5) c h)` is the expression PLAN.md said the
+  /// milestone's value lives in — halve a color's lightness while holding its chroma
+  /// and hue. The panel's own oklch() row is the readout, and the untouched
+  /// components are what prove the origin was converted rather than re-derived:
+  /// the chroma and hue match `#3b82f6`'s to the digit.
+  func testRelativeColorReachesThePanel() {
+    let field = app.textFields["colorInput"]
+    XCTAssertTrue(field.waitForExistence(timeout: 30))
+
+    field.click()
+    field.typeKey("a", modifierFlags: .command)
+    field.typeText("oklch(from #3b82f6 calc(l * 0.5) c h)")
+
+    XCTAssertTrue(
+      row("oklch()", "oklch(0.3115 0.188 259.81)").waitForExistence(timeout: 15),
+      "A relative color never reached the panel",
+    )
+  }
+
   // MARK: Private
 
   private var app: XCUIApplication!

@@ -31,6 +31,9 @@ nonisolated enum ParseError: Error, Equatable, Sendable {
   case calcTypeMismatch
   case calcDivisionByZero
   case calcUnsupportedSyntax(String)
+  case missingOriginColor
+  case unterminatedFunction(String)
+  case relativeSyntaxRequiresModernForm(function: String)
 
   // MARK: Internal
 
@@ -93,6 +96,12 @@ nonisolated enum ParseError: Error, Equatable, Sendable {
     case let .calcUnsupportedSyntax(what):
       "calc() here supports + − × ÷ over numbers, percentages and angles, "
         + "without nesting — “\(what)” is outside that."
+    case .missingOriginColor:
+      "“from” needs a color after it."
+    case let .unterminatedFunction(name):
+      "\(name)() is missing its closing “)”."
+    case let .relativeSyntaxRequiresModernForm(fn):
+      "\(fn)(from …) cannot use commas — relative color syntax is modern-syntax only."
     }
   }
 }
