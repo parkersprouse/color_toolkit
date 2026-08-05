@@ -331,6 +331,39 @@ struct DesignTokenImportTests {
     #expect(document.colors.isEmpty)
   }
 
+  // MARK: - A whole file
+
+  /// **Every rule above, in one document, because they interact.**
+  ///
+  /// The tests either side of this each isolate a rule, which is what makes them
+  /// diagnostic and also what makes them miss a file where an alias sits beside a
+  /// dimension token beside two color spaces — the ordinary shape of a real token file.
+  /// The three counts are asserted together because they are what the panel reports back,
+  /// and a summary that says "imported 4, ignored 1" is only true if all three are.
+  @Test("A realistic file imports as a whole")
+  func awholeFileImports() throws {
+    let document = try Self.decode(#"""
+    { "brand": { "$type": "color",
+        "50":  { "$value": { "colorSpace": "srgb", "components": [0.93, 0.96, 1] } },
+        "500": { "$description": "The one on the buttons",
+                 "$value": { "colorSpace": "srgb", "components": [0.23, 0.51, 0.96] } },
+        "900": { "$value": { "colorSpace": "display-p3", "components": [0.05, 0.12, 0.42] } } },
+      "semantic": { "primary": { "$value": "{brand.500}" } },
+      "space": { "$type": "dimension", "sm": { "$value": "4px" } } }
+    """#)
+
+    #expect(document.colors.map(\.key) == ["brand-50", "brand-500", "brand-900", "semantic-primary"])
+    #expect(document.otherTypeCount == 1)
+    #expect(document.skipped.isEmpty)
+
+    // The alias took both the value *and* the type of what it points at.
+    let primary = try #require(document.colors.last)
+    #expect(primary.color == ColorValue(space: .srgb, 0.23, 0.51, 0.96))
+    // Spaces are per token, not per file.
+    #expect(document.colors.map(\.color.space) == [.srgb, .srgb, .displayP3, .srgb])
+    #expect(document.colors[1].description == "The one on the buttons")
+  }
+
   // MARK: - Keys and order
 
   /// **Paths are unique; the keys they sanitize to are not.**
