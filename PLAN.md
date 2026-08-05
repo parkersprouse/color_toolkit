@@ -1448,7 +1448,13 @@ equal rather than spot-checked.
 for the colorjs.io cross-check of the fallback's gamut mapping, which discriminates against
 a naive clip rather than merely agreeing.*
 
-### M17 — W3C Design Tokens import
+### ✅ M17 — W3C Design Tokens import
+
+> **The four paragraphs below were written before the work, and two of their claims did not
+> survive it.** They are kept rather than rewritten, because what a plan got wrong is worth
+> as much as what it got right — but read them with the corrections, which are flagged in
+> place and argued under **Done** at the end of this section. The `fullScale` instruction is
+> the one that would actively mislead: following it rejects legal tokens.
 
 Depended on M12, which is done: DTCG `components` accept `"none"`, and a decoded token now
 has somewhere honest to put one.
@@ -1460,15 +1466,21 @@ component-based construction. But the payoff is large: the **14 `colorSpace` ide
 are byte-identical to `ColorSpace`'s raw values**, because both follow CSS Color 4 naming —
 the same reason `ColorRecord.spaceID` stores CSS names rather than enum ordering. There is
 no mapping table to write; `ColorSpace(rawValue:)` is the decoder, and an unknown space is
-skipped exactly as `ColorRecord.colorValue` already skips one. Component ranges are
+skipped exactly as `ColorRecord.colorValue` already skips one. ~~Component ranges are
 per-space, so reuse `ColorGrammar.components(for:)`'s `fullScale` rather than writing a
-second table. `hex` is a fallback, not the value.
+second table.~~ — **wrong, and the correction is the interesting part: the mapping needs no
+range table and no arithmetic at all.** `fullScale` is a precision hint, not a bound, and
+the Color Module leaves both chromas and both a/b pairs unbounded, so validating against it
+rejects legal tokens. See **Done** below. `hex` is a fallback, not the value.
 
 The sandbox already permits it — `ENABLE_USER_SELECTED_FILES = readonly` is set, so
 `fileImporter` needs no project change. This would be the app's first file-reading
-affordance of any kind. Note that `ColorStore.stage(_:named:)` flips `tool = .export` while
-an import should land in **Projects**, so it needs a sibling path rather than a changed one
-(`stagingCarriesTheName` pins the existing behavior). And record the honest limitation:
+affordance of any kind, and still is the only one. ~~Note that `ColorStore.stage(_:named:)`
+flips `tool = .export` while an import should land in **Projects**, so it needs a sibling
+path rather than a changed one~~ — **the second claim that did not survive: no sibling was
+needed and `ColorStore` was not touched at all.** An import lands as a `Palette`, and the
+Export button already on `paletteRow` stages it — so `stagingCarriesTheName` pins behavior
+that never had to change. And record the honest limitation:
 `ExportOptions.cssIdentifier` is lossy, so a name that leaves through export does not
 return through import unchanged.
 
