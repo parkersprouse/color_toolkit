@@ -6,14 +6,15 @@ A native macOS color toolkit for web development. Built: CSS Color 4 parsing and
 conversion across 14 spaces, a menu bar panel, a screen eyedropper with a global
 shortcut, WCAG 2.2 / APCA contrast checking, a gamut-aware HSV/OKLCH picker, OKLCH
 transforms — adjustment, harmonies, shade ramps and a contrast solver — export to CSS
-declarations, custom properties, JSON and both Tailwind generations, and saved projects
+declarations, custom properties, JSON, both Tailwind generations and a
+`@media (color-gamut: p3)` block with a hex fallback, and saved projects
 on SwiftData with reordering and hand-picked palettes, CSS Color 4 §13.2's
 missing-component carry-forward, a scoped `calc()`, CSS Color 5 relative color syntax
 (`rgb(from …)`), and `color-mix()` with premultiplied alpha and the four hue arcs.
-M0–M15 are built. **M16–M18 are planned and not started** — a `@media (color-gamut)`
-export shape, design-token import, and a CLI over `ColorCore`. M12 was the spine and M13
-was M14's only blocker, so the plan has no dependency chains left: all three remaining
-milestones are independent and can be taken in any order. Swift 6, SwiftUI, no
+M0–M16 are built. **M17 and M18 are planned and not started** — design-token import and
+a CLI over `ColorCore`. M12 was the spine and M13
+was M14's only blocker, so the plan has no dependency chains left: both remaining
+milestones are independent and can be taken in either order. Swift 6, SwiftUI, no
 third-party runtime dependencies.
 
 **[PLAN.md](PLAN.md) is the source of truth** for milestone status, what is deferred
@@ -29,8 +30,8 @@ Build:
 xcodebuild -project "Color Toolkit.xcodeproj" -scheme "Color Toolkit" -destination 'platform=macOS' build
 ```
 
-Full test suite (~9 minutes, nearly all of it UI tests — the 364 Swift Testing functions
-finish in under a second, the 28 XCUITests take seven minutes and up):
+Full test suite (~9 minutes, nearly all of it UI tests — the 372 Swift Testing functions
+finish in under a second, the 29 XCUITests take seven minutes and up):
 
 ```bash
 xcodebuild -project "Color Toolkit.xcodeproj" -scheme "Color Toolkit" -destination 'platform=macOS' test
@@ -434,7 +435,30 @@ Layered so the numeric core stays independently testable and UI-free:
   document (`:root {}`, JSON, a Tailwind config). Exactly one shape consumes a template,
   which is why `usesTemplate` and `usesName` are complements — a bare declaration has
   nowhere to put a family name. Merging them produces `background-color:` eleven times
-  and calls it a stylesheet.
+  and calls it a stylesheet. `usesFormat` is the third such flag and the only one that
+  hides a control which would be *harmful* rather than merely inert — see the P3 shape
+  below.
+- **`p3WithFallback` fixes both its formats, and the fallback must stay hex.** It writes
+  two blocks where `ExportOptions.format` is one value, so the panel hides the Format
+  picker (`usesFormat == false`). Making it live again — or pointing the fallback at
+  `options.format` — puts the panel's default `oklch()`, which is unbounded, into the
+  block a browser reaches precisely when it *cannot* do wide gamut. Hex is also the only
+  choice that `cannotRepresentOutOfGamut`, so the fallback provably falls back. Both
+  blocks are built by one `propertyLines` call so they cannot come to name different
+  properties: an override that misses its base is a `@media` block with no effect and
+  looks perfectly fine. And **the override is emitted for every entry, in gamut or not** —
+  a per-entry conditional would make the block's contents depend on the palette's
+  contents, so widening one color would silently change which properties exist. Four
+  mutations pin all of this.
+- **The export badge counts against `ExportOptions.mappedCountFormat`, not `format`.**
+  Same one-predicate rule as everywhere else, but a shape writing two spellings needs to
+  say *which* one the count is about. For `p3WithFallback` it is the **fallback**: count
+  against the P3 block instead and a color outside sRGB reports `0 mapped` while the hex
+  line right under the badge has been rounded. The sentence changes with it —
+  `ExportShape.mappedNote` is per shape because the generic "the values below were
+  brought into gamut" is false of the media block, which carries those colors exactly.
+  The count and the copy are one decision; do not change either alone. Known limitation:
+  a color outside *P3* is mapped in both blocks and the badge does not distinguish it.
 - **Palette keys are syntax, not labels.** They become CSS identifiers *and* JavaScript
   object keys, and Tailwind writes shade keys bare — legal for `50:`, fatal for
   `triad-2:`, which parses as a subtraction and stops the config loading. They must also

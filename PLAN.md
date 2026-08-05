@@ -1,7 +1,7 @@
 # Color Toolkit — Implementation Plan
 
-> **Status (2026-08-05): M0–M15 and M5b (CVD) complete, and M15 has now been compiled
-> and run.** The suite is **364 Swift Testing functions across 44 suites plus 28
+> **Status (2026-08-05): M0–M16 and M5b (CVD) complete.** The suite is **372 Swift
+> Testing functions across 45 suites plus 29
 > XCUITests**, read off a run rather than counted by hand. ColorCore is validated against
 > **colorjs.io 0.7.0** (pinned exact) — 6,384 conversions, 1,368 gamut mappings, 108
 > contrast pairs and **1,760 mix vectors** — plus independent definitional anchors, and
@@ -39,6 +39,16 @@
 > reachable from no panel. M13 and M14 are core-only in code but a user reaches both by
 > typing, so each is driven against the running app by an XCUITest rather than eyeballed.
 >
+> **M16 shipped with a decision the milestone note had not anticipated.** The plan
+> specified the shape and the `usesFormat` flag correctly, and both went in as written.
+> What it did not see is that the *badge* has to be decided with its own sentence: neither
+> candidate reading is true as worded. Counting against the P3 block reports `0 mapped` for
+> a color outside sRGB while the hex line directly beneath the badge has been rounded;
+> counting against hex is right, but the existing copy — "the values below were brought
+> into gamut" — is false of the media block, which carries those same colors exactly. So
+> `mappedCountFormat` names the fallback, keeping one predicate, and the warning became per
+> shape. Four mutations, all four killed.
+>
 > **M10–M18 take up what the deferred list had been holding**: three CSS syntaxes the
 > parser used to reject, the missing-component semantics all three rest on, a
 > `@media (color-gamut)` export shape, design-token import, and a CLI over `ColorCore`.
@@ -49,9 +59,10 @@
 > spine, is done**: `ComponentRole` and carry-forward exist, so every "depends on M12" is
 > discharged — M14 was the first milestone to consume it, which is what turned that claim
 > into a tested one, and M15 is the one it was written for. **M13 and M14 closed the
-> plan's last dependency chain**, and M15 waited on nothing. **M16, M17 and M18 remain,
-> and all three are independent**, so they can be taken in any order. What remains beyond
-> that is **M8b** (saving an export to a file) and the shorter deferred list at the end.
+> plan's last dependency chain**, and M15 waited on nothing. **M16 is done; M17 and M18
+> remain, and both are independent**, so they can be taken in either order. What remains
+> beyond that is **M8b** (saving an export to a file) and the shorter deferred list at the
+> end.
 >
 > **M12 is the first milestone with no oracle *and* nothing to look at**, so its standard
 > of proof is the spec's own worked examples plus five mutations. Two of its findings are
@@ -1347,19 +1358,45 @@ back into the field.
 
 ### M16 — `@media (color-gamut)` export shape
 
-One `ExportShape` case and one private generator at `ExportOptions.render`: a hex fallback
-block, then `@media (color-gamut: p3)` re-declaring the same properties in
-`color(display-p3 …)`.
+One `ExportShape` case, `p3WithFallback`, and one private generator at
+`ExportOptions.render`: a hex fallback block, then `@media (color-gamut: p3)` re-declaring
+the same properties in `color(display-p3 …)`.
 
 **The shape needs two spellings where `ExportOptions.format` is one value.** Leaving the
 panel's format picker live would let a user choose `.oklch` — the default, and unbounded —
 filling the "fallback" block with out-of-sRGB values and defeating the point. So
 `usesFormat` joins `usesTemplate` and `usesName` as a shape-capability flag and returns
-`false` here. The fallback is hex on principle rather than laziness: that block's job is to
-be what a browser without P3 support gets, and hex is the most broadly compatible spelling
-there is. The override is emitted for every entry, including colors already inside sRGB —
-a per-entry conditional would make the media block's contents depend on the palette's
-contents, so editing one color would silently change which properties exist.
+`false` here. It is the first of the three that exists to stop a control being *harmful*
+rather than merely inert, which is why the panel hides it rather than disabling it. The
+fallback is hex on principle rather than laziness: that block's job is to be what a browser
+without P3 support gets, hex is the most broadly compatible spelling there is, and it is
+the only choice that `cannotRepresentOutOfGamut` — so the fallback provably falls back. The
+override is emitted for every entry, including colors already inside sRGB — a per-entry
+conditional would make the media block's contents depend on the palette's contents, so
+editing one color would silently change which properties exist.
+
+**What the plan did not anticipate: the mapped badge and its sentence have to be decided
+together, because neither reading is true as worded.** The invariant is that one predicate
+decides both the badge and the serialized string, and a shape writing two spellings is the
+first thing to strain it. Measure against the P3 block and a color outside sRGB reports
+`0 mapped` while the hex line directly beneath the badge has been rounded — the badge
+silent about a value that changed. Measure against hex and the count is right, but the
+existing copy is not: *"the values below were brought into gamut"* is true of the fallback
+and false of the media block underneath it, which carries those same colors exactly. That
+is the whole reason the shape exists, so a warning that did not say so would read as a
+defect. The resolution is `ExportOptions.mappedCountFormat` — `format` for every
+single-spelling shape, the **fallback** for this one — plus a per-shape `mappedNote` in the
+UI layer, where editorial copy belongs. One predicate still, no second rule.
+
+**The residual is recorded rather than answered:** a color outside *P3* is gamut-mapped in
+both blocks and the badge does not distinguish it. A two-count badge is a different feature
+from the one this milestone asked for, and this is the same accepted-limitation move as
+`cssIdentifier` being lossy and ramp stops rounding outward at display precision.
+
+`propertyLines` is shared with `customProperties` so the two blocks cannot come to name
+different properties. An override that misses its base is a `@media` block with no effect,
+and nothing about the document looks wrong — which is why the two name *lists* are asserted
+equal rather than spot-checked.
 
 ### M17 — W3C Design Tokens import
 
@@ -1420,6 +1457,7 @@ Per milestone:
 - **M13:** [CalcTests](Color%20ToolkitTests/CalcTests.swift), hand-written throughout because there is no oracle — colorjs.io rejects `rgb(calc(10 + 20) 0 0)` outright with "Expected 3 coordinates … got 5", so `parse-vectors.json` is untouched. The arithmetic is checkable by inspection; what is not obvious from reading the code is pinned by five mutations, each failing only what it should. Stripping precedence fails one test, dropping the `±` type check one, ignoring leftover tokens two, and hoisting the tokenizer's operator rules above the number scanner fails the *curated fixture* — `rgb(+128 0 0)` — plus the numeric-edge-forms test. The fifth is the discriminating one: letting a calc body's slash escape to separator logic fails every test whose input contains a slash and **no test without one**, which is the sharpest available statement that consuming the body as a unit is what resolves the ambiguity. A first, blunter version of that mutation (not consuming the body at all) failed fifteen tests and proved nothing except that the feature was off. A sixth mutation covers the seam the other five do not touch: dropping `min` from `UnsupportedFunctions.names` makes `rgb(calc(min(1, 2) * 2) 0 0)` come back `calcUnsupportedSyntax("min(")` instead of naming the function, which is the observable proof that the pre-tokenize check still runs *before* calc consumption. `firstCalled` scans its own list rather than the input, so the case is checked with a first-listed name (`var`) and a later one (`min`) both.
 - **M14:** [RelativeColorTests](Color%20ToolkitTests/RelativeColorTests.swift), hand-written for a *third* distinct no-oracle reason — colorjs.io 0.7.0 has no relative color syntax at all, so every form comes back "Expected 3 coordinates … got 4". (M13's reason was that it rejects `calc()`; M12's was that it resolves `none` on conversion and so cannot be asked the question.) The conversions underneath are oracle-validated already and are deliberately not re-tested. **Eight mutations, and the most useful one passed.** Seven failed exactly what they should — deriving the keyword table from roles, ignoring `numberScale`, dropping carry-forward, collapsing either half of the `none` rule, allowing legacy commas, and removing the alpha clamp. The eighth, replacing the origin's depth counting with "first close paren wins", **passed the entire suite**, which is the finding worth carrying: *a mutation that survives means the test set is incomplete, not that the rule is safe.* The obvious nesting cases do not discriminate — in `rgb(from color(display-p3 1 0 0) r g b)` the first `)` already is the right one, and `rgb(from rgb(from red r g b) r g b)` is still one level deep because `from red` opens nothing. Depth counting only earns its keep when the origin's function contains another function, so a case was added for the cheapest one, a `calc()` inside the origin, and the mutation now fails with `wrongComponentCount(got: 1)`. Two assertions are deliberately loose and say so in place: white's OKLab lightness is `1.0000000000000002` and an sRGB → OKLCh → sRGB round trip returns red as the same, so both claims are checked by discrimination — the competing readings are off by ~100× and ~1 — rather than by an equality the conversion never promised.
 - **M15:** [ColorMixTests](Color%20ToolkitTests/ColorMixTests.swift), split on what each half can be held to. The **numbers** are generated — 1,760 vectors over fifteen color pairs, all fourteen interpolation spaces, four hue arcs and five positions along each mix — with the two oracle corrections above baked into the generator. The **grammar and the percentage rules** are hand-written, because colorjs.io can compute a mix and cannot parse one, which is the fourth distinct no-oracle reason this plan has recorded. Three assertions carry more than their length suggests: `null` in a recorded component is checked against our *missing mask* rather than against a number, which is a claim about §12.2's substitution rather than about arithmetic; the hue-arc test runs the same pair in both directions, because for any pair the four methods only ever produce two answers and it is *which method gets which* that proves direction is honoured rather than length; and the premultiplication case is stated as the wrong answer it discriminates against, `rgb(50% 0% 50%)` versus `rgb(33.3% 0% 66.7%)`. The tolerance is 1e-8 rather than the conversions' 1e-9, and says why in place: un-premultiplying divides by an interpolated alpha as low as 0.1, multiplying any upstream difference by up to ten. **Eleven mutations, all eleven killed, two of them only after three tests were added** — the survey found a shipped bug in the premultiplication guard plus two exemptions nothing was holding, and the milestone note above records all three. The failure sets are tight: the alpha shortfall is owned by two tests, the powerless marking by three, carry-forward by one, the hue's premultiplication exemption by the recorded vectors alone, and gamut-mapping the result by four — including `The ends of the mix are the colors themselves`, which is the cheapest possible statement that a mix returns its endpoints untouched.
+- **M16:** the same oracle M8 has — this app's own parser — applied to *both* blocks at once, since `propertyValues(in:)` already trims before matching `--…;` and so returns the media block's lines unchanged. The discriminating input is a color **outside sRGB and inside P3**: asserting only that every value parses would pass a document that wrote the same rounded hex twice, so the test requires the fallback to come back inside sRGB *and* the override to come back as the color that went in. The syntax — the braces, the query, the blank line between blocks — is pinned with an exact string, while the P3 *values* in it are computed from the serializer rather than transcribed, because those conversions are oracle-validated in the fixture suite and re-typing them would only test whether they were copied correctly. **Four mutations, all four killed, and each failure set is tight**: a per-entry conditional media block fails four tests, a fallback honoring `options.format` fails three, desynchronized property names fail three, and the badge measured against the P3 block instead of the fallback fails exactly one — the store test written for that decision. One existing test had to change and the reason is worth keeping: `formattingReachesEveryShape` is parameterized over `allCases` and asserts a precision-sensitive string, so it now asks each shape for the format it *actually writes* — and for this shape that has to be the **wide** one, because **hex is precision-invariant**. Pointing it at the fallback would have left the test unable to fail, and its own `lossless != coarse` blindness guard could not have caught that, since the guard is computed from whatever format the test picks.
 - **M3/M4 (UI):** run the app and verify interactively. Spot-check conversions against a browser's DevTools color picker, which implements the same spec — a fast, honest end-to-end sanity check.
 
 The scheme is shared and works from the command line:
@@ -1540,6 +1578,10 @@ What remains genuinely deferred:
   these are two more parsers with materially different shapes, worth adding only if a real
   file arrives that needs one.
 - **Display-gamut detection** (`NSScreen.colorSpace`) driving the "mapped" badge. A
-  different feature from M16 that happened to share its name.
+  different feature from M16 — which is now built — that happened to share its name.
+- **A mapped count that separates the P3 shape's two blocks.** M16 counts what its
+  *fallback* moved, so a color outside P3 is mapped in both blocks with nothing saying
+  which. Answering it properly means two counts and a badge that can show them, which is
+  a UI decision rather than a missing line.
 
 *Note for later:* the APCA algorithm has carried usage/attribution terms. Irrelevant for personal use, but worth checking before ever distributing the app publicly.
