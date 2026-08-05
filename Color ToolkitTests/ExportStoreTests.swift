@@ -129,6 +129,29 @@ struct ExportSourceTests {
     store.exportOptions.format = .oklch
     #expect(store.exportGamutMappedCount == 0)
   }
+
+  /// The shape that writes two spellings counts against the **fallback**, and the badge
+  /// would lie either way round if it did not.
+  ///
+  /// Measured against the P3 block, this color — outside sRGB, inside Display P3 — would
+  /// report `0 mapped` while the hex line directly under the badge had been rounded. The
+  /// selection is left at `oklch()`, unbounded and equally silent, which is what makes
+  /// this a test of `mappedCountFormat` rather than of the format picker: reading
+  /// `exportOptions.format` here gives 0.
+  @Test("The P3 shape counts what its fallback moved, not what its selection would")
+  func mappedCountFollowsTheShapesFallback() {
+    let store = ColorStore(initialInput: "color(display-p3 0 1 0)")
+    store.exportSource = .color
+    store.exportOptions.format = .oklch
+
+    #expect(store.exportGamutMappedCount == 0, "oklch() is unbounded; nothing is mapped")
+
+    store.exportOptions.shape = .p3WithFallback
+    #expect(store.exportGamutMappedCount == 1)
+    #expect(store.exportOptions.mappedCountFormat == ExportOptions.fallbackFormat)
+    // …and the selection really is still the one that reports nothing.
+    #expect(store.exportOptions.format == .oklch)
+  }
 }
 
 /// The seam M8 deferred: a palette saved in a project, exported.
@@ -245,6 +268,35 @@ struct ExportPresentationTests {
   @Test("Template and name apply to opposite shapes", arguments: ExportShape.allCases)
   func templateAndNameAreComplementary(shape: ExportShape) {
     #expect(shape.usesTemplate != shape.usesName)
+  }
+
+  /// The mapped warning is per shape now, because the generic sentence is false of the
+  /// one that writes two blocks: "the values below were brought into gamut" is true of
+  /// its fallback and wrong about the `@media` block underneath, which carries those
+  /// colors exactly. A shape with no sentence would show a bare badge and no reason.
+  @Test("Every shape can explain a mapped count", arguments: ExportShape.allCases)
+  func mappedNotesAreWritten(shape: ExportShape) {
+    for count in [1, 4] {
+      let note = shape.mappedNote(count: count, format: .hex)
+      #expect(!note.isEmpty)
+      // Singular and plural are written out rather than suffixed with "(s)", so the two
+      // must actually differ — a shape wording only one of them reads as a bug.
+      #expect(note != shape.mappedNote(count: count == 1 ? 4 : 1, format: .hex))
+    }
+  }
+
+  /// The P3 shape says which block moved the colors and which one did not, and names
+  /// neither the user's format selection (which it ignores) nor a gamut it does not
+  /// write.
+  @Test("The P3 warning names both blocks")
+  func p3MappedNoteNamesTheBlocks() {
+    let note = ExportShape.p3WithFallback.mappedNote(
+      count: 2,
+      format: ExportOptions.fallbackFormat,
+    )
+    #expect(note.contains("fallback"))
+    #expect(note.contains("@media"))
+    #expect(!note.contains("brought into gamut"), "The generic sentence leaked through")
   }
 
   /// Source titles share a segmented control, and its empty-state copy has to be true of

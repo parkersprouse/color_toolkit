@@ -69,15 +69,23 @@ struct ExportRoundTripTests {
   /// exactly that: a single color is a bare string and a scale is a nested object, which
   /// are two separate render paths. A single-entry-only version of this test passed
   /// against a deliberately broken multi-entry branch, which is how that came to light.
+  ///
+  /// **The format asserted is the one the shape actually writes, not the one set.**
+  /// `p3WithFallback` ignores `format` and fixes its own two, so the claim has to be made
+  /// against one of those — and it has to be the wide one, because **hex is
+  /// precision-invariant**. Reading the fallback block would leave this test unable to
+  /// fail, and the `lossless != coarse` guard below could not catch that, since the guard
+  /// is computed from whatever is chosen here.
   @Test("Every shape honors the formatting it is handed", arguments: ExportShape.allCases)
   func formattingReachesEveryShape(shape: ExportShape) {
     var options = ExportOptions.default
     options.shape = shape
     options.format = .oklch
 
+    let written = shape.usesFormat ? options.format : ExportOptions.wideFormat
     let coarseOptions = CSSFormatOptions(precision: 2)
-    let lossless = Self.base.cssStringOrHex(as: .oklch, options: .lossless)
-    let coarse = Self.base.cssStringOrHex(as: .oklch, options: coarseOptions)
+    let lossless = Self.base.cssStringOrHex(as: written, options: .lossless)
+    let coarse = Self.base.cssStringOrHex(as: written, options: coarseOptions)
     #expect(lossless != coarse, "The two precisions produce the same string; test is blind")
 
     let cardinalities: [(String, [PaletteEntry])] = [
@@ -100,10 +108,12 @@ struct ExportRoundTripTests {
     }
   }
 
-  // MARK: Private
-
   /// Extracts the value from every `--name: value;` line.
-  private static func propertyValues(in document: String) -> [String] {
+  ///
+  /// Not private: ``ExportShapeTests`` reuses it to pull *both* of `p3WithFallback`'s
+  /// blocks out at once, which works unchanged because the media block's lines are the
+  /// same declarations one indent deeper and this trims before matching.
+  static func propertyValues(in document: String) -> [String] {
     document.split(separator: "\n").compactMap { line in
       let trimmed = line.trimmingCharacters(in: .whitespaces)
       guard trimmed.hasPrefix("--"), trimmed.hasSuffix(";"),
@@ -257,6 +267,161 @@ struct ExportShapeTests {
     let rendered = options.render(Self.palette)
     #expect(!rendered.contains("components"))
     #expect(!rendered.contains("missing"))
+  }
+
+  // MARK: - P3 with fallback
+
+  /// The whole document, pinned exactly — the braces, the query, and the blank line
+  /// between the two blocks are the syntax, which is what an exact string is for here.
+  ///
+  /// The P3 *values* are computed from the app's own serializer rather than transcribed.
+  /// Those conversions are oracle-validated in the fixture suite and re-typing them here
+  /// would only test whether the numbers were copied correctly.
+  @Test("The fallback comes first, then the same properties behind the query")
+  func p3WithFallbackBlockStructure() {
+    var options = ExportOptions.default
+    options.shape = .p3WithFallback
+
+    let blue = Self.blue.cssStringOrHex(as: ExportOptions.wideFormat)
+    let red = Self.red.cssStringOrHex(as: ExportOptions.wideFormat)
+
+    #expect(options.render(Self.palette) == """
+    :root {
+      --brand-500: #3b82f6;
+      --brand-600: #ef4444;
+    }
+
+    @media (color-gamut: p3) {
+      :root {
+        --brand-500: \(blue);
+        --brand-600: \(red);
+      }
+    }
+    """)
+  }
+
+  /// The claim `usesFormat == false` buys.
+  ///
+  /// A live Format picker here would let somebody choose the panel's default, `oklch()`,
+  /// which is unbounded — and fill the block a browser reaches *when it cannot do wide
+  /// gamut* with out-of-sRGB values, defeating the shape entirely. Setting `format` to
+  /// anything at all must not move a character.
+  ///
+  /// Mutation: make the fallback honour `options.format`, and this fails.
+  @Test(
+    "The fallback is hex whatever the format says",
+    arguments: [CSSOutputFormat.oklch, .rgb, .lab, .color(.rec2020)],
+  )
+  func p3FallbackIgnoresTheChosenFormat(format: CSSOutputFormat) {
+    var options = ExportOptions.default
+    options.shape = .p3WithFallback
+    options.format = format
+
+    var hexOnly = options
+    hexOnly.format = .hex
+
+    let rendered = options.render(Self.palette)
+    #expect(rendered == hexOnly.render(Self.palette), "\(format) reached the document")
+    #expect(rendered.contains("--brand-500: #3b82f6;"))
+    #expect(!rendered.contains("oklch("), "The fallback is not hex:\n\(rendered)")
+  }
+
+  /// **Every entry gets an override, including colors already inside sRGB.**
+  ///
+  /// The per-entry conditional is the obvious saving and it is what this test forbids:
+  /// with one, the media block's contents would depend on the palette's contents, so
+  /// widening a single color would silently change *which properties exist* in the
+  /// document. This palette is entirely inside sRGB — the case where a conditional
+  /// emits nothing at all — so it discriminates on the first entry rather than needing a
+  /// mixed palette to reveal a gap.
+  ///
+  /// Mutation: skip entries that are `inGamut(of: .srgb)`, and this fails.
+  @Test("Every color is overridden, in gamut or not")
+  func p3OverrideCoversEveryEntry() {
+    var options = ExportOptions.default
+    options.shape = .p3WithFallback
+
+    // Both on the 8-bit grid and unambiguously inside sRGB.
+    #expect(Self.blue.inGamut(of: .srgb))
+    #expect(Self.red.inGamut(of: .srgb))
+
+    let rendered = options.render(Self.palette)
+    guard let media = rendered.range(of: "@media (color-gamut: p3) {") else {
+      Issue.record("No media block at all:\n\(rendered)")
+      return
+    }
+    let overrides = rendered[media.upperBound...]
+    #expect(overrides.contains("--brand-500:"), "An in-gamut color lost its override")
+    #expect(overrides.contains("--brand-600:"), "An in-gamut color lost its override")
+  }
+
+  /// An override that misses its base is a `@media` block with no effect, and nothing
+  /// about the document looks wrong — which is why the two property *name* lists are
+  /// asserted equal rather than spot-checked.
+  ///
+  /// Mutation: give either block its own naming (a prefix, a different fallback), and
+  /// this fails.
+  @Test("Both blocks name exactly the same properties, in the same order")
+  func p3BlocksNameTheSameProperties() {
+    var options = ExportOptions.default
+    options.shape = .p3WithFallback
+    options.name = "My Brand!"
+
+    let rendered = options.render(Self.palette)
+    let halves = rendered.components(separatedBy: "@media (color-gamut: p3) {")
+    #expect(halves.count == 2, "Expected exactly one media block:\n\(rendered)")
+    guard halves.count == 2 else { return }
+
+    let names = { (block: String) in
+      block.split(separator: "\n").compactMap { line -> String? in
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard trimmed.hasPrefix("--"), let colon = trimmed.firstIndex(of: ":") else {
+          return nil
+        }
+        return String(trimmed[..<colon])
+      }
+    }
+
+    #expect(names(halves[0]) == ["--My-Brand-500", "--My-Brand-600"])
+    #expect(names(halves[1]) == names(halves[0]))
+  }
+
+  /// The round trip, which is this layer's oracle — applied to *both* blocks at once.
+  ///
+  /// A wide color is the interesting input: the fallback must come back inside sRGB
+  /// (hex has no other option) and the override must come back as the color that went
+  /// in. Asserting only that every value parses would pass a document that wrote the
+  /// same rounded hex twice.
+  @Test("Both blocks parse, and only the fallback was moved")
+  func p3BlockValuesSurviveTheParser() throws {
+    var options = ExportOptions.default
+    options.shape = .p3WithFallback
+
+    // Outside sRGB, inside Display P3 — the case the shape exists for.
+    let wide = ColorValue(space: .displayP3, 0.0, 1.0, 0.0)
+    #expect(!wide.inGamut(of: .srgb))
+
+    let rendered = options.render([PaletteEntry(color: wide)], formatting: .lossless)
+    let values = ExportRoundTripTests.propertyValues(in: rendered)
+    #expect(values.count == 2, "Expected one value per block:\n\(rendered)")
+
+    let parsed = try values.map { value in
+      try #require(
+        try CSSColorParser.parse(value).color,
+        "Exported \(value), which this app's own parser rejects",
+      )
+    }
+    #expect(parsed.count == 2)
+    guard parsed.count == 2 else { return }
+
+    #expect(parsed[0].inGamut(of: .srgb), "The hex fallback is out of sRGB")
+    let returned = parsed[1].converted(to: .displayP3).components
+    for index in 0 ..< 3 {
+      #expect(
+        abs(wide.components[index] - returned[index]) < 1e-7,
+        "The override moved \(wide.components) to \(returned)",
+      )
+    }
   }
 
   @Test("An empty palette renders nothing at all")

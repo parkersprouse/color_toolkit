@@ -23,6 +23,9 @@ nonisolated enum ExportShape: String, CaseIterable, Sendable, Hashable, Identifi
   case tailwindTheme = "tailwind-theme"
   /// Tailwind v3's JavaScript `tailwind.config.js`.
   case tailwindConfig = "tailwind-config"
+  /// A hex `:root` block, then the same properties re-declared in `color(display-p3 …)`
+  /// inside `@media (color-gamut: p3)`.
+  case p3WithFallback = "p3-with-fallback"
 
   // MARK: Internal
 
@@ -42,6 +45,19 @@ nonisolated enum ExportShape: String, CaseIterable, Sendable, Hashable, Identifi
   /// family name, because it names a CSS property instead of introducing an identifier.
   var usesName: Bool {
     self != .declaration
+  }
+
+  /// Whether the shape uses ``ExportOptions/format``. The third capability flag, and the
+  /// first one that exists to stop a control being *harmful* rather than merely inert.
+  ///
+  /// ``p3WithFallback`` needs two spellings where `format` is one value, and both are
+  /// fixed by what the shape is for. Leaving the picker live would let somebody choose
+  /// the default, `oklch()` — which is unbounded — and fill the *fallback* block with
+  /// out-of-sRGB values, which is precisely the situation the shape exists to avoid. So
+  /// the format is not a preference here, and the panel hides the control rather than
+  /// offering a choice that is quietly ignored.
+  var usesFormat: Bool {
+    self != .p3WithFallback
   }
 }
 
@@ -80,6 +96,18 @@ nonisolated struct ExportOptions: Sendable, Equatable {
   /// `brand` while an empty name exported `--color`, because the fallback came from
   /// ``cssIdentifier(_:fallback:)``'s own default rather than from here.
   static let defaultName = "brand"
+
+  /// What ``ExportShape/p3WithFallback`` writes its first block in.
+  ///
+  /// Hex on principle rather than for convenience: that block's job is to be what a
+  /// browser without P3 support gets, and hex is the most broadly compatible spelling
+  /// there is. It is also the only choice that cannot itself carry an out-of-sRGB
+  /// value — `cannotRepresentOutOfGamut` — so the fallback provably falls back.
+  static let fallbackFormat: CSSOutputFormat = .hex
+
+  /// What ``ExportShape/p3WithFallback`` writes its `@media` block in. The gamut the
+  /// query asks about, spelled the way CSS spells it.
+  static let wideFormat: CSSOutputFormat = .color(.displayP3)
 
   var shape: ExportShape = .customProperties
   var template: ExportTemplate = .color
@@ -149,7 +177,25 @@ nonisolated struct ExportOptions: Sendable, Equatable {
     case .json: return json(entries, formatting: formatting)
     case .tailwindTheme: return tailwindTheme(entries, formatting: formatting)
     case .tailwindConfig: return tailwindConfig(entries, formatting: formatting)
+    case .p3WithFallback: return p3WithFallback(entries, formatting: formatting)
     }
+  }
+
+  /// The format the "mapped" count is measured against, which is not always ``format``.
+  ///
+  /// One predicate decides both the badge and the serialized string — the invariant this
+  /// property exists to preserve, now that one shape writes two spellings. For that shape
+  /// the answer is the **fallback**: hex is where a wide color is actually moved, and the
+  /// `@media` block is what recovers it. Measuring against the P3 block instead would
+  /// report `0 mapped` for a color sitting outside sRGB while the hex line right below the
+  /// badge had been rounded — the badge silent about a value that changed.
+  ///
+  /// The count therefore refers to the fallback block, and the panel's wording says so.
+  /// **A color outside P3 is mapped in both blocks and the badge does not distinguish it**
+  /// — an accepted limitation, recorded in PLAN.md rather than answered with a second
+  /// count, because a two-number badge is a different feature from the one M16 asked for.
+  var mappedCountFormat: CSSOutputFormat {
+    shape.usesFormat ? format : Self.fallbackFormat
   }
 
   /// One color, spelled in ``format``.
@@ -159,6 +205,19 @@ nonisolated struct ExportOptions: Sendable, Equatable {
   /// note there. Using it anyway rather than force-unwrapping keeps a wrong `format`
   /// set programmatically from crashing the app over a string.
   func value(for color: ColorValue, formatting: CSSFormatOptions = .default) -> String {
+    value(for: color, as: format, formatting: formatting)
+  }
+
+  /// One color, spelled in a format the *shape* chose rather than the user.
+  ///
+  /// The seam that keeps ``p3WithFallback`` from becoming a second serialization path:
+  /// the shapes that honour ``format`` reach this through the overload above, so there is
+  /// still exactly one place a color becomes a string.
+  func value(
+    for color: ColorValue,
+    as format: CSSOutputFormat,
+    formatting: CSSFormatOptions = .default,
+  ) -> String {
     color.cssStringOrHex(as: format, options: formatting)
   }
 
@@ -203,14 +262,51 @@ nonisolated struct ExportOptions: Sendable, Equatable {
     .joined(separator: "\n")
   }
 
+  /// `  --brand-500: <value>;` for each entry, indented one level.
+  ///
+  /// Shared by ``customProperties`` and both halves of ``p3WithFallback`` so the two
+  /// blocks of that shape cannot come to name different properties — an override that
+  /// misses its base is a `@media` block with no effect, and it looks perfectly fine.
+  private func propertyLines(
+    _ entries: [PaletteEntry],
+    as format: CSSOutputFormat,
+    formatting: CSSFormatOptions,
+  ) -> [String] {
+    entries.map { entry in
+      "  \(propertyName(entry)): \(value(for: entry.color, as: format, formatting: formatting));"
+    }
+  }
+
   private func customProperties(
     _ entries: [PaletteEntry],
     formatting: CSSFormatOptions,
   ) -> String {
-    let body = entries.map { entry in
-      "  \(propertyName(entry)): \(value(for: entry.color, formatting: formatting));"
-    }
+    let body = propertyLines(entries, as: format, formatting: formatting)
     return ([":root {"] + body + ["}"]).joined(separator: "\n")
+  }
+
+  /// The progressive-enhancement shape: everything in hex, then everything again in
+  /// `color(display-p3 …)` behind the gamut query.
+  ///
+  /// **The override is emitted for every entry, including colors already inside sRGB.**
+  /// A per-entry conditional is the obvious saving and it is the wrong trade: it would
+  /// make the media block's *contents* depend on the palette's contents, so editing one
+  /// color to a wider one would silently change which properties exist in the document.
+  /// A stylesheet whose property set moves under you is worse than a few redundant
+  /// lines, and the redundant ones are exactly equal to the values they override.
+  ///
+  /// The formatting argument is passed through untouched. Hex maps regardless of policy
+  /// because it `cannotRepresentOutOfGamut`; the P3 block follows whatever the app-wide
+  /// gamut policy is, exactly as choosing `color(display-p3 …)` in any other shape does.
+  private func p3WithFallback(
+    _ entries: [PaletteEntry],
+    formatting: CSSFormatOptions,
+  ) -> String {
+    let fallback = propertyLines(entries, as: Self.fallbackFormat, formatting: formatting)
+    let wide = propertyLines(entries, as: Self.wideFormat, formatting: formatting)
+      .map { "  " + $0 }
+    return ([":root {"] + fallback + ["}", "", "@media (color-gamut: p3) {", "  :root {"]
+      + wide + ["  }", "}"]).joined(separator: "\n")
   }
 
   /// Tailwind v4, which configures colors in CSS rather than JavaScript.

@@ -72,6 +72,7 @@ nonisolated extension ExportShape {
     case .json: "JSON"
     case .tailwindTheme: "Tailwind v4"
     case .tailwindConfig: "Tailwind v3"
+    case .p3WithFallback: "P3 with fallback"
     }
   }
 
@@ -90,6 +91,36 @@ nonisolated extension ExportShape {
       "@theme in your CSS entry point. Tailwind v4 configures colors here."
     case .tailwindConfig:
       "tailwind.config.js, under theme.extend so the stock palette survives."
+    case .p3WithFallback:
+      "Hex for everyone, then the same properties in Display P3 behind "
+        + "@media (color-gamut: p3). Fixed formats — the fallback has to be hex."
+    }
+  }
+
+  /// What to say above a preview whose values the chosen format could not carry as
+  /// written.
+  ///
+  /// Editorial copy, so it lives here rather than in ColorCore — but the *count* comes
+  /// from ``ExportOptions/mappedCountFormat``, and the two have to be decided together.
+  /// ``p3WithFallback`` needs its own sentence because the generic one is false of it:
+  /// "the values below were brought into gamut" is true of the fallback block and wrong
+  /// about the `@media` block sitting underneath it, which carries those same colors
+  /// exactly. That is the whole reason the shape exists, so a warning that did not say it
+  /// would read as a defect.
+  ///
+  /// - Parameter format: ``ExportOptions/mappedCountFormat``, not
+  ///   ``ExportOptions/format`` — for this shape they differ, and naming the user's
+  ///   selection would name a format the document does not contain.
+  func mappedNote(count: Int, format: CSSOutputFormat) -> String {
+    let colors = count == 1 ? "one of these colors" : "\(count) of these colors"
+    switch self {
+    case .p3WithFallback:
+      let them = count == 1 ? "it" : "them"
+      return "Display P3 reaches \(colors) that hex cannot, so the fallback block rounds "
+        + "\(them) and the @media block carries \(them) exactly."
+    case .declaration, .customProperties, .json, .tailwindTheme, .tailwindConfig:
+      return "\(format.title) cannot express \(colors), so the values below were "
+        + "brought into gamut."
     }
   }
 }

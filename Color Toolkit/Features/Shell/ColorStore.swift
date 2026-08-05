@@ -350,10 +350,15 @@ final class ColorStore {
   /// Uses ``ColorValue/isGamutMapped(as:options:epsilon:)`` — the same predicate behind
   /// the conversion panel's "mapped" badge and behind the serializer's own decision — so
   /// the warning above the preview cannot disagree with the document below it.
+  ///
+  /// Measured against ``ExportOptions/mappedCountFormat`` rather than
+  /// ``ExportOptions/format``, which is the same value for every shape that writes one
+  /// spelling and the *fallback* for the one that writes two. See that property for why
+  /// the fallback is the honest half to count.
   var exportGamutMappedCount: Int {
     exportEntries.count {
       $0.color.isGamutMapped(
-        as: exportOptions.format,
+        as: exportOptions.mappedCountFormat,
         options: formatOptions,
         epsilon: ColorValue.gamutNoiseTolerance,
       )

@@ -155,6 +155,37 @@ final class ExportSmokeTests: XCTestCase {
     capture("export-declaration")
   }
 
+  /// The P3 shape writes two blocks and fixes both their spellings, so the Format picker
+  /// goes away with the choice — the same claim the declaration test makes about the name
+  /// field, and a sharper one: a live picker here could put `oklch()`, the panel's own
+  /// default and unbounded, into the block a browser reaches when it *cannot* do wide
+  /// gamut.
+  ///
+  /// The input is deliberately outside sRGB, which is the only case where the two blocks
+  /// carry different values and so the only one where a document that ignored the media
+  /// block would still look right.
+  func testP3ShapeWritesBothBlocksAndHidesTheFormatPicker() {
+    setField("color(display-p3 0 1 0)")
+    click(radioButton: "Export", "the tool switcher")
+    select(menuItem: "P3 with fallback", fromPopUp: "exportShape", "the shape picker")
+
+    let document = readout("exportDocument")
+    XCTAssertTrue(
+      document.contains("@media (color-gamut: p3)"),
+      "No media block in:\n\(document)",
+    )
+    XCTAssertTrue(document.contains("--brand: #"), "The fallback is not hex:\n\(document)")
+    XCTAssertTrue(
+      document.contains("--brand: color(display-p3"),
+      "The override is not in P3:\n\(document)",
+    )
+    XCTAssertFalse(
+      app.popUpButtons["exportFormat"].exists,
+      "The shape fixes its own formats, so the picker should be hidden",
+    )
+    capture("export-p3-fallback")
+  }
+
   // MARK: Private
 
   private var app: XCUIApplication!

@@ -117,17 +117,23 @@ struct ExportPanel: View {
         }
       }
 
-      LabeledContent("Format") {
-        // `keyword` is absent, and structurally so — see `CSSOutputFormat.exportable`.
-        // It names 148 colors, so a palette would come back part keywords and part
-        // something else with nothing in the file to say so.
-        Picker("Format", selection: $store.exportOptions.format) {
-          ForEach(CSSOutputFormat.exportable, id: \.self) { format in
-            Text(format.title).tag(format)
+      // Hidden for the one shape that fixes its own spellings, and hidden rather than
+      // disabled for the reason the Declaration and Name controls are: a live picker
+      // there could put `oklch()` — the default, and unbounded — into a block whose
+      // entire job is being what a browser *without* wide-gamut support receives.
+      if store.exportOptions.shape.usesFormat {
+        LabeledContent("Format") {
+          // `keyword` is absent, and structurally so — see `CSSOutputFormat.exportable`.
+          // It names 148 colors, so a palette would come back part keywords and part
+          // something else with nothing in the file to say so.
+          Picker("Format", selection: $store.exportOptions.format) {
+            ForEach(CSSOutputFormat.exportable, id: \.self) { format in
+              Text(format.title).tag(format)
+            }
           }
+          .labelsHidden()
+          .accessibilityIdentifier("exportFormat")
         }
-        .labelsHidden()
-        .accessibilityIdentifier("exportFormat")
       }
 
       // The *same* setting the toolbar's output menu shows, not a copy of it. Surfaced
@@ -178,10 +184,15 @@ struct ExportPanel: View {
         if mapped > 0 {
           HStack(spacing: 8) {
             ColorBadge(text: mapped == 1 ? "1 mapped" : "\(mapped) mapped")
+            // The format named is `mappedCountFormat`, which is what the count was
+            // measured against — for the P3 shape that is the fallback, not the
+            // selection, and naming the selection would name a format the document
+            // does not contain.
             Text(
-              "\(store.exportOptions.format.title) cannot express "
-                + "\(mapped == 1 ? "one of these colors" : "\(mapped) of these colors"), "
-                + "so the values below were brought into gamut.",
+              store.exportOptions.shape.mappedNote(
+                count: mapped,
+                format: store.exportOptions.mappedCountFormat,
+              ),
             )
             .font(.caption)
             .foregroundStyle(.secondary)
