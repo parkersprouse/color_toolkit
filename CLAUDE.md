@@ -190,7 +190,7 @@ Layered so the numeric core stays independently testable and UI-free:
   `color-mix()`'s percentage rules, and premultiplied interpolation),
   `Transform/` (relative adjustment, the S-curve,
   harmonies, shade ramps, the contrast solver — all in OKLCH), and `Export/`
-  (declaration templates and five document shapes).
+  (declaration templates and six document shapes).
 - **`Features/Shell/ColorStore.swift`** — `@MainActor @Observable`, one instance
   injected into both scenes (menu bar + window). Holds a *pair* of `ColorField`s
   (foreground + background) and which `Tool` the window is showing.

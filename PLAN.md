@@ -27,10 +27,13 @@
 > unmodified `ed68e20` in a clean worktree, and `ColorInterpolation` is reachable only
 > from the parser's mix branch and `TransformPanel`, so no M15 code runs in that test at
 > all. XCUITest cannot click into a macOS app it cannot bring frontmost, and the Mac was
-> in use. It passes on an idle Mac, and the whole suite is **392 of 392 in one run at
-> HEAD** — read off a single `** TEST SUCCEEDED **`, after the formatting commit rather
-> than before it, since the formatter moved a declaration in `TransformPanel.swift` and
-> `TransformSmokeTests` is what covers that file.
+> in use. It passes on an idle Mac, and the whole suite was **392 of 392 in one run at
+> M15's HEAD** — read off a single `** TEST SUCCEEDED **`, after the formatting commit
+> rather than before it, since the formatter moved a declaration in `TransformPanel.swift`
+> and `TransformSmokeTests` is what covers that file. (That figure is M15's and is left
+> as recorded; the current total is in the status line above. A count written as "at HEAD"
+> stops being true the moment a milestone lands, so treat every number in these historical
+> paragraphs as a reading taken then.)
 >
 > M0–M9 were each reviewed on the running app. **Three later things were not, and should
 > not be read as if they were:** M10 changed no behavior and has no UI to look at, M11's
@@ -731,6 +734,11 @@ documents, and exactly one shape consumes a template. The panel hides the contro
 does not apply rather than leaving it there doing nothing — `usesTemplate` and `usesName`
 are complements, and a test pins that.
 
+*Superseded in one detail by M16, which added a **sixth** shape and a **third** capability
+flag.* `usesFormat` is not part of the complement — it answers a different question, and
+it is the first of the three that hides a control which would be actively harmful rather
+than merely inert. The complement test still holds over all six cases.
+
 Decisions worth recording:
 
 - **"A whole palette" means the sets the app already has**: the harmony, the ramp, and
@@ -1365,7 +1373,7 @@ the same reason, since repeated application converges on the background. The
 `color-mix()` expression is printed under the result, which is now something you can paste
 back into the field.
 
-### M16 — `@media (color-gamut)` export shape
+### M16 — `@media (color-gamut)` export shape ✅
 
 One `ExportShape` case, `p3WithFallback`, and one private generator at
 `ExportOptions.render`: a hex fallback block, then `@media (color-gamut: p3)` re-declaring
@@ -1425,6 +1433,10 @@ promise it. Both policies are asserted.
 different properties. An override that misses its base is a `@media` block with no effect,
 and nothing about the document looks wrong — which is why the two name *lists* are asserted
 equal rather than spot-checked.
+
+*Done, and reviewed on the running app from its own screenshot — see the status note above
+for the colorjs.io cross-check of the fallback's gamut mapping, which discriminates against
+a naive clip rather than merely agreeing.*
 
 ### M17 — W3C Design Tokens import
 

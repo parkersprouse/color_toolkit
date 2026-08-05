@@ -68,11 +68,13 @@ struct ExportPanel: View {
         .accessibilityIdentifier("exportSource")
       }
 
-      // A menu rather than a segmented control, unlike Source above. Five options
-      // against four, and "Custom properties" is more than twice the length of the
+      // A menu rather than a segmented control, unlike Source above. Six options
+      // against five, and "Custom properties" is more than twice the length of the
       // longest source title — a segmented control divides its width evenly, so the
       // short options would pay for the long one. The tool switcher is the cautionary
-      // tale: segments that stop fitting do not degrade gracefully.
+      // tale: segments that stop fitting do not degrade gracefully. M16 is the reason
+      // this reads as vindication rather than caution: a sixth shape cost nothing here,
+      // where a sixth *tool* is what swept the switcher into an overflow menu.
       LabeledContent("Shape") {
         Picker("Shape", selection: $store.exportOptions.shape) {
           ForEach(ExportShape.allCases) { shape in

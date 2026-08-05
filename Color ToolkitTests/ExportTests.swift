@@ -77,7 +77,7 @@ struct ExportRoundTripTests {
   ///
   /// This is the mutation check made permanent. Swap `.lossless` for `.default` anywhere
   /// a shape renders and the exact string stops appearing, so a shape that quietly
-  /// ignored its `formatting` argument — the easiest mistake to make when there are five
+  /// ignored its `formatting` argument — the easiest mistake to make when there are six
   /// of them and they were written one after another — cannot pass.
   ///
   /// **Both a lone color and a palette**, because `json` and `tailwindConfig` fork on
