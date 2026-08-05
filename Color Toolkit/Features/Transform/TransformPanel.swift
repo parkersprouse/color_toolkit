@@ -31,6 +31,8 @@ struct TransformPanel: View {
           Divider()
           rampSection(color)
           Divider()
+          mixSection(color)
+          Divider()
           legibilitySection(color)
         } else {
           ContentUnavailableView(
@@ -49,6 +51,10 @@ struct TransformPanel: View {
 
   // MARK: Private
 
+  /// Where the mix strip samples. Five is enough to read as a gradient and few enough
+  /// that each swatch stays clickable.
+  private static let mixStops = [0.0, 0.25, 0.5, 0.75, 1.0]
+
   @Environment(ColorStore.self) private var store
 
   /// Reset by ``apply(_:)``, because an adjustment is relative: leaving the sliders up
@@ -59,6 +65,12 @@ struct TransformPanel: View {
   /// How far the contrast section has pushed the color away from the background.
   /// Panel state for the same reason as `adjustment` — an unfinished edit.
   @State private var push = 0.0
+
+  /// How much of the background the mix section is pulling in. Panel state for the
+  /// same reason again, and reset by ``apply(_:)`` for the reason the push is: a mix
+  /// is relative to the color it starts from, so leaving it up would blend the
+  /// background in a second time on the next click.
+  @State private var mixAmount = 0.0
 
   /// The curve's caption, which has to explain a slider whose units nobody knows.
   private var curveCaption: String {
@@ -236,6 +248,121 @@ struct TransformPanel: View {
         identifier: "transformRamp",
         markingBaseAt: stops.count / 2,
       )
+    }
+  }
+
+  // MARK: - Mix
+
+  /// `color-mix()`, against the background the contrast tool already holds.
+  ///
+  /// The second color is the background rather than a third field of this panel's own,
+  /// for the reason the legibility section below takes it: the app already edits a
+  /// *pair*, and inventing another color to type would make this the only section that
+  /// does not compose with the rest of the app.
+  ///
+  /// The strip is the live preview and the slider is the pending edit — the same split
+  /// as the contrast push, and for the same reason. Every stop on the strip is a color
+  /// you can click, so the section is useful with the slider left alone.
+  private func mixSection(_ color: ColorValue) -> some View {
+    @Bindable var store = store
+
+    return VStack(alignment: .leading, spacing: 12) {
+      sectionHeading(
+        "Mix",
+        note: "Blended with the background. The space is the whole choice: sRGB runs "
+          + "through a washed-out middle where OKLCH keeps the chroma.",
+      )
+
+      HStack(spacing: 18) {
+        Picker("Space", selection: $store.mixSpace) {
+          ForEach(ColorSpace.allCases, id: \.self) { space in
+            // The CSS identifier rather than a display name, because it is what goes
+            // in the expression underneath — a fact, not editorial copy.
+            Text(space.rawValue).tag(space)
+          }
+        }
+        .fixedSize()
+        .accessibilityIdentifier("transformMixSpace")
+
+        // A rectangular space has no arc to choose, and CSS forbids writing one down.
+        if store.mixSpace.hueIndex != nil {
+          Picker("Hue", selection: $store.mixHueMethod) {
+            ForEach(HueInterpolationMethod.allCases) { method in
+              Text(method.rawValue).tag(method)
+            }
+          }
+          .fixedSize()
+          .accessibilityIdentifier("transformMixHue")
+        }
+        Spacer()
+      }
+
+      if let background = store.backgroundColor {
+        mixBody(color: color, background: background)
+      } else {
+        Label(
+          "Set a background in the Contrast tool — a mix needs two colors.",
+          systemImage: "circle.lefthalf.filled",
+        )
+        .font(.callout)
+        .foregroundStyle(.secondary)
+      }
+    }
+  }
+
+  private func mixBody(color: ColorValue, background: ColorValue) -> some View {
+    let interpolation = ColorInterpolation(space: store.mixSpace, hue: store.mixHueMethod)
+    let stops = Self.mixStops.map {
+      color.mixed(with: background, using: interpolation, at: $0)
+    }
+    let mixed = color.mixed(with: background, using: interpolation, at: mixAmount)
+
+    return VStack(alignment: .leading, spacing: 12) {
+      HStack(spacing: 8) {
+        ColorSwatch(color: background, cornerRadius: 6)
+          .frame(width: 24, height: 24)
+        Text("with \(css(background))")
+          .font(.system(.caption, design: .monospaced))
+          .foregroundStyle(.secondary)
+        Spacer()
+      }
+
+      // The base is the first stop, which really is the panel's own color: a mix at 0%
+      // is the color untouched.
+      swatchRow(stops, identifier: "transformMix", markingBaseAt: 0)
+
+      slider(
+        "Amount",
+        value: $mixAmount,
+        range: 0 ... 1,
+        caption: mixAmount == 0
+          ? "all yours"
+          : String(format: "%.0f%% of the background", mixAmount * 100),
+      )
+
+      if mixAmount != 0 {
+        HStack(alignment: .center, spacing: 14) {
+          labeledSwatch(mixed, caption: "Mixed")
+
+          VStack(alignment: .leading, spacing: 6) {
+            Text(css(mixed))
+              .font(.system(.callout, design: .monospaced))
+              .textSelection(.enabled)
+              .accessibilityIdentifier("transformMixResult")
+            Text(mixExpression(color, background))
+              .font(.system(.caption, design: .monospaced))
+              .foregroundStyle(.secondary)
+              .textSelection(.enabled)
+              .accessibilityIdentifier("transformMixExpression")
+            if !mixed.inGamut(of: .srgb) {
+              ColorBadge(text: "outside sRGB")
+            }
+            Button("Use it") { apply(mixed) }
+              .accessibilityIdentifier("transformUseMix")
+          }
+          Spacer()
+        }
+      }
     }
   }
 
@@ -553,6 +680,20 @@ struct TransformPanel: View {
     }
   }
 
+  /// The `color-mix()` that produces what the panel is showing, spelled to paste.
+  ///
+  /// Worth showing beside the result rather than only the result, because this app now
+  /// *reads* the syntax as well as computing it — so the line below the swatch is
+  /// something you can put straight back in the field. Both colors are printed at
+  /// display precision, like every other caption here, so pasting it reproduces the
+  /// preview to the digits shown rather than to the last bit.
+  private func mixExpression(_ color: ColorValue, _ background: ColorValue) -> String {
+    let arc = store.mixSpace.hueIndex == nil ? "" : " \(store.mixHueMethod.rawValue) hue"
+    let share = String(format: "%.0f%%", (1 - mixAmount) * 100)
+    return "color-mix(in \(store.mixSpace.rawValue)\(arc), "
+      + "\(css(color)) \(share), \(css(background)))"
+  }
+
   // MARK: - Adjust
 
   /// The color as the sliders currently describe it. Curve after adjustment, because
@@ -577,8 +718,10 @@ struct TransformPanel: View {
     adjustment = .identity
     curve = .identity
     // The push is relative too, so leaving it up would apply the same shove again
-    // to a color that has already taken it.
+    // to a color that has already taken it. The mix amount is relative in exactly
+    // the same way — repeated applications converge on the background.
     push = 0
+    mixAmount = 0
   }
 
   /// Display precision, not storage precision — this is a caption, and the string that

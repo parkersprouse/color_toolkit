@@ -145,6 +145,10 @@ struct ColorInputField: View {
         : "\(function.rawValue)()"
     case let .relative(function):
       "\(function.rawValue)() · relative to an origin color"
+    case let .mix(interpolation):
+      // The space is the substance of the choice, so it is what the summary says —
+      // the hue arc only exists for half of them and is noise on the rest.
+      "color-mix() · interpolated in \(interpolation.space.rawValue)"
     }
   }
 }
