@@ -60,6 +60,36 @@ struct RelativeColorChannelTests {
     // `== 0` here would be demanding precision the conversion never promised.
     let oklabL = try CSSColorParser.parse("oklab(from white calc(l - 1) a b)").color.components[0]
     #expect(abs(oklabL) < 0.01, "oklab l should be written 0–1, got a residual of \(oklabL)")
+
+    // HWB and LCH complete the spec's table. Both need a color the identity test
+    // cannot stand in for: red's whiteness *and* blackness are 0, so a 0–1 scale
+    // and a 0–100 one agree on it and the case proves nothing. A mid grey has
+    // both nonzero.
+    let grey = try #require(ColorValue.named("gray")).converted(to: .hwb)
+    let hwbW = try CSSColorParser.parse("hwb(from gray h calc(w - 50) b)").color.components[1]
+    #expect(abs(hwbW - (grey.components[1] - 50)) < 1e-12)
+    #expect(grey.components[1] > 1, "a 0–100 whiteness is the whole point of this case")
+
+    // lch chroma is written 0–150, which only a chromatic color distinguishes.
+    let lch = try #require(CSSColorParser.color("#3b82f6")).converted(to: .lch)
+    let lchC = try CSSColorParser.parse("lch(from #3b82f6 l calc(c - 150) h)").color.components[1]
+    #expect(abs(lchC - (lch.components[1] - 150)) < 1e-12)
+    #expect(lch.components[1] > 1, "a 0–150 chroma is the whole point of this case")
+  }
+
+  @Test("Alpha is clamped where components are not")
+  func alphaIsClamped() throws {
+    // The spec's asymmetry, and it is not an oversight in either direction.
+    // Relative syntax makes the alpha half easy to reach.
+    #expect(
+      try CSSColorParser.parse("rgb(from rgb(255 0 0 / 0.5) r g b / calc(alpha * 3))")
+        .color.alpha == 1,
+    )
+    #expect(try CSSColorParser.parse("rgb(from red r g b / -0.5)").color.alpha == 0)
+
+    // Components stay unclamped: an out-of-gamut color has to be writable, which
+    // is what the "Outside sRGB" badge reports on.
+    #expect(try CSSColorParser.parse("rgb(from red calc(r * 2) g b)").color.components[0] == 2)
   }
 
   @Test("Arithmetic on a channel is the point of the feature")

@@ -498,6 +498,15 @@ nonisolated enum CSSColorParser {
       case .angle:
         throw ParseError.unexpectedToken("angle as alpha")
       }
+      // Alpha is clamped and the three components deliberately are not, which
+      // looks like an inconsistency and is the spec's rule in both directions.
+      // Components must stay unclamped or an out-of-gamut color could not be
+      // written down at all — the "Outside sRGB" badge exists to report exactly
+      // those. Alpha has no such story: there is nothing beyond fully opaque, so
+      // CSS clamps it at computed-value time. CSS Color 5 restates the rule for
+      // relative syntax specifically, where a `calc(alpha * 3)` makes it easy to
+      // reach.
+      alpha = min(max(alpha, 0), 1)
     }
 
     let color = ColorValue(
