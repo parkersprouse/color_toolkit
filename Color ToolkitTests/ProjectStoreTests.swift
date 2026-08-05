@@ -163,6 +163,64 @@ struct ProjectStoreTests {
     #expect(saved.colorValue?.space == .displayP3)
   }
 
+  /// **The payoff path, and the one claim in M17's docs that nothing else holds.**
+  ///
+  /// Somebody imports a token file in order to emit CSS from it, and "export came free"
+  /// is only true if an imported palette reaches the export layer as any other does. It
+  /// does, because `Palette.paletteEntries` is the boundary and nothing downstream can
+  /// tell where a `PaletteEntry` came from.
+  ///
+  /// The double prefix in `--brand-brand-50` is **expected, and is what a token file
+  /// actually produces**. The family name comes from the file (`brand.tokens.json`) and
+  /// the key comes from the token's full path (`brand.50`), and those two sources overlap
+  /// whenever a file's top-level group is named after the file — which is the conventional
+  /// shape. It is left alone rather than stripped: the family name is a free-text field in
+  /// the export panel and one edit away, where any automatic stripping would make the keys
+  /// depend on how many top-level groups a file happened to have. Full paths are the right
+  /// keys for the reason `DesignTokenImport.keyed` gives — `brand.500` and `accent.500`
+  /// collapsing to `500` and `500-2` is a worse answer than a long name.
+  @Test("An imported palette exports like any other")
+  func importedPalettesExport() throws {
+    let library = try Self.makeLibrary()
+    let project = try library.createProject(named: "Site")
+    let document = try DesignTokenImport.decode(Data(Self.rampTokens.utf8))
+
+    try library.savePalette(importing: document.colors, named: "brand", to: project)
+
+    let palette = try #require(try library.projects().first?.orderedPalettes.first)
+    var options = ExportOptions.default
+    options.shape = .customProperties
+    options.name = palette.name
+    let rendered = options.render(palette.paletteEntries)
+
+    // The names carry this test's claim, so they are pinned exactly. The *values* are
+    // pulled back out and parsed instead — this app's own parser is the export layer's
+    // oracle, and re-typing hex digits here would only test whether they were copied
+    // correctly.
+    let names = rendered.split(separator: "\n").compactMap { line in
+      line.trimmingCharacters(in: CharacterSet.whitespaces).split(separator: ":").first.map(String.init)
+    }
+    .filter { $0.hasPrefix("--") }
+    #expect(names == ["--brand-brand-50", "--brand-brand-100", "--brand-brand-900"])
+
+    let values = ExportRoundTripTests.propertyValues(in: rendered)
+    #expect(values.count == 3, "Expected one value per token:\n\(rendered)")
+    for (value, entry) in zip(values, palette.paletteEntries) {
+      let parsed = try #require(
+        try CSSColorParser.parse(value).color,
+        "Exported \(value), which this app's own parser rejects",
+      )
+      // Not the 1e-9 that `paletteEntriesSurvive` uses, and the difference is the point:
+      // that test round-trips through *storage*, which is lossless, where this one goes
+      // through a rendered document at the panel's display precision of four decimals.
+      // Measured agreement is ~5e-5. The competing hypothesis is a pairing error — values
+      // emitted in a different order from their names — and these three shades run from
+      // near-white to navy, so a mismatched pair differs by more than 0.3. Three hundred
+      // times the tolerance, rather than a tolerance chosen to fit.
+      #expect(parsed.deltaEOK(to: entry.color) < 1e-3)
+    }
+  }
+
   /// `$description` is the field a design system says *why* in, exactly once. Notes are
   /// where this app already keeps that, so nothing is invented to hold it.
   @Test("A token's description is stored as the color's notes")

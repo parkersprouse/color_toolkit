@@ -15,7 +15,7 @@ import Foundation
 /// what a diagnostic has to name for anybody to find it. The key is a CSS identifier and
 /// a JavaScript object key by the time it is emitted, so it is sanitized and made unique
 /// here; that transformation is *lossy*, which is exactly why the original is kept.
-nonisolated struct DesignToken: Sendable, Hashable, Identifiable {
+nonisolated struct DesignToken: Sendable, Hashable {
   /// The group names above the token, then the token's own name.
   let path: [String]
 
@@ -35,10 +35,6 @@ nonisolated struct DesignToken: Sendable, Hashable, Identifiable {
   /// in a token or group name precisely so that a dotted path has one reading.
   var name: String {
     path.joined(separator: ".")
-  }
-
-  var id: String {
-    name
   }
 }
 
@@ -97,14 +93,6 @@ nonisolated struct DesignTokenDocument: Sendable, Hashable {
   /// Tokens whose `$type` is something other than `color`, or that have no determinable
   /// type at all. Counted, not listed — see ``TokenSkipReason``.
   let otherTypeCount: Int
-
-  /// The colors as the export layer consumes them.
-  ///
-  /// The same `[PaletteEntry]` a harmony or a ramp produces, which is what lets an
-  /// imported palette reach every export shape without a second path through that layer.
-  var paletteEntries: [PaletteEntry] {
-    colors.map { PaletteEntry(key: $0.key, color: $0.color) }
-  }
 }
 
 /// A file that is not a token file at all, as distinct from one whose tokens failed.
