@@ -10,6 +10,10 @@ import Foundation
 /// A focused subset of the CSS token grammar — enough for the color functions and
 /// nothing more. A general CSS tokenizer would be far more machinery than the job
 /// needs.
+///
+/// There is no `divide` case: `/` is the alpha separator *and* `calc()`'s division
+/// operator, and one token serves both because ``CSSColorParser`` consumes a
+/// `calc()` body as a unit before separator logic ever sees the tokens inside it.
 nonisolated enum CSSToken: Equatable, Sendable {
   case function(String) // ident immediately followed by "("
   case ident(String) // bare keyword: red, none, srgb, deg
@@ -19,7 +23,36 @@ nonisolated enum CSSToken: Equatable, Sendable {
   case hash(String) // #ff0000 → "ff0000"
   case comma
   case slash
+  case plus
+  case minus
+  case asterisk
+  case openParen
   case closeParen
+
+  // MARK: Internal
+
+  /// How this token is named back to the user in a parse error.
+  ///
+  /// Lives on the token rather than beside either parser, because both
+  /// ``CSSColorParser`` and ``CalcExpression`` report unexpected tokens and a second
+  /// copy of this switch is a copy that can fall out of step with the cases above.
+  var description: String {
+    switch self {
+    case let .function(n): "\(n)("
+    case let .ident(n): n
+    case let .number(n): "\(n)"
+    case let .percentage(p): "\(p)%"
+    case let .dimension(v, u): "\(v)\(u)"
+    case let .hash(h): "#\(h)"
+    case .comma: ","
+    case .slash: "/"
+    case .plus: "+"
+    case .minus: "-"
+    case .asterisk: "*"
+    case .openParen: "("
+    case .closeParen: ")"
+    }
+  }
 }
 
 nonisolated enum CSSTokenizer {
@@ -27,9 +60,18 @@ nonisolated enum CSSTokenizer {
 
   /// Splits CSS color syntax into tokens, discarding whitespace.
   ///
-  /// Whitespace can be dropped because color syntax never needs it to disambiguate:
-  /// legacy versus modern form is decided by whether commas are present, which
-  /// survives tokenization.
+  /// Whitespace is dropped, and that is *almost* free: legacy versus modern form is
+  /// decided by whether commas are present, which survives tokenization. The one
+  /// place CSS makes whitespace load-bearing is `calc()`'s `+` and `-`, which the
+  /// spec requires to be surrounded by it precisely because `-2` is otherwise a
+  /// signed number.
+  ///
+  /// Half of that rule survives anyway and it is the half that matters: `scanNumber`
+  /// claims `-2` before the operator rules run, so `calc(1 -2)` tokenizes as two
+  /// adjacent numbers and the parser rejects it, exactly as CSS does. The other half
+  /// does not: `calc(1- 2)` is invalid CSS and parses here as a subtraction, because
+  /// nothing downstream can tell it from `calc(1 - 2)`. Documented leniency, in the
+  /// safe direction — it accepts a typo rather than misreading a valid expression.
   static func tokenize(_ input: String) throws(ParseError) -> [CSSToken] {
     var tokens: [CSSToken] = []
     let scalars = Array(input.unicodeScalars)
@@ -54,8 +96,14 @@ nonisolated enum CSSTokenizer {
         tokens.append(.closeParen)
         i += 1
       case "(":
-        // A "(" not directly attached to an identifier.
-        throw ParseError.unexpectedCharacter("(", at: i)
+        // A "(" not directly attached to an identifier. Always an error, but the
+        // parser throws it so the message can name what was actually attempted —
+        // a parenthesized calc() sub-expression is the realistic way to get here.
+        tokens.append(.openParen)
+        i += 1
+      case "*":
+        tokens.append(.asterisk)
+        i += 1
       case "#":
         i += 1
         var digits = ""
@@ -82,6 +130,16 @@ nonisolated enum CSSTokenizer {
           } else {
             tokens.append(.number(value))
           }
+        } else if c == "+" {
+          // No digit follows, so this is not a sign — it is calc()'s addition.
+          tokens.append(.plus)
+          i += 1
+        } else if c == "-", !(i + 1 < scalars.count && isIdentChar(scalars[i + 1])) {
+          // "-" means three things and the checks have to run in this order,
+          // each earlier one being the more specific: a number's sign (-0.5),
+          // an identifier's first character (--custom), and subtraction.
+          tokens.append(.minus)
+          i += 1
         } else if isIdentStart(c) {
           let (name, next) = scanIdent(scalars, from: i)
           i = next

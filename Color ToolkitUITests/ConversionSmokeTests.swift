@@ -84,6 +84,28 @@ final class ConversionSmokeTests: XCTestCase {
     XCTAssertFalse(exact.label.contains("mapped"), "oklch() holds this color exactly")
   }
 
+  /// M13 is core-only in code but a user reaches it by typing, so this is the one
+  /// check that the whole path — field, parser, `CalcExpression`, every conversion —
+  /// works in the running app rather than only under `#expect`.
+  ///
+  /// The expression is chosen so the arithmetic is checkable by eye and each
+  /// operator appears once: `128 * 2 - 1` is 255, `0 * 5` is 0, `255 / 2` is 127.5,
+  /// and that last one is also the case a slash-as-alpha-separator bug would turn
+  /// into a three-component color with an alpha of 2.
+  func testCalcExpressionReachesThePanel() {
+    let field = app.textFields["colorInput"]
+    XCTAssertTrue(field.waitForExistence(timeout: 30))
+
+    field.click()
+    field.typeKey("a", modifierFlags: .command)
+    field.typeText("rgb(calc(128 * 2 - 1) calc(0 * 5) calc(255 / 2))")
+
+    XCTAssertTrue(
+      row("Hex", "#ff0080").waitForExistence(timeout: 15),
+      "A calc() expression never reached the panel",
+    )
+  }
+
   // MARK: Private
 
   private var app: XCUIApplication!

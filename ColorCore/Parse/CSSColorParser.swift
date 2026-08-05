@@ -35,8 +35,9 @@ nonisolated enum CSSColorParser {
     let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { throw ParseError.empty }
 
-    // Checked before tokenizing so the user hears "calc() isn't supported"
-    // rather than "unexpected character +" from somewhere inside its body.
+    // Checked before tokenizing so the user hears "clamp() isn't supported"
+    // rather than a complaint from somewhere inside its argument list. `calc()`
+    // used to be caught here and is now evaluated — see `CalcExpression`.
     if let unsupported = UnsupportedFunctions.firstCalled(in: trimmed) {
       throw ParseError.unsupportedFunction(unsupported)
     }
@@ -47,13 +48,13 @@ nonisolated enum CSSColorParser {
     switch first {
     case let .hash(digits):
       guard tokens.count == 1 else {
-        throw ParseError.trailingContent(describe(tokens[1]))
+        throw ParseError.trailingContent(tokens[1].description)
       }
       return try parseHex(digits)
 
     case let .ident(name):
       guard tokens.count == 1 else {
-        throw ParseError.trailingContent(describe(tokens[1]))
+        throw ParseError.trailingContent(tokens[1].description)
       }
       guard let color = ColorValue.named(name) else {
         throw ParseError.unknownKeyword(name)
@@ -64,7 +65,7 @@ nonisolated enum CSSColorParser {
       return try parseFunction(name, tokens: Array(tokens.dropFirst()))
 
     default:
-      throw ParseError.unexpectedToken(describe(first))
+      throw ParseError.unexpectedToken(first.description)
     }
   }
 
@@ -81,6 +82,23 @@ nonisolated enum CSSColorParser {
     case percentage(Double)
     case angle(Double)
     case none
+
+    // MARK: Lifecycle
+
+    /// A resolved `calc()` becomes an ordinary written value.
+    ///
+    /// The types line up exactly, which is the reason `calc()` costs so little
+    /// here: everything downstream — the per-component grammar, the legacy
+    /// same-type rules, the angle-slot check — runs unchanged and cannot tell a
+    /// computed value from a typed one. That last part is a decision, not an
+    /// accident; `CalcTests` pins both sides of it.
+    init(_ term: CalcTerm) {
+      switch term {
+      case let .number(n): self = .number(n)
+      case let .percentage(p): self = .percentage(p)
+      case let .angle(d): self = .angle(d)
+      }
+    }
 
     // MARK: Internal
 
@@ -148,7 +166,7 @@ nonisolated enum CSSColorParser {
 
     if function == .color {
       guard case let .ident(id)? = rest.first else {
-        throw ParseError.unknownColorSpace(rest.first.map(describe) ?? "")
+        throw ParseError.unknownColorSpace(rest.first?.description ?? "")
       }
       guard let resolved = ColorGrammar.colorFunctionSpaces[id] else {
         throw ParseError.unknownColorSpace(id)
@@ -171,6 +189,12 @@ nonisolated enum CSSColorParser {
   }
 
   /// Splits the argument list into values and the separators between them.
+  ///
+  /// Iterates by index rather than with `for in` because of one case: a `calc()`
+  /// body has to be consumed **as a unit**, before any of this sees the tokens
+  /// inside it. `/` is both the alpha separator and calc's division operator, so
+  /// `rgb(0 0 0 / calc(1/2))` has two slashes meaning different things and the only
+  /// thing that tells them apart is which side of `calc(`…`)` they fall on.
   private static func scanArguments(
     _ tokens: [CSSToken],
   ) throws(ParseError) -> ([Value], [Separator]) {
@@ -178,10 +202,21 @@ nonisolated enum CSSColorParser {
     var separators: [Separator] = []
     var pendingSeparator: Separator?
     var closed = false
+    var index = 0
 
-    for (index, token) in tokens.enumerated() {
+    while index < tokens.count {
+      let token = tokens[index]
       if closed {
-        throw ParseError.trailingContent(describe(token))
+        throw ParseError.trailingContent(token.description)
+      }
+
+      // Consumed whole, so `index` jumps past the closing paren rather than
+      // advancing by one.
+      if case let .function(name) = token, name == "calc" {
+        let (term, next) = try consumeCalc(tokens, openedAt: index)
+        try append(Value(term), &values, &separators, &pendingSeparator)
+        index = next
+        continue
       }
 
       switch token {
@@ -223,9 +258,14 @@ nonisolated enum CSSColorParser {
 
       case let .hash(h):
         throw ParseError.unexpectedToken("#\(h)")
+
+      case .plus, .minus, .asterisk, .openParen:
+        // Arithmetic outside a calc(). Reachable now that the tokenizer has
+        // operator classes at all, and still not valid CSS.
+        throw ParseError.unexpectedToken(token.description)
       }
 
-      _ = index
+      index += 1
     }
 
     if pendingSeparator == .slash {
@@ -236,6 +276,24 @@ nonisolated enum CSSColorParser {
     }
 
     return (values, separators)
+  }
+
+  /// Evaluates the `calc()` opening at `openedAt`, returning its value and the
+  /// index just past its closing paren.
+  ///
+  /// The body ends at the first `)`, which is sound only because the supported
+  /// subset has no nesting — a `calc(` or `(` inside is rejected by
+  /// ``CalcExpression`` rather than tracked by a depth counter here.
+  private static func consumeCalc(
+    _ tokens: [CSSToken],
+    openedAt: Int,
+  ) throws(ParseError) -> (term: CalcTerm, next: Int) {
+    let bodyStart = openedAt + 1
+    guard let close = tokens[bodyStart...].firstIndex(of: .closeParen) else {
+      throw ParseError.calcUnterminated
+    }
+    let term = try CalcExpression.evaluate(Array(tokens[bodyStart ..< close]))
+    return (term, close + 1)
   }
 
   private static func append(
@@ -390,19 +448,4 @@ nonisolated enum CSSColorParser {
     _ = alpha
   }
 
-  // MARK: - Diagnostics
-
-  private static func describe(_ token: CSSToken) -> String {
-    switch token {
-    case let .function(n): "\(n)("
-    case let .ident(n): n
-    case let .number(n): "\(n)"
-    case let .percentage(p): "\(p)%"
-    case let .dimension(v, u): "\(v)\(u)"
-    case let .hash(h): "#\(h)"
-    case .comma: ","
-    case .slash: "/"
-    case .closeParen: ")"
-    }
-  }
 }

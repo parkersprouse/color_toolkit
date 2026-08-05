@@ -25,6 +25,12 @@ nonisolated enum ParseError: Error, Equatable, Sendable {
   case unexpectedToken(String)
   case trailingContent(String)
   case unsupportedFunction(String)
+  case calcEmpty
+  case calcUnterminated
+  case calcDanglingOperator
+  case calcTypeMismatch
+  case calcDivisionByZero
+  case calcUnsupportedSyntax(String)
 
   // MARK: Internal
 
@@ -69,6 +75,24 @@ nonisolated enum ParseError: Error, Equatable, Sendable {
       default:
         "\(name)() is not supported yet."
       }
+    case .calcEmpty:
+      "calc() needs an expression."
+    case .calcUnterminated:
+      "calc() is missing its closing “)”."
+    case .calcDanglingOperator:
+      "calc() has an operator with nothing after it."
+    case .calcTypeMismatch:
+      // Scoped to what this parser does, deliberately, rather than claiming the
+      // expression is invalid CSS. Percentages resolve against a reference in a
+      // color component, so CSS Values 4's type algebra is more permissive here
+      // than this rule is; widening it later should not have to retract a claim.
+      "calc() here adds and subtracts only matching types, and multiplies or "
+        + "divides only by a plain number."
+    case .calcDivisionByZero:
+      "calc() cannot divide by zero."
+    case let .calcUnsupportedSyntax(what):
+      "calc() here supports + − × ÷ over numbers, percentages and angles, "
+        + "without nesting — “\(what)” is outside that."
     }
   }
 }
@@ -76,11 +100,17 @@ nonisolated enum ParseError: Error, Equatable, Sendable {
 /// CSS functions that can legally appear inside a color but that this parser does
 /// not evaluate.
 ///
-/// Detected before tokenizing: a `calc()` body contains operators the color
-/// tokenizer has no rules for, so left alone it would fail with “unexpected
-/// character +” instead of saying what is actually wrong.
+/// Detected before tokenizing, because their bodies contain syntax the color
+/// tokenizer has no rules for: `clamp(0, 0.5, 1)` left alone would fail somewhere
+/// inside its argument list instead of saying what is actually wrong.
+///
+/// `calc()` was the original worked example here and is no longer on the list — see
+/// ``CalcExpression``. `min`/`max`/`clamp`/`round` stay because they are the rest of
+/// CSS's math functions and this parser evaluates none of them; `var`/`env`/`attr`
+/// stay for a different and permanent reason, which is that they cannot be resolved
+/// from the string at all.
 nonisolated enum UnsupportedFunctions {
-  static let names = ["calc", "var", "env", "attr", "min", "max", "clamp", "round"]
+  static let names = ["var", "env", "attr", "min", "max", "clamp", "round"]
 
   /// Returns the first unsupported function called in `input`, if any.
   static func firstCalled(in input: String) -> String? {

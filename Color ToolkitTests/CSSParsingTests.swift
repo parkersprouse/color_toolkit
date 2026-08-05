@@ -246,18 +246,24 @@ struct CSSParseRejectionTests {
 
   @Test("Unsupported CSS functions get a useful error, not a tokenizer complaint")
   func unsupportedFunctions() {
-    // The naming matters: a `calc()` body contains operators the color tokenizer
-    // has no rules for, so without an early check the user would see
-    // "unexpected character +" instead of what is actually wrong.
-    #expect(throws: ParseError.unsupportedFunction("calc")) {
-      try CSSColorParser.parse("rgb(calc(1 + 1) 0 0)")
+    // The naming matters: these bodies contain syntax the color tokenizer has no
+    // rules for, so without an early check the user would see a complaint from
+    // somewhere inside the argument list instead of what is actually wrong.
+    #expect(throws: ParseError.unsupportedFunction("clamp")) {
+      try CSSColorParser.parse("oklch(clamp(0, 0.5, 1) 0.1 200)")
     }
     // var() is the common real-world case — worth naming explicitly.
     #expect(throws: ParseError.unsupportedFunction("var")) {
       try CSSColorParser.parse("rgb(var(--r) 0 0)")
     }
-    expectRejected("oklch(clamp(0, 0.5, 1) 0.1 200)")
     expectRejected("rgb(min(255, 300) 0 0)")
+
+    // calc() was on this list until M13 and is now evaluated. The check still
+    // has to fire for a var() nested inside one, which it cannot resolve.
+    #expect(throws: Never.self) { try CSSColorParser.parse("rgb(calc(1 + 1) 0 0)") }
+    #expect(throws: ParseError.unsupportedFunction("var")) {
+      try CSSColorParser.parse("rgb(calc(var(--r) * 2) 0 0)")
+    }
 
     // And the check must not fire on legitimate functions that merely contain
     // the letters — `color(` must never be mistaken for a math function.
