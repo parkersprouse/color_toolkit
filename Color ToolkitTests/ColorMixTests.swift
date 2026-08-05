@@ -357,6 +357,76 @@ struct ColorMixInterpolationTests {
     #expect(abs(overBlue.alpha - 0.5) < 1e-12)
   }
 
+  @Test("A missing alpha is substituted before premultiplication, not exempted from it")
+  func missingAlphaIsSubstitutedFirst() throws {
+    // §12.2's substitution runs before §12.3 premultiplies, so a `none` alpha on one
+    // side has become the other side's alpha by the time anything is scaled — both
+    // ends premultiply by the same number and the scaling cancels. The answer is the
+    // plain average, and the reference agrees.
+    //
+    // Reading the *flag* instead of the substituted value premultiplies only the side
+    // that had an alpha written, and then divides the other side's components by it on
+    // the way out: `rgb(200% 0% 50%)` here, a red channel at twice its own maximum.
+    let mixed = try parse("color-mix(in srgb, rgb(255 0 0 / none), rgb(0 0 255 / 0.25))")
+    #expect(abs(mixed.components[0] - 0.5) < 1e-12)
+    #expect(abs(mixed.components[2] - 0.5) < 1e-12)
+    #expect(abs(mixed.alpha - 0.25) < 1e-12)
+    #expect(!mixed.missing.contains(.alpha), "only one side was missing it")
+
+    // The same claim stated so it cannot be satisfied by arithmetic that happens to
+    // land: an even mix does not depend on the order of its operands, and a rule that
+    // consults one side's `missing` flag and not the other's is not symmetric whatever
+    // numbers fall out of it.
+    let swapped = try parse("color-mix(in srgb, rgb(0 0 255 / 0.25), rgb(255 0 0 / none))")
+    for index in 0 ..< 3 {
+      #expect(abs(mixed.components[index] - swapped.components[index]) < 1e-12)
+    }
+    #expect(abs(mixed.alpha - swapped.alpha) < 1e-12)
+
+    // Missing on *both* sides is the case where premultiplication genuinely is
+    // skipped — there is no alpha to scale by — and the flag survives into the result.
+    let neither = try parse("color-mix(in srgb, rgb(255 0 0 / none), rgb(0 0 255 / none))")
+    #expect(abs(neither.components[0] - 0.5) < 1e-12)
+    #expect(abs(neither.components[2] - 0.5) < 1e-12)
+    #expect(neither.missing.contains(.alpha))
+  }
+
+  @Test("Two fully transparent colors mix to a color, not to a NaN")
+  func fullyTransparentPair() throws {
+    // Premultiplication multiplies both sides by zero; un-premultiplying would divide
+    // them by it again, and 0 / 0 is a NaN rather than a recovery. The guard on the
+    // divide is the only thing making this a color at all — and the reference agrees
+    // on the answer it leaves behind, `rgb(0 0 0 / 0)`.
+    let mixed = try parse("color-mix(in srgb, transparent, rgb(0 0 255 / 0))")
+    for index in 0 ..< 3 {
+      #expect(
+        mixed.components[index].isFinite,
+        "component \(index) came back \(mixed.components[index])",
+      )
+      #expect(mixed.components[index] == 0)
+    }
+    #expect(mixed.alpha == 0)
+  }
+
+  @Test("A component missing on both sides keeps its carried value, unscaled")
+  func absentComponentsAreNotPremultiplied() throws {
+    // Contrived, and it has to be: the value underneath a `none` never reaches CSS
+    // output, so this is close to the only shape that can observe the rule. Both
+    // operands carry all three components into sRGB by §13.2's set rule — no sRGB
+    // role is analogous to any of theirs — and they carry *different* values, because
+    // `lab(none none none)` is black where `hwb(none none none)` is pure red.
+    //
+    // With the flag set on both sides there is no alpha to scale by, so the red
+    // channel is the plain average of 0 and 1. Premultiplying it anyway divides by the
+    // interpolated alpha on the way out and lands on 2/3 instead.
+    let mixed = try parse("color-mix(in srgb, lab(none none none / 0.5), hwb(none none none))")
+    for index in 0 ..< 3 {
+      #expect(mixed.missing.contains(.component(index)), "component \(index) should carry across")
+    }
+    #expect(abs(mixed.components[0] - 0.5) < 1e-9)
+    #expect(abs(mixed.alpha - 0.75) < 1e-12)
+  }
+
   @Test("A powerless hue takes the other color's, rather than counting as zero")
   func powerlessHue() throws {
     // Reading white's OKLCH hue literally is the single most visible way to get

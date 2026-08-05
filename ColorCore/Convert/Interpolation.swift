@@ -276,8 +276,18 @@ nonisolated struct ColorInterpolation: Sendable, Hashable {
   /// A hue is never premultiplied — it is an angle, and scaling an angle by opacity
   /// is meaningless. Neither is a component missing on both sides: there is no value
   /// there, and the result keeps the flag rather than whatever arithmetic fell out.
+  ///
+  /// Every exemption here is stated against `absent` — what is missing on **both**
+  /// sides — and never against this color's own `missing`, alpha included. Substitution
+  /// has already run by this point, so a one-sided `none` alpha *has* the other color's
+  /// value and has to scale by it like any other: both ends then premultiply by the same
+  /// number and it cancels, which is why the reference answers such a mix with the plain
+  /// average. Consulting the flag skips the scaling on one side only and then divides
+  /// the other side's components by an alpha they never gained — `rgb(255 0 0 / none)`
+  /// mixed with `rgb(0 0 255 / 0.25)` comes back at 200% red. It is also, on its face,
+  /// not symmetric: it would make an even mix depend on the order of its operands.
   private func premultiplied(_ color: ColorValue, leaving absent: ComponentMask) -> SIMD3<Double> {
-    guard !color.missing.contains(.alpha) else { return color.components }
+    guard !absent.contains(.alpha) else { return color.components }
 
     var components = color.components
     for index in 0 ..< 3 where !isHeldConstant(index, in: absent) {
