@@ -13,18 +13,20 @@
 > reachable from no panel. M13 and M14 are core-only in code but a user reaches both by
 > typing, so each is driven against the running app by an XCUITest rather than eyeballed.
 >
-> **M10–M18 take up what the deferred list had been holding**: the CSS syntaxes the
-> parser still rejects (`color-mix()`), the missing-component
-> semantics all three of those rest on, a `@media (color-gamut)` export shape, design-token
-> import, and a CLI over `ColorCore`. M10 (relocating `ColorCore`) and M11 (the three items
-> M9 deferred) are done, plus the two housekeeping commits recorded after M11 — the
-> exported `UTType` declaration M11's drag was missing, and Xcode's recommended build
-> settings. **M12, the spine, is done too**: `ComponentRole` and carry-forward exist, so
-> every "depends on M12" is discharged. **M13 and M14 are done too**, which closes the
-> plan's last dependency chain — M13 was M14's only blocker, and nothing waits on anything
-> now. **M15, M16, M17 and M18 remain, and all four are independent**, so they can be taken
-> in any order. What remains beyond that is **M8b** (saving an export to a file) and the
-> shorter deferred list at the end.
+> **M10–M18 take up what the deferred list had been holding**: three CSS syntaxes the
+> parser used to reject, the missing-component semantics all three rest on, a
+> `@media (color-gamut)` export shape, design-token import, and a CLI over `ColorCore`.
+> Two of those syntaxes now parse — `calc()` (M13) and `rgb(from …)` (M14) — leaving
+> `color-mix()` as M15. M10 (relocating `ColorCore`) and M11 (the three items M9 deferred)
+> are done, plus the two housekeeping commits recorded after M11 — the exported `UTType`
+> declaration M11's drag was missing, and Xcode's recommended build settings. **M12, the
+> spine, is done**: `ComponentRole` and carry-forward exist, so every "depends on M12" is
+> discharged — and M14 is the first milestone to actually consume it, which is what turned
+> that claim into a tested one. **M13 and M14 close the plan's last dependency chain**:
+> M13 was M14's only blocker, and nothing waits on anything now. **M15, M16, M17 and M18
+> remain, and all four are independent**, so they can be taken in any order. What remains
+> beyond that is **M8b** (saving an export to a file) and the shorter deferred list at the
+> end.
 >
 > **M12 is the first milestone with no oracle *and* nothing to look at**, so its standard
 > of proof is the spec's own worked examples plus five mutations. Two of its findings are
