@@ -39,6 +39,15 @@
 > reachable from no panel. M13 and M14 are core-only in code but a user reaches both by
 > typing, so each is driven against the running app by an XCUITest rather than eyeballed.
 >
+> **M16 was checked against the reference from the panel's own screenshot**, and the
+> check is discriminating rather than merely agreeing. Exporting `color(display-p3 0 1 0)`
+> writes `--brand: #00fb29;` in the fallback and `--brand: color(display-p3 0 1 0);`
+> unmoved in the `@media` block. colorjs.io's CSS gamut mapping gives `#00fb29` exactly —
+> and a *naive clip* of the same color gives `#00ff00`, so the agreement proves the
+> fallback goes through §13's mapper rather than clamping, which a matching value alone
+> would not have shown. The screenshot also confirms the Format picker is gone while Name
+> and Precision remain, and the badge reads `1 mapped` beside the shape's own sentence.
+>
 > **M16 shipped with a decision the milestone note had not anticipated.** The plan
 > specified the shape and the `usesFormat` flag correctly, and both went in as written.
 > What it did not see is that the *badge* has to be decided with its own sentence: neither
