@@ -285,10 +285,17 @@ struct ExportPresentationTests {
     }
   }
 
-  /// The P3 shape says which block moved the colors and which one did not, and names
-  /// neither the user's format selection (which it ignores) nor a gamut it does not
-  /// write.
-  @Test("The P3 warning names both blocks")
+  /// The P3 shape names both of its blocks, and names neither the user's format selection
+  /// (which it ignores) nor a gamut it does not write.
+  ///
+  /// **It also promises nothing about exactness, which is the assertion that matters.**
+  /// An earlier draft said the media block "carries them exactly" — true of the colors
+  /// inside P3 that motivate the shape, false of every color outside it, and this badge
+  /// counts both because the count is measured against hex. A substring check cannot
+  /// catch a false claim, so the *fact* is pinned by an input in
+  /// ``ExportShapeTests/p3OverrideIsNotAnExactnessPromise()``; what is checked here is
+  /// that the copy has not drifted back to making the claim.
+  @Test("The P3 warning names both blocks and claims no more than it can")
   func p3MappedNoteNamesTheBlocks() {
     let note = ExportShape.p3WithFallback.mappedNote(
       count: 2,
@@ -297,6 +304,7 @@ struct ExportPresentationTests {
     #expect(note.contains("fallback"))
     #expect(note.contains("@media"))
     #expect(!note.contains("brought into gamut"), "The generic sentence leaked through")
+    #expect(!note.contains("exactly"), "The override cannot promise this for every color")
   }
 
   /// Source titles share a segmented control, and its empty-state copy has to be true of

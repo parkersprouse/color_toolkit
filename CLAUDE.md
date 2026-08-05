@@ -30,7 +30,7 @@ Build:
 xcodebuild -project "Color Toolkit.xcodeproj" -scheme "Color Toolkit" -destination 'platform=macOS' build
 ```
 
-Full test suite (~9 minutes, nearly all of it UI tests — the 372 Swift Testing functions
+Full test suite (~9 minutes, nearly all of it UI tests — the 374 Swift Testing functions
 finish in under a second, the 29 XCUITests take seven minutes and up):
 
 ```bash
@@ -456,9 +456,20 @@ Layered so the numeric core stays independently testable and UI-free:
   against the P3 block instead and a color outside sRGB reports `0 mapped` while the hex
   line right under the badge has been rounded. The sentence changes with it —
   `ExportShape.mappedNote` is per shape because the generic "the values below were
-  brought into gamut" is false of the media block, which carries those colors exactly.
-  The count and the copy are one decision; do not change either alone. Known limitation:
-  a color outside *P3* is mapped in both blocks and the badge does not distinguish it.
+  brought into gamut" is false of the media block, which is written in a wider gamut.
+  The count and the copy are one decision; do not change either alone.
+- **The P3 override promises nothing about exactness, and the note must not either.**
+  `color(display-p3 …)` is not `cannotRepresentOutOfGamut`, so unlike the hex fallback it
+  has no fixed answer: it follows the **app-wide gamut policy**, which is `.map` in the
+  panel and `.preserve` under `CSSFormatOptions.lossless`. Under `.map` a color outside
+  *P3* is mapped in **both** blocks. The badge counts against hex, so it counts those
+  colors too. A first draft of
+  the note said the media block "carries them exactly": true of the P3-reachable colors
+  that motivate the shape, false of the rest, and printed three lines above the value it
+  described. Wording that stops at *which block writes what* is true either way. A
+  substring test cannot catch a claim like this — the fact is pinned by an input,
+  `p3OverrideIsNotAnExactnessPromise`, which renders a Rec.2020 primary and requires the
+  override to have moved.
 - **Palette keys are syntax, not labels.** They become CSS identifiers *and* JavaScript
   object keys, and Tailwind writes shade keys bare — legal for `50:`, fatal for
   `triad-2:`, which parses as a subtraction and stops the config loading. They must also

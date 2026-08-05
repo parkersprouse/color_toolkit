@@ -129,15 +129,18 @@ nonisolated struct ExportOptions: Sendable, Equatable {
   ///
   /// One predicate decides both the badge and the serialized string — the invariant this
   /// property exists to preserve, now that one shape writes two spellings. For that shape
-  /// the answer is the **fallback**: hex is where a wide color is actually moved, and the
-  /// `@media` block is what recovers it. Measuring against the P3 block instead would
-  /// report `0 mapped` for a color sitting outside sRGB while the hex line right below the
-  /// badge had been rounded — the badge silent about a value that changed.
+  /// the answer is the **fallback**: hex is where a color is moved for certain, since it
+  /// is the one format that `cannotRepresentOutOfGamut`. Measuring against the P3 block
+  /// instead would report `0 mapped` for a color sitting outside sRGB while the hex line
+  /// right below the badge had been rounded — the badge silent about a value that changed.
   ///
   /// The count therefore refers to the fallback block, and the panel's wording says so.
   /// **A color outside P3 is mapped in both blocks and the badge does not distinguish it**
   /// — an accepted limitation, recorded in PLAN.md rather than answered with a second
   /// count, because a two-number badge is a different feature from the one M16 asked for.
+  /// The consequence for *wording* is the sharper half and was a real defect: the note
+  /// cannot promise that the `@media` block carries these colors exactly, because it does
+  /// not for the ones outside P3. See `ExportShape.mappedNote(count:format:)`.
   var mappedCountFormat: CSSOutputFormat {
     shape.usesFormat ? format : Self.fallbackFormat
   }

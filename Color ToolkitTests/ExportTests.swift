@@ -422,6 +422,77 @@ struct ExportShapeTests {
     }
   }
 
+  /// The fallback block gets the formatting too, which nothing else here can show.
+  ///
+  /// `formattingReachesEveryShape` reads this shape's *wide* block, and it has to — hex is
+  /// precision-invariant, so a precision claim made against the fallback could not fail.
+  /// That leaves the fallback's `formatting` argument unpinned: hardcoding `.default`
+  /// there would survive every other test in this file. Hex casing is the cheapest setting
+  /// that hex does observe, so it is the one asserted.
+  @Test("The fallback honors the formatting, not just the override")
+  func p3FallbackReceivesTheFormatting() {
+    var options = ExportOptions.default
+    options.shape = .p3WithFallback
+
+    let rendered = options.render(
+      Self.palette,
+      formatting: CSSFormatOptions(uppercaseHex: true),
+    )
+    #expect(rendered.contains("--brand-500: #3B82F6;"), "The fallback ignored it:\n\(rendered)")
+  }
+
+  /// **The `@media` block promises nothing about exactness, and a color outside *P3*
+  /// shows why.**
+  ///
+  /// `color(display-p3 …)` is not `cannotRepresentOutOfGamut`, so unlike the hex fallback
+  /// the override has no fixed answer: it follows the **app-wide gamut policy**, exactly
+  /// as choosing `color(display-p3 …)` in any other shape does. Under `.map` — what
+  /// `ColorStore.formatOptions` starts as, so what the panel actually shows — a Rec.2020
+  /// primary is brought into gamut in *both* blocks. Under `.preserve` the same input
+  /// keeps its negative components.
+  ///
+  /// Both are asserted, because it is the *dependence* that makes the wording claim
+  /// unsafe. The panel's note said the media block "carries them exactly": true of the
+  /// P3-reachable colors that motivate the shape, and false of every color outside P3 —
+  /// which this same badge counts, since the count is measured against hex. A substring
+  /// test cannot catch a false claim, so the fact is pinned by an input.
+  ///
+  /// This was written against `.lossless` first and failed, which is the finding: that
+  /// constant is `.preserve`, so it silently asked the other half of the question.
+  @Test("The override follows the gamut policy, so it cannot promise exactness")
+  func p3OverrideIsNotAnExactnessPromise() throws {
+    var options = ExportOptions.default
+    options.shape = .p3WithFallback
+
+    // Outside sRGB *and* outside Display P3 — confirmed against colorjs.io, which is the
+    // rule for any gamut-containment claim: space "widths" do not nest.
+    let wider = ColorValue(space: .rec2020, 0.0, 1.0, 0.0)
+    #expect(!wider.inGamut(of: .srgb))
+    #expect(!wider.inGamut(of: .displayP3))
+
+    func override(_ formatting: CSSFormatOptions) throws -> ColorValue {
+      let rendered = options.render([PaletteEntry(color: wider)], formatting: formatting)
+      let values = ExportRoundTripTests.propertyValues(in: rendered)
+      #expect(values.count == 2, "Expected one value per block:\n\(rendered)")
+      return try #require(try CSSColorParser.parse(values[values.count - 1]).color)
+    }
+
+    // The panel's own setting: the override is mapped, which is what the old note denied.
+    let mapped = try override(CSSFormatOptions())
+    #expect(
+      mapped.inGamut(of: .displayP3, epsilon: ColorValue.gamutNoiseTolerance),
+      "The override kept a value P3 cannot hold under .map: \(mapped.components)",
+    )
+
+    // And the other policy, so the test states the dependence rather than one instance of
+    // it — an override that always mapped would pass the assertion above.
+    let preserved = try override(.lossless)
+    #expect(
+      !preserved.inGamut(of: .displayP3, epsilon: ColorValue.gamutNoiseTolerance),
+      "The override mapped under .preserve: \(preserved.components)",
+    )
+  }
+
   @Test("An empty palette renders nothing at all")
   func emptyPaletteIsEmpty() {
     for shape in ExportShape.allCases {

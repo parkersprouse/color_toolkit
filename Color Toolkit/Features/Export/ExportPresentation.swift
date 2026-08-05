@@ -104,9 +104,15 @@ nonisolated extension ExportShape {
   /// from ``ExportOptions/mappedCountFormat``, and the two have to be decided together.
   /// ``p3WithFallback`` needs its own sentence because the generic one is false of it:
   /// "the values below were brought into gamut" is true of the fallback block and wrong
-  /// about the `@media` block sitting underneath it, which carries those same colors
-  /// exactly. That is the whole reason the shape exists, so a warning that did not say it
-  /// would read as a defect.
+  /// about the `@media` block sitting underneath it, which is written in a wider gamut.
+  ///
+  /// **The wording stops at which block writes what, and deliberately promises nothing
+  /// about exactness.** The count is measured against hex, so it includes colors outside
+  /// *P3* as well — and those are mapped in **both** blocks under the app's default gamut
+  /// policy. An earlier draft said the `@media` block "carries them exactly", which is a
+  /// claim this shape cannot make about every color it counts, and false three lines above
+  /// the value it describes. Saying only that the override is written in Display P3 is
+  /// true either way. ``ExportShapeTests`` pins the fact the stronger claim denied.
   ///
   /// - Parameter format: ``ExportOptions/mappedCountFormat``, not
   ///   ``ExportOptions/format`` — for this shape they differ, and naming the user's
@@ -116,8 +122,8 @@ nonisolated extension ExportShape {
     switch self {
     case .p3WithFallback:
       let them = count == 1 ? "it" : "them"
-      return "Display P3 reaches \(colors) that hex cannot, so the fallback block rounds "
-        + "\(them) and the @media block carries \(them) exactly."
+      return "Hex cannot express \(colors), so the fallback block rounds \(them); the "
+        + "@media block writes \(them) in Display P3."
     case .declaration, .customProperties, .json, .tailwindTheme, .tailwindConfig:
       return "\(format.title) cannot express \(colors), so the values below were "
         + "brought into gamut."
