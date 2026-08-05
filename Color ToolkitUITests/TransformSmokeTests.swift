@@ -123,6 +123,35 @@ final class TransformSmokeTests: XCTestCase {
     capture("transform-ramp")
   }
 
+  /// The mix strip spans the pair, and adopting a stop writes it to the field.
+  ///
+  /// The default pair is `#3b82f6` on white, so the first stop is the color itself, the
+  /// last is white, and the middle is neither. Distinctness is what carries the test: a
+  /// strip that ignored the background, or ignored the amount, would render five
+  /// swatches carrying the same label and still look like a gradient in a screenshot.
+  func testMixStripSpansThePairAndAdoptingAStopChangesTheField() {
+    setField("#3b82f6")
+    click(radioButton: "Transform", "the tool switcher")
+
+    let start = swatchLabel("transformMix-0")
+    let middle = swatchLabel("transformMix-2")
+    let end = swatchLabel("transformMix-4")
+
+    XCTAssertFalse(middle.isEmpty, "The middle mix stop has no accessibility label")
+    XCTAssertNotEqual(start, middle, "The mix strip never leaves the panel's own color")
+    XCTAssertNotEqual(middle, end, "The mix strip never reaches the background")
+    XCTAssertNotEqual(start, end, "Both ends of the mix strip are the same color")
+
+    scrollDown(6)
+    capture("transform-mix")
+
+    click(button: "transformMix-2", "the middle mix stop")
+    XCTAssertTrue(
+      fieldValue().hasPrefix("oklch("),
+      "Adopting a mix stop did not write it to the field, got \(fieldValue())",
+    )
+  }
+
   /// The solver reports the pair it was given and offers a way out of a failing one.
   ///
   /// `#3b82f6` on white is 3.68:1 — the pair the contrast panel's own screenshots use —

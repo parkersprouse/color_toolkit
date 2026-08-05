@@ -8,12 +8,13 @@ shortcut, WCAG 2.2 / APCA contrast checking, a gamut-aware HSV/OKLCH picker, OKL
 transforms — adjustment, harmonies, shade ramps and a contrast solver — export to CSS
 declarations, custom properties, JSON and both Tailwind generations, and saved projects
 on SwiftData with reordering and hand-picked palettes, CSS Color 4 §13.2's
-missing-component carry-forward, a scoped `calc()`, and CSS Color 5 relative color syntax
-(`rgb(from …)`). M0–M14 are built. **M15–M18 are planned and not started** — `color-mix()`,
-a `@media (color-gamut)` export shape, design-token import, and a CLI over `ColorCore`.
-M12 was the spine and M13 was M14's only blocker, so the plan has no dependency chains
-left: all four remaining milestones are independent and can be taken in any order. Swift 6,
-SwiftUI, no third-party runtime dependencies.
+missing-component carry-forward, a scoped `calc()`, CSS Color 5 relative color syntax
+(`rgb(from …)`), and `color-mix()` with premultiplied alpha and the four hue arcs.
+M0–M15 are built. **M16–M18 are planned and not started** — a `@media (color-gamut)`
+export shape, design-token import, and a CLI over `ColorCore`. M12 was the spine and M13
+was M14's only blocker, so the plan has no dependency chains left: all three remaining
+milestones are independent and can be taken in any order. Swift 6, SwiftUI, no
+third-party runtime dependencies.
 
 **[PLAN.md](PLAN.md) is the source of truth** for milestone status, what is deferred
 and why, and the reasoning behind every decision recorded below. This file is the
@@ -135,7 +136,18 @@ node Tools/generate-constants.mjs         # → ColorCore/Spaces/Matrices.swift,
 node Tools/generate-fixtures.mjs          # → Fixtures/reference-vectors.json
 node Tools/generate-parse-fixtures.mjs    # → Fixtures/parse-vectors.json
 node Tools/generate-contrast-fixtures.mjs # → Fixtures/contrast-vectors.json
+node Tools/generate-mix-fixtures.mjs      # → Fixtures/mix-vectors.json
 ```
+
+**The mix generator passes `premultiplied: true`, and that is not a preference.**
+colorjs.io defaults to *not* premultiplying and CSS always does, so the default returns
+a plausible wrong answer rather than an error — `rgb(50% 0% 50%)` where CSS says
+`rgb(33.333% 0% 66.667%)`. Same class of trap as the WCAG `0.03928` / `0.04045` split
+below. It also **skips any case whose endpoints leave the interpolation space's gamut**,
+because colorjs.io's `range()` gamut-maps both endpoints first ("to avoid areas of flat
+color") and CSS Color 4 §12 has no such step — those cases would be asking the oracle a
+different question. ColorCore's answer for them is pinned from the other side, by a test
+asserting the *un*-mapped result.
 
 The CVD matrices are the one exception to the Node/colorjs.io rule. Their oracle is
 `colour-science` (Python), so the generator is Python — but it needs **only the
@@ -173,7 +185,9 @@ Layered so the numeric core stays independently testable and UI-free:
   `ColorSpace`, 14 spaces routed through XYZ D65, CSS Color 4 §13 gamut mapping,
   a hand-written recursive-descent CSS parser, a serializer, `Analysis/`
   (WCAG 2.2 and APCA contrast), `Convert/GamutBoundary.swift` (how much chroma
-  a lightness and hue have left), `Transform/` (relative adjustment, the S-curve,
+  a lightness and hue have left), `Convert/Interpolation.swift` (the four hue arcs,
+  `color-mix()`'s percentage rules, and premultiplied interpolation),
+  `Transform/` (relative adjustment, the S-curve,
   harmonies, shade ramps, the contrast solver — all in OKLCH), and `Export/`
   (declaration templates and five document shapes).
 - **`Features/Shell/ColorStore.swift`** — `@MainActor @Observable`, one instance
@@ -259,6 +273,43 @@ Layered so the numeric core stays independently testable and UI-free:
   component takes the *other* color's value when interpolated, where a powerless one is
   zero. Marking first destroys the value the spec wants preserved. Powerless marking
   also *blanks* what it flags; carry-forward must not.
+- **A mix converts with carry-forward and *then* marks powerless components missing —
+  and the second step is the one whose absence you can see.** `ColorInterpolation`
+  runs `convertedForInterpolation(to:).markingPowerlessComponents()`, in that order.
+  Drop the marking and `color-mix(in oklch, white, blue)` averages white's hue of 0°
+  with blue's 264° and returns a **green**; keep it and white's hue is absent, so it
+  takes blue's and the answer is the light blue anyone would expect. Inside
+  interpolation the two kinds of missing behave identically — each takes the other
+  color's value — which is *why* the order still matters: marking first would blank a
+  value carry-forward is supposed to preserve.
+- **Nothing in the mix path gamut-maps, and the reference disagrees.** CSS Color 4 §12
+  has no mapping step, so `color-mix(in srgb, color(display-p3 0 1 0), black)` keeps its
+  negative red channel and the "outside sRGB" badge reports it. colorjs.io's `range()`
+  maps both endpoints in first — a gradient nicety — so the fixture generator skips
+  those cases and a Swift test pins the un-mapped answer instead. Adding a map here to
+  "fix" a strange-looking swatch would silently make this app disagree with browsers.
+- **Premultiplication skips a hue, skips a component missing on both sides, and does not
+  happen at all when alpha is missing; un-premultiplying additionally stops at alpha 0.**
+  Scaling an angle by opacity is meaningless, and dividing by a zero alpha is a NaN
+  rather than a recovery. All four exemptions are exercised by the recorded vectors.
+- **`color-mix()`'s percentage shortfall only ever reaches *down*.** Percentages summing
+  under 100% re-normalize *and* multiply the result's alpha by the sum — `red 20%,
+  blue 20%` is an even mix at 0.4 alpha. Over 100% only re-normalizes, because scaling
+  up would hand back a color more opaque than either input. A percentage outside
+  `[0, 100]` is **rejected**, unlike alpha, which clamps: `red 150%` carries no
+  intention to read.
+- **`color-mix()` is deliberately not a `ColorFunction` case.** That enum lists functions
+  whose arguments are *components*, and every one of them has a per-component grammar, a
+  legacy-comma question and a fixed space. A mix has none of the three, so a case there
+  would mean four tables gaining an entry that means nothing. It is a branch in
+  `parseFunction` and a `ColorNotation.mix` case carrying the interpolation method.
+- **`ColorGrammar.interpolationSpace(named:)` is *derived* from `ColorSpace`'s raw
+  values, and that is not a contradiction of the transcription rule above.** The
+  transcribed tables state facts the identifiers do not carry — a component's role, its
+  channel keyword, and which eight of the fourteen spaces `color()` accepts. This one has
+  no such fact: *every* space is a legal interpolation space, and the raw values are the
+  CSS identifiers. The discriminating question is the same one as always — is there
+  something a derivation can lose?
 - **`ColorSpace.channelKeywords` is transcribed from CSS Color 5, never derived** — the
   same rule as `componentRoles` and for a sharper reason. Deriving from `componentLabels`
   works today for all fourteen spaces, which is the trap: those labels are editorial copy
@@ -394,8 +445,8 @@ Layered so the numeric core stays independently testable and UI-free:
   `width − 2 × max(leading, trailing)`, and the window title alone spends that twice
   over. Do not move it back — M9 added a seventh segment, and all seven fit in the body.
   **Seven is the tested ceiling at `minWidth: 520`; an eighth is unmeasured risk.** This
-  is why M15's mixing folds into `Transform` and M17's import folds into `Projects`
-  rather than each taking a `Tool` case. Adding an eighth means budgeting for shorter
+  is why M15's mixing folded into `Transform` — a fifth section, not an eighth tool —
+  and why M17's import will fold into `Projects`, rather than either taking a `Tool` case. Adding an eighth means budgeting for shorter
   titles, a raised `minWidth`, or a different control — not just one more enum case.
 - **A ramp stop on the gamut boundary can round outward at display precision.** The
   printed `oklch(0.97 0.0142 259.81)` is 2.3e-5 of chroma past a boundary at `0.014177`,
@@ -467,11 +518,13 @@ the accessibility-tree conventions before writing UI tests.
   as a finding to chase, and prefer a blunt mutation's *failure set* over its size — M13's
   first attempt at the slash rule simply switched the feature off and failed fifteen
   tests, which proved nothing until it was sharpened to fail only the slash cases.
-- **Three parser features have no oracle, each for a different reason** — worth knowing
+- **Four parser features have no oracle, each for a different reason** — worth knowing
   before reaching for colorjs.io. It *resolves* `none` on conversion (so it cannot answer
-  §13.2 at all, M12), it *rejects* `calc()` outright (M13), and it has *no relative color
+  §13.2 at all, M12), it *rejects* `calc()` outright (M13), it has *no relative color
   syntax* whatsoever — every `rgb(from …)` comes back "Expected 3 coordinates … got 4"
-  (M14). Ask it before assuming either way; the answer has differed each time.
+  (M14) — and it cannot *parse* `color-mix()` even though it can compute one, so M15's
+  grammar is hand-written while only its numbers are generated. Ask it before assuming
+  either way; the answer has differed every time.
 - **Where floating point intrudes, assert the discrimination rather than the value.** Not
   a loosened equality — a different claim. White's OKLab lightness is
   `1.0000000000000002`, so M14's "is `l` written 0–1 or 0–100?" is settled by a tolerance

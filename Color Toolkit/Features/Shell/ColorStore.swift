@@ -220,6 +220,18 @@ final class ColorStore {
   var harmonyOptions = HarmonyOptions.default
   var shadeRamp = ShadeRamp.default
 
+  /// Which space the transform panel's mix interpolates in, and which way round the
+  /// wheel it goes where that space has a hue.
+  ///
+  /// Preferences, on the store for the same reason as the three above. The mix
+  /// *amount* deliberately is not: a half-dialed slider is an unfinished edit, the same
+  /// as the pending adjustment and the contrast push, and it stays in the panel.
+  ///
+  /// OKLCH by default because it is the space where a mix behaves the way people
+  /// expect — mixing toward white keeps the hue and the chroma instead of washing out.
+  var mixSpace: ColorSpace = .oklch
+  var mixHueMethod: HueInterpolationMethod = .shorter
+
   /// Which bar the contrast solver aims at. AA body text is the one nearly every
   /// audit actually checks.
   var contrastTarget: ContrastRequirement = .aaNormalText

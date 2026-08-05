@@ -17,6 +17,14 @@ nonisolated enum ColorNotation: Equatable, Sendable {
   /// applies to modern syntax only and that combining the two is an error. Encoding
   /// that in the type means no caller has to remember it.
   case relative(ColorFunction)
+  /// `color-mix(in oklch, …)` — CSS Color 5's mixing function.
+  ///
+  /// Not a ``ColorFunction`` case, because that enum is a list of functions whose
+  /// arguments are *components*: every one of them has a per-component grammar, a
+  /// legacy question and a space of its own, and `color-mix()` has none of the three.
+  /// It carries its interpolation method instead, which is the only thing about the
+  /// written form the value itself cannot tell you afterwards.
+  case mix(ColorInterpolation)
 }
 
 nonisolated struct ParseResult: Equatable, Sendable {
@@ -163,6 +171,13 @@ nonisolated enum CSSColorParser {
     _ name: String,
     tokens: [CSSToken],
   ) throws(ParseError) -> ParseResult {
+    // Dispatched here rather than at the entry point so that nesting works in both
+    // directions for free: `consumeColor` routes through this function, which is what
+    // lets a mix be an origin color and either side of a mix be another mix.
+    if name == "color-mix" {
+      return try parseColorMix(tokens)
+    }
+
     guard let function = ColorFunction(rawValue: name) else {
       throw ParseError.unknownFunction(name)
     }
@@ -252,6 +267,179 @@ nonisolated enum CSSColorParser {
 
     default:
       throw ParseError.unexpectedToken(tokens[index].description)
+    }
+  }
+
+  // MARK: - color-mix()
+
+  /// Parses `color-mix(<interpolation-method>, <color> <percentage>?,
+  /// <color> <percentage>?)`.
+  ///
+  /// A separate function rather than a case in ``ColorFunction`` because it is a
+  /// different kind of thing: every function in that enum takes *components*, with a
+  /// per-component grammar, a legacy question and a fixed space. `color-mix()` takes
+  /// two colors and a method, and forcing it into that shape would mean four tables
+  /// gaining an entry that means nothing.
+  ///
+  /// The result is an ordinary ``ColorValue`` in the interpolation space — a mix is a
+  /// color, not a recipe, and nothing downstream needs to know it was written as one.
+  private static func parseColorMix(_ tokens: [CSSToken]) throws(ParseError) -> ParseResult {
+    var index = 0
+
+    // The method is required and comes first. CSS deliberately has no default here,
+    // because which space you mix in changes the answer completely.
+    guard token(tokens, index) == .ident("in") else {
+      throw ParseError.mixNeedsInterpolationMethod
+    }
+    index += 1
+
+    guard case let .some(.ident(identifier)) = token(tokens, index) else {
+      throw ParseError.mixNeedsInterpolationMethod
+    }
+    guard let space = ColorGrammar.interpolationSpace(named: identifier) else {
+      throw ParseError.unknownInterpolationSpace(identifier)
+    }
+    index += 1
+
+    var interpolation = ColorInterpolation(space: space)
+    if case let .some(.ident(name)) = token(tokens, index) {
+      guard let method = HueInterpolationMethod(rawValue: name) else {
+        throw ParseError.unexpectedToken(name)
+      }
+      guard space.hueIndex != nil else {
+        // Not merely redundant — a space with no hue has no arc to choose, so the
+        // spec's grammar has nowhere to put this and rejects it.
+        throw ParseError.hueMethodNeedsPolarSpace(method: name, space: identifier)
+      }
+      guard token(tokens, index + 1) == .ident("hue") else {
+        throw ParseError.hueMethodNeedsHueKeyword(name)
+      }
+      interpolation.hue = method
+      index += 2
+    }
+
+    guard token(tokens, index) == .comma else {
+      throw ParseError.mixNeedsTwoColors
+    }
+    index += 1
+
+    let first = try consumeMixOperand(tokens, from: index)
+    switch token(tokens, first.next) {
+    case .some(.comma):
+      break
+    case .none, .some(.closeParen):
+      throw ParseError.mixNeedsTwoColors
+    case let .some(other):
+      throw ParseError.unexpectedToken(other.description)
+    }
+
+    let second = try consumeMixOperand(tokens, from: first.next + 1)
+    guard token(tokens, second.next) == .closeParen else {
+      if let stray = token(tokens, second.next) {
+        throw ParseError.unexpectedToken(stray.description)
+      }
+      throw ParseError.unterminatedFunction("color-mix")
+    }
+    if let trailing = token(tokens, second.next + 1) {
+      throw ParseError.trailingContent(trailing.description)
+    }
+
+    guard let weights = MixWeights(first: first.percentage, second: second.percentage) else {
+      throw ParseError.mixPercentagesAreBothZero
+    }
+
+    return ParseResult(
+      color: interpolation.mix(first.color, second.color, weights: weights),
+      notation: .mix(interpolation),
+    )
+  }
+
+  /// One side of a `color-mix()`: a color, and optionally a percentage.
+  ///
+  /// The percentage is read before *and* after the color because the grammar joins
+  /// them with `&&`, which means either order — `red 30%` and `30% red` are the same
+  /// color-mix operand, and a parser that only looks on one side rejects valid CSS.
+  private static func consumeMixOperand(
+    _ tokens: [CSSToken],
+    from index: Int,
+  ) throws(ParseError) -> (color: ColorValue, percentage: Double?, next: Int) {
+    var cursor = index
+    var percentage = try mixPercentage(tokens, at: &cursor)
+
+    // Caught here so an empty slot reports what is actually wrong. `consumeColor`
+    // would answer `missingOriginColor`, which is about `from` and has nothing to
+    // do with this function.
+    switch token(tokens, cursor) {
+    case .none, .some(.closeParen), .some(.comma):
+      throw ParseError.mixNeedsTwoColors
+    default:
+      break
+    }
+
+    let (result, afterColor) = try consumeColor(tokens, from: cursor)
+    cursor = afterColor
+
+    if percentage == nil {
+      percentage = try mixPercentage(tokens, at: &cursor)
+    }
+    return (result.color, percentage, cursor)
+  }
+
+  /// Reads the optional percentage at `cursor`, leaving it untouched when there is
+  /// none.
+  ///
+  /// `calc()` is accepted here for the reason it is accepted in a component slot: a
+  /// resolved `calc()` is indistinguishable from a written value downstream, so the
+  /// range rule below applies to both alike rather than gaining a second reading.
+  private static func mixPercentage(
+    _ tokens: [CSSToken],
+    at cursor: inout Int,
+  ) throws(ParseError) -> Double? {
+    guard let current = token(tokens, cursor) else { return nil }
+
+    let value: Double
+    switch current {
+    case let .percentage(p):
+      value = p
+      cursor += 1
+
+    case let .function(name) where name == "calc":
+      let (term, next) = try consumeCalc(tokens, openedAt: cursor, channels: nil)
+      guard case let .percentage(p) = term else {
+        throw ParseError.mixNeedsPercentage(describe(term))
+      }
+      value = p
+      cursor = next
+
+    default:
+      return nil
+    }
+
+    // The grammar spells this slot `<percentage [0, 100]>`, and out of range is
+    // rejected rather than clamped — unlike alpha, where there is an obvious
+    // intention to read. `red 150%` has none: it is either a typo or arithmetic the
+    // author has not finished.
+    guard value >= 0, value <= 100 else {
+      throw ParseError.mixPercentageOutOfRange(value)
+    }
+    return value
+  }
+
+  /// The token at `index`, or `nil` past the end.
+  ///
+  /// `color-mix()`'s grammar is positional rather than separator-driven, so it reads
+  /// ahead constantly and every one of those reads can run off the end.
+  private static func token(_ tokens: [CSSToken], _ index: Int) -> CSSToken? {
+    index < tokens.count ? tokens[index] : nil
+  }
+
+  /// How a resolved `calc()` value is named back to the user, mirroring
+  /// ``CSSToken/description``.
+  private static func describe(_ term: CalcTerm) -> String {
+    switch term {
+    case let .number(n): "\(n)"
+    case let .percentage(p): "\(p)%"
+    case let .angle(d): "\(d)deg"
     }
   }
 

@@ -1,10 +1,20 @@
 # Color Toolkit — Implementation Plan
 
-> **Status (2026-08-05): M0–M14 and M5b (CVD) complete**, with the full suite green —
-> **340 Swift Testing functions across 41 suites plus 27 XCUITests**, both read off a run
-> rather than counted by hand. ColorCore is validated against **colorjs.io 0.7.0** (pinned
-> exact) — 6,384 conversions, 1,368 gamut mappings and 108 contrast pairs — plus
-> independent definitional anchors, and **405 CVD vectors** over Machado's Table 1.
+> **Status (2026-08-05): M0–M15 and M5b (CVD) complete.** M0–M14 have the full suite
+> green — **340 Swift Testing functions across 41 suites plus 27 XCUITests**, both read
+> off a run rather than counted by hand. ColorCore is validated against **colorjs.io
+> 0.7.0** (pinned exact) — 6,384 conversions, 1,368 gamut mappings, 108 contrast pairs and
+> now **1,760 mix vectors** — plus independent definitional anchors, and **405 CVD
+> vectors** over Machado's Table 1.
+>
+> **M15 is the exception to that sentence and should not be read as if it were not.** It
+> was written in a Linux container with no Swift toolchain and no Xcode, so **it has never
+> been compiled and its tests have never been run** — the counts above are M14's. What
+> *was* checked is the arithmetic: the interpolation algorithm was ported line-for-line
+> back into JavaScript and run against all 1,760 recorded vectors, where it agrees exactly
+> (`Tools/generate-mix-fixtures.mjs` records the oracle's two traps). That validates the
+> algorithm and says nothing about whether the Swift compiles. First job on a Mac is
+> `xcodebuild … test`, then `swiftformat .` as its own commit — neither could run here.
 >
 > M0–M9 were each reviewed on the running app. **Three later things were not, and should
 > not be read as if they were:** M10 changed no behavior and has no UI to look at, M11's
@@ -16,17 +26,16 @@
 > **M10–M18 take up what the deferred list had been holding**: three CSS syntaxes the
 > parser used to reject, the missing-component semantics all three rest on, a
 > `@media (color-gamut)` export shape, design-token import, and a CLI over `ColorCore`.
-> Two of those syntaxes now parse — `calc()` (M13) and `rgb(from …)` (M14) — leaving
-> `color-mix()` as M15. M10 (relocating `ColorCore`) and M11 (the three items M9 deferred)
+> **All three now parse** — `calc()` (M13), `rgb(from …)` (M14) and `color-mix()` (M15).
+> M10 (relocating `ColorCore`) and M11 (the three items M9 deferred)
 > are done, plus the two housekeeping commits recorded after M11 — the exported `UTType`
 > declaration M11's drag was missing, and Xcode's recommended build settings. **M12, the
 > spine, is done**: `ComponentRole` and carry-forward exist, so every "depends on M12" is
-> discharged — and M14 is the first milestone to actually consume it, which is what turned
-> that claim into a tested one. **M13 and M14 close the plan's last dependency chain**:
-> M13 was M14's only blocker, and nothing waits on anything now. **M15, M16, M17 and M18
-> remain, and all four are independent**, so they can be taken in any order. What remains
-> beyond that is **M8b** (saving an export to a file) and the shorter deferred list at the
-> end.
+> discharged — M14 was the first milestone to consume it, which is what turned that claim
+> into a tested one, and M15 is the one it was written for. **M13 and M14 closed the
+> plan's last dependency chain**, and M15 waited on nothing. **M16, M17 and M18 remain,
+> and all three are independent**, so they can be taken in any order. What remains beyond
+> that is **M8b** (saving an export to a file) and the shorter deferred list at the end.
 >
 > **M12 is the first milestone with no oracle *and* nothing to look at**, so its standard
 > of proof is the spec's own worked examples plus five mutations. Two of its findings are
@@ -1087,7 +1096,7 @@ What was owed, and what was built:
   three of them.
 - **[`MissingComponents.swift`](ColorCore/Convert/MissingComponents.swift)** —
   `carriedForwardMissing(to:)` returns the mask, `convertedForInterpolation(to:)` is the
-  operation M15 will call. `converted(to:)` is untouched, so the blast radius is nil and
+  operation M15 calls (and does, unchanged). `converted(to:)` is untouched, so the blast radius is nil and
   no existing test needed revising — `referenceSaysAchromatic` was never approached.
 - **`ParseError.noneNotAllowedInLegacy` is gone**, which is the honest resolution rather
   than making it throwable. The parser deliberately *warns* here
@@ -1096,7 +1105,8 @@ What was owed, and what was built:
   is declared says so, since the tempting fix is to start throwing it.
 
 **The ordering the spec demands is recorded at the API, because M15 will not have the spec
-in front of it.** Carry-forward runs *before* powerless marking, never after: a
+in front of it.** (It did not, and the note did its job — see M15, which adds the step
+this one does not mention: powerless marking has to *happen*, after the carry-forward.) Carry-forward runs *before* powerless marking, never after: a
 carried-forward missing component takes the **other** color's value when interpolated,
 where a powerless one is zero, so marking first would convert a value the spec wants
 preserved into a zero. Two tests hold the line — a carried hue keeps the value the
@@ -1221,25 +1231,81 @@ badge exists to report exactly those; alpha has no equivalent story.
 row and its own processing-space rule (the *origin's* space, not the output's). Recorded
 in the deferred list rather than left implied by a ✅.
 
-### M15 — `color-mix()`
+### M15 — `color-mix()` ✅
 
-M12 is done, and this is the milestone that consumes it: convert each side with
-`convertedForInterpolation(to:)` rather than `converted(to:)`, and do it **before** any
-powerless handling — see that milestone for why the ordering is a correctness rule rather
-than a preference. Nothing else to reuse: `ShadeRamp` interpolates one scalar from one color,
-`Harmony` rotates a hue, and `CVDSimulation`'s `lerp` is over matrix coefficients. New
-`Convert/Interpolation.swift` with premultiplied alpha and the four hue methods.
+The milestone M12 was written for, and it consumed it exactly as planned: each side goes
+through `convertedForInterpolation(to:)` rather than `converted(to:)`. Nothing else was
+reusable — `ShadeRamp` interpolates one scalar from one color, `Harmony` rotates a hue,
+and `CVDSimulation`'s `lerp` is over matrix coefficients — so
+[`Convert/Interpolation.swift`](ColorCore/Convert/Interpolation.swift) is new: the four
+hue arcs, the percentage rules, and premultiplied interpolation.
 
-**The generator must pass `premultiplied: true`.** colorjs.io's default is *not*
-premultiplied and CSS is, and the default returns a plausible wrong answer —
-`rgb(50% 0% 50%)` where the correct result is `rgb(33.333% 0% 66.667%)`. This is the same
-class of trap as the WCAG `0.03928`/`0.04045` split and belongs beside it in CLAUDE.md.
-The oracle **can** compute mixes and **cannot** parse the syntax (`Color.parse` rejects
-`color-mix()` outright), so grammar tests are hand-written and only the numbers are
-generated. Do not extend `generate-parse-fixtures.mjs`'s `inputs`: it records an
-already-resolved color, which would test computed values in a file reserved for grammar.
+**Both predicted oracle traps were real, and a third rule was not predicted at all.**
 
-UI folds into `TransformPanel`. **No eighth `Tool` case** — see the note in `ContentView`.
+1. **`premultiplied: true`**, as planned. colorjs.io's default is not premultiplied and
+   CSS is; the default returns `rgb(50% 0% 50%)` where the answer is
+   `rgb(33.333% 0% 66.667%)` — a plausible wrong color rather than an error, which is
+   what makes it the same class of trap as the WCAG `0.03928`/`0.04045` split.
+2. **colorjs.io gamut-maps both endpoints before interpolating** — `range()` calls
+   `toGamut()` on each, "to avoid areas of flat color". CSS Color 4 §12 has no such step.
+   So for endpoints outside the interpolation space's gamut the oracle is answering a
+   *different question*, and the generator skips those combinations (26 of them) rather
+   than recording them. ColorCore's answer is pinned from the other side, by a test
+   asserting that `color-mix(in srgb, color(display-p3 0 1 0), black)` keeps its negative
+   red channel. **This was found by reading the reference's source, not by a failing
+   test** — the fixture would simply have encoded the wrong behavior and passed.
+3. **Powerless components must be marked missing before interpolating, and that step was
+   not in the plan.** It is also the one with the most visible failure: white's OKLCH hue
+   is 0° by convention, so `color-mix(in oklch, white, blue)` without it averages 0° and
+   264° into 132° and returns a **green**. Marking it gives the light blue anyone expects.
+   The ordering M12 recorded still holds — carry-forward first, marking second — and the
+   reason it matters is now sharper: *inside* interpolation both kinds of missing behave
+   identically (each takes the other color's value), so the order is about not blanking a
+   value carry-forward is supposed to preserve.
+
+**Percentages are their own small specification**, and are handled in `MixWeights` rather
+than in the parser, so they are testable without a string. Both omitted is 50/50; one
+omitted is the complement of the other; both given re-normalize — and if they sum to
+*under* 100% the result's alpha is multiplied by the shortfall, so `red 20%, blue 20%` is
+an even mix at 0.4 alpha. Over 100% only re-normalizes, because scaling up would hand back
+a color more opaque than either input. Both at 0% is invalid, which is the one input with
+no answer and hence the failable initializer. A percentage outside `[0, 100]` is
+**rejected rather than clamped**, which is the opposite of alpha's rule two milestones
+back and deliberately so: an out-of-range alpha has an obvious intention to read, where
+`red 150%` has none.
+
+**`color-mix()` is not a `ColorFunction` case**, and that is the shape decision worth
+recording. Every member of that enum takes *components*: each has a per-component grammar,
+a legacy-comma question and a fixed space. A mix has none of the three, so a case there
+would have meant four tables gaining an entry that means nothing. It is a branch at the
+top of `parseFunction` — which is what makes nesting free in both directions, since
+`consumeColor` routes through the same function — plus a `ColorNotation.mix` case carrying
+the interpolation method.
+
+**The space table is *derived*, and that is not a contradiction of M12's and M14's
+transcription rule.** Those tables carry facts the identifiers do not: a component's role,
+its channel keyword, and which eight of the fourteen spaces `color()` accepts. Every space
+is a legal interpolation space and the raw values are the CSS identifiers, so there is
+nothing for a derivation to lose. The discriminating question is not "is this a table" but
+"can a derivation drop a fact".
+
+**Not compiled, not run — see the status block.** This was built in a Linux container
+with no Swift toolchain, so the standard of proof is one step short of every milestone
+above it. What is checked: the interpolation algorithm was ported line-for-line back into
+JavaScript and run against all 1,760 vectors with zero divergences, and the powerless
+verdicts (`isAchromatic` against colorjs.io's `null` hue) were confirmed to agree on every
+endpoint and space in the fixture. What is not: that the Swift compiles, and that the
+XCUITest added to `TransformSmokeTests` finds its elements.
+
+UI folded into `TransformPanel` as a fifth section. **No eighth `Tool` case** — see the
+note in `ContentView`. The second color is the *background*, not a third field of the
+panel's own, because the app already edits a pair and a mix needs two colors; the section
+says so and points at the contrast tool when there is no background, exactly as the
+legibility section below it does. The five-stop strip is the live preview and the amount
+slider is the pending edit — the same split as the contrast push, and reset by `apply` for
+the same reason, since repeated application converges on the background. The
+`color-mix()` expression is printed under the result, which is now something you can paste
+back into the field.
 
 ### M16 — `@media (color-gamut)` export shape
 
@@ -1315,6 +1381,7 @@ Per milestone:
 - **M12:** [MissingComponentTests](Color%20ToolkitTests/MissingComponentTests.swift), and the standard of proof is the spec rather than a reference implementation — colorjs.io resolves `none` on conversion, so it cannot answer this at all. Each test names the spec example or role-table property it encodes, and all five load-bearing rules were confirmed by mutation (see the milestone). The spec's *printed* conversions are asserted as roundings, not with a tolerance, because that is the claim actually available from a displayed figure.
 - **M13:** [CalcTests](Color%20ToolkitTests/CalcTests.swift), hand-written throughout because there is no oracle — colorjs.io rejects `rgb(calc(10 + 20) 0 0)` outright with "Expected 3 coordinates … got 5", so `parse-vectors.json` is untouched. The arithmetic is checkable by inspection; what is not obvious from reading the code is pinned by five mutations, each failing only what it should. Stripping precedence fails one test, dropping the `±` type check one, ignoring leftover tokens two, and hoisting the tokenizer's operator rules above the number scanner fails the *curated fixture* — `rgb(+128 0 0)` — plus the numeric-edge-forms test. The fifth is the discriminating one: letting a calc body's slash escape to separator logic fails every test whose input contains a slash and **no test without one**, which is the sharpest available statement that consuming the body as a unit is what resolves the ambiguity. A first, blunter version of that mutation (not consuming the body at all) failed fifteen tests and proved nothing except that the feature was off. A sixth mutation covers the seam the other five do not touch: dropping `min` from `UnsupportedFunctions.names` makes `rgb(calc(min(1, 2) * 2) 0 0)` come back `calcUnsupportedSyntax("min(")` instead of naming the function, which is the observable proof that the pre-tokenize check still runs *before* calc consumption. `firstCalled` scans its own list rather than the input, so the case is checked with a first-listed name (`var`) and a later one (`min`) both.
 - **M14:** [RelativeColorTests](Color%20ToolkitTests/RelativeColorTests.swift), hand-written for a *third* distinct no-oracle reason — colorjs.io 0.7.0 has no relative color syntax at all, so every form comes back "Expected 3 coordinates … got 4". (M13's reason was that it rejects `calc()`; M12's was that it resolves `none` on conversion and so cannot be asked the question.) The conversions underneath are oracle-validated already and are deliberately not re-tested. **Eight mutations, and the most useful one passed.** Seven failed exactly what they should — deriving the keyword table from roles, ignoring `numberScale`, dropping carry-forward, collapsing either half of the `none` rule, allowing legacy commas, and removing the alpha clamp. The eighth, replacing the origin's depth counting with "first close paren wins", **passed the entire suite**, which is the finding worth carrying: *a mutation that survives means the test set is incomplete, not that the rule is safe.* The obvious nesting cases do not discriminate — in `rgb(from color(display-p3 1 0 0) r g b)` the first `)` already is the right one, and `rgb(from rgb(from red r g b) r g b)` is still one level deep because `from red` opens nothing. Depth counting only earns its keep when the origin's function contains another function, so a case was added for the cheapest one, a `calc()` inside the origin, and the mutation now fails with `wrongComponentCount(got: 1)`. Two assertions are deliberately loose and say so in place: white's OKLab lightness is `1.0000000000000002` and an sRGB → OKLCh → sRGB round trip returns red as the same, so both claims are checked by discrimination — the competing readings are off by ~100× and ~1 — rather than by an equality the conversion never promised.
+- **M15:** [ColorMixTests](Color%20ToolkitTests/ColorMixTests.swift), split on what each half can be held to. The **numbers** are generated — 1,760 vectors over fifteen color pairs, all fourteen interpolation spaces, four hue arcs and five positions along each mix — with the two oracle corrections above baked into the generator. The **grammar and the percentage rules** are hand-written, because colorjs.io can compute a mix and cannot parse one, which is the fourth distinct no-oracle reason this plan has recorded. Three assertions carry more than their length suggests: `null` in a recorded component is checked against our *missing mask* rather than against a number, which is a claim about §12.2's substitution rather than about arithmetic; the hue-arc test runs the same pair in both directions, because for any pair the four methods only ever produce two answers and it is *which method gets which* that proves direction is honoured rather than length; and the premultiplication case is stated as the wrong answer it discriminates against, `rgb(50% 0% 50%)` versus `rgb(33.3% 0% 66.7%)`. The tolerance is 1e-8 rather than the conversions' 1e-9, and says why in place: un-premultiplying divides by an interpolated alpha as low as 0.1, multiplying any upstream difference by up to ten. **None of it has been run** — see the status block — so the algorithm's proof is the JavaScript mirror, and the Swift's proof is still owed.
 - **M3/M4 (UI):** run the app and verify interactively. Spot-check conversions against a browser's DevTools color picker, which implements the same spec — a fast, honest end-to-end sanity check.
 
 The scheme is shared and works from the command line:

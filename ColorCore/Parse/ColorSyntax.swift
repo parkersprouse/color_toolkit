@@ -34,6 +34,14 @@ nonisolated enum ParseError: Error, Equatable, Sendable {
   case missingOriginColor
   case unterminatedFunction(String)
   case relativeSyntaxRequiresModernForm(function: String)
+  case mixNeedsInterpolationMethod
+  case unknownInterpolationSpace(String)
+  case hueMethodNeedsPolarSpace(method: String, space: String)
+  case hueMethodNeedsHueKeyword(String)
+  case mixNeedsTwoColors
+  case mixNeedsPercentage(String)
+  case mixPercentageOutOfRange(Double)
+  case mixPercentagesAreBothZero
 
   // MARK: Internal
 
@@ -102,6 +110,22 @@ nonisolated enum ParseError: Error, Equatable, Sendable {
       "\(name)() is missing its closing “)”."
     case let .relativeSyntaxRequiresModernForm(fn):
       "\(fn)(from …) cannot use commas — relative color syntax is modern-syntax only."
+    case .mixNeedsInterpolationMethod:
+      "color-mix() starts with the space to mix in — “in oklch”, for instance."
+    case let .unknownInterpolationSpace(s):
+      "“\(s)” is not a color space color-mix() can interpolate in."
+    case let .hueMethodNeedsPolarSpace(method, space):
+      "“\(method) hue” needs a space with a hue, and \(space) has none."
+    case let .hueMethodNeedsHueKeyword(method):
+      "“\(method)” needs “hue” after it — the spelling is “\(method) hue”."
+    case .mixNeedsTwoColors:
+      "color-mix() mixes exactly two colors."
+    case let .mixNeedsPercentage(what):
+      "color-mix() takes a percentage beside each color — “\(what)” is not one."
+    case let .mixPercentageOutOfRange(p):
+      "A color-mix() percentage runs from 0% to 100% — got \(p)%."
+    case .mixPercentagesAreBothZero:
+      "color-mix() percentages cannot both be 0% — there would be no color left."
     }
   }
 }
@@ -248,6 +272,23 @@ nonisolated enum ColorGrammar {
     "xyz-d50": .xyzD50,
     "xyz-d65": .xyzD65,
   ]
+
+  /// The space named by a `<color-interpolation-method>` — the `oklch` of
+  /// `color-mix(in oklch, …)`.
+  ///
+  /// **Derived from ``ColorSpace``'s raw values, and that is not a contradiction of
+  /// the rule that the other tables are transcribed.** Those tables state facts the
+  /// identifiers do not carry (a component's role, its keyword, which spaces
+  /// `color()` accepts — eight of fourteen, a genuine subset). This one has no fact
+  /// to lose: *every* space here is a legal interpolation space, and the raw values
+  /// are the CSS identifiers because both follow CSS Color 4's naming. Writing the
+  /// list out again would only create something to fall out of step with.
+  ///
+  /// `xyz` is the spec's alias for `xyz-d65`, the same alias
+  /// ``colorFunctionSpaces`` carries.
+  static func interpolationSpace(named identifier: String) -> ColorSpace? {
+    identifier == "xyz" ? .xyzD65 : ColorSpace(rawValue: identifier)
+  }
 
   /// Per-component grammar for each function.
   ///
