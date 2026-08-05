@@ -511,6 +511,59 @@ struct ProjectsPanel: View {
     .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 8))
   }
 
+  /// What the imported palette is called: the file's name, minus the extensions that only
+  /// say what kind of file it is.
+  ///
+  /// `brand.tokens.json` is the conventional spelling, and dropping one extension leaves
+  /// `brand.tokens` — a palette named after a file format rather than after a brand.
+  private static func paletteName(for url: URL) -> String {
+    let stem = url.deletingPathExtension().lastPathComponent
+    return stem.hasSuffix(".tokens") ? String(stem.dropLast(".tokens".count)) : stem
+  }
+
+  private static func summary(_ document: DesignTokenDocument, from url: URL) -> String {
+    var parts = ["Imported \(counted(document.colors.count, "color")) from \(url.lastPathComponent)."]
+    if document.otherTypeCount > 0 {
+      parts.append("Ignored \(counted(document.otherTypeCount, "token")) of other types.")
+    }
+    if let note = skippedNote(document.skipped) {
+      parts.append(note)
+    }
+    return parts.joined(separator: " ")
+  }
+
+  /// Why a file that read perfectly well produced nothing.
+  ///
+  /// Distinct from every message above it: the file was found, opened and understood. One
+  /// of the two counts is necessarily non-zero here — a file with no tokens at all throws
+  /// ``DesignTokenError/noTokens`` and never reaches this.
+  private static func nothingImported(_ document: DesignTokenDocument) -> String {
+    guard let note = skippedNote(document.skipped) else {
+      return "No color tokens in that file — its \(counted(document.otherTypeCount, "token")) "
+        + "have some other “$type”."
+    }
+    return "No colors imported. " + note
+  }
+
+  /// The first failure in full, and a count of the rest.
+  ///
+  /// One reason rather than all of them, because the reasons repeat: a file with a
+  /// misspelled color space has that same complaint forty times, and forty lines of it
+  /// would bury the count.
+  ///
+  /// "Token", not "color token", and the imprecision is the honest direction: a token
+  /// whose reference does not resolve is reported before its `$type` can be known, so
+  /// some of these may not have been colors at all.
+  private static func skippedNote(_ skipped: [SkippedToken]) -> String? {
+    guard let first = skipped.first else { return nil }
+    let head = "Skipped \(counted(skipped.count, "token")) — “\(first.name)”: \(first.reason.message)"
+    return skipped.count == 1 ? head : head + " (\(skipped.count - 1) more like it.)"
+  }
+
+  private static func counted(_ count: Int, _ noun: String) -> String {
+    "\(count) \(noun)\(count == 1 ? "" : "s")"
+  }
+
   /// Name, spelling and notes, in whatever combination exists.
   private func tooltip(_ saved: SavedColor) -> String {
     let heading = saved.name.isEmpty ? saved.text : "\(saved.name) — \(saved.text)"
@@ -607,59 +660,6 @@ struct ProjectsPanel: View {
       )
       importSummary = Self.summary(document, from: url)
     }
-  }
-
-  /// What the imported palette is called: the file's name, minus the extensions that only
-  /// say what kind of file it is.
-  ///
-  /// `brand.tokens.json` is the conventional spelling, and dropping one extension leaves
-  /// `brand.tokens` — a palette named after a file format rather than after a brand.
-  private static func paletteName(for url: URL) -> String {
-    let stem = url.deletingPathExtension().lastPathComponent
-    return stem.hasSuffix(".tokens") ? String(stem.dropLast(".tokens".count)) : stem
-  }
-
-  private static func summary(_ document: DesignTokenDocument, from url: URL) -> String {
-    var parts = ["Imported \(counted(document.colors.count, "color")) from \(url.lastPathComponent)."]
-    if document.otherTypeCount > 0 {
-      parts.append("Ignored \(counted(document.otherTypeCount, "token")) of other types.")
-    }
-    if let note = skippedNote(document.skipped) {
-      parts.append(note)
-    }
-    return parts.joined(separator: " ")
-  }
-
-  /// Why a file that read perfectly well produced nothing.
-  ///
-  /// Distinct from every message above it: the file was found, opened and understood. One
-  /// of the two counts is necessarily non-zero here — a file with no tokens at all throws
-  /// ``DesignTokenError/noTokens`` and never reaches this.
-  private static func nothingImported(_ document: DesignTokenDocument) -> String {
-    guard let note = skippedNote(document.skipped) else {
-      return "No color tokens in that file — its \(counted(document.otherTypeCount, "token")) "
-        + "have some other “$type”."
-    }
-    return "No colors imported. " + note
-  }
-
-  /// The first failure in full, and a count of the rest.
-  ///
-  /// One reason rather than all of them, because the reasons repeat: a file with a
-  /// misspelled color space has that same complaint forty times, and forty lines of it
-  /// would bury the count.
-  ///
-  /// "Token", not "color token", and the imprecision is the honest direction: a token
-  /// whose reference does not resolve is reported before its `$type` can be known, so
-  /// some of these may not have been colors at all.
-  private static func skippedNote(_ skipped: [SkippedToken]) -> String? {
-    guard let first = skipped.first else { return nil }
-    let head = "Skipped \(counted(skipped.count, "token")) — “\(first.name)”: \(first.reason.message)"
-    return skipped.count == 1 ? head : head + " (\(skipped.count - 1) more like it.)"
-  }
-
-  private static func counted(_ count: Int, _ noun: String) -> String {
-    "\(count) \(noun)\(count == 1 ? "" : "s")"
   }
 
   /// The ticked colors, in the order they appear rather than the order they were ticked.

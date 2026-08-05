@@ -272,25 +272,6 @@ struct ProjectLibrary {
 
   private static let untitledProject = "Untitled Project"
 
-  /// The part of saving a palette that is genuinely the same for all three overloads:
-  /// an empty palette, named, positioned and attached.
-  ///
-  /// Extracted *because* the three must not be merged. What differs between them is how
-  /// each color's stored spelling is derived, and three identical copies of this
-  /// boilerplate is precisely what invites somebody to unify the overloads and destroy
-  /// that — see the notes on each. Sharing the part that carries no decision leaves the
-  /// parts that do standing alone, where they read as choices rather than as duplication.
-  private func newPalette(named name: String, kind: PaletteKind, in project: Project) -> Palette {
-    let palette = Palette(
-      name: Self.cleaned(name, fallback: kind.title),
-      kind: kind,
-      sortIndex: Self.nextIndex(after: project.palettes.map(\.sortIndex)),
-    )
-    context.insert(palette)
-    palette.project = project
-    return palette
-  }
-
   /// Trimmed, and never empty. A blank name is a row you cannot click on in a list, so
   /// the fallback is applied at the point of storage rather than at the point of
   /// display — where every future view would have to remember it.
@@ -330,5 +311,24 @@ struct ProjectLibrary {
       used.insert(key)
       return key
     }
+  }
+
+  /// The part of saving a palette that is genuinely the same for all three overloads:
+  /// an empty palette, named, positioned and attached.
+  ///
+  /// Extracted *because* the three must not be merged. What differs between them is how
+  /// each color's stored spelling is derived, and three identical copies of this
+  /// boilerplate is precisely what invites somebody to unify the overloads and destroy
+  /// that — see the notes on each. Sharing the part that carries no decision leaves the
+  /// parts that do standing alone, where they read as choices rather than as duplication.
+  private func newPalette(named name: String, kind: PaletteKind, in project: Project) -> Palette {
+    let palette = Palette(
+      name: Self.cleaned(name, fallback: kind.title),
+      kind: kind,
+      sortIndex: Self.nextIndex(after: project.palettes.map(\.sortIndex)),
+    )
+    context.insert(palette)
+    palette.project = project
+    return palette
   }
 }

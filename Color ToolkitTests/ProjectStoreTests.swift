@@ -535,6 +535,16 @@ struct ProjectStoreTests {
 
   // MARK: Private
 
+  /// A store on disk, for the one test that has to leave memory.
+  /// Three shades out of numeric order in the file, so the palette's order is a claim
+  /// about the importer rather than about how the JSON happened to be typed.
+  private static let rampTokens = #"""
+  { "brand": { "$type": "color",
+    "900": { "$value": { "colorSpace": "srgb", "components": [0.05, 0.1, 0.4] } },
+    "50":  { "$value": { "colorSpace": "srgb", "components": [0.9, 0.94, 1] } },
+    "100": { "$value": { "colorSpace": "srgb", "components": [0.8, 0.88, 1] } } } }
+  """#
+
   /// A project holding one loose color per CSS string, named after it, in order.
   private static func projectWithColors(
     _ css: [String],
@@ -547,16 +557,6 @@ struct ProjectStoreTests {
     }
     return project
   }
-
-  /// A store on disk, for the one test that has to leave memory.
-  /// Three shades out of numeric order in the file, so the palette's order is a claim
-  /// about the importer rather than about how the JSON happened to be typed.
-  private static let rampTokens = #"""
-  { "brand": { "$type": "color",
-    "900": { "$value": { "colorSpace": "srgb", "components": [0.05, 0.1, 0.4] } },
-    "50":  { "$value": { "colorSpace": "srgb", "components": [0.9, 0.94, 1] } },
-    "100": { "$value": { "colorSpace": "srgb", "components": [0.8, 0.88, 1] } } } }
-  """#
 
   private static func makeContainer(at url: URL) throws -> ModelContainer {
     try ModelContainer(

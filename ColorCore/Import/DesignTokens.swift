@@ -98,8 +98,6 @@ nonisolated struct DesignTokenDocument: Sendable, Hashable {
   /// type at all. Counted, not listed — see ``TokenSkipReason``.
   let otherTypeCount: Int
 
-  // MARK: Internal
-
   /// The colors as the export layer consumes them.
   ///
   /// The same `[PaletteEntry]` a harmony or a ramp produces, which is what lets an

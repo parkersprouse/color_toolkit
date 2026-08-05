@@ -21,6 +21,8 @@ import Testing
 /// the input sits next to the assertion about it.
 @Suite("Design token import")
 struct DesignTokenImportTests {
+  // MARK: Internal
+
   // MARK: - Component scale
 
   /// **The single discriminating input for the whole numeric mapping.**
@@ -255,7 +257,11 @@ struct DesignTokenImportTests {
     #expect(document.colors.isEmpty)
     #expect(document.skipped.count == 2)
     #expect(document.skipped.allSatisfy {
-      if case .aliasCycle = $0.reason { true } else { false }
+      if case .aliasCycle = $0.reason {
+        true
+      } else {
+        false
+      }
     })
   }
 
