@@ -19,12 +19,27 @@ import Testing
 /// and it fails loudly if any link rounds when it should not.
 @Suite("Export round trip")
 struct ExportRoundTripTests {
-  // MARK: Internal
-
   /// In sRGB and already on the 8-bit grid, so *every* exportable format can name it
   /// exactly. A wide color would be gamut-mapped by hex, and the round trip would then
   /// be measuring the mapper rather than the exporter.
   static let base = ColorValue.srgb8(0x3B, 0x82, 0xF6)
+
+  /// Extracts the value from every `--name: value;` line.
+  ///
+  /// Not private: ``ExportShapeTests`` reuses it to pull *both* of `p3WithFallback`'s
+  /// blocks out at once, which works unchanged because the media block's lines are the
+  /// same declarations one indent deeper and this trims before matching.
+  static func propertyValues(in document: String) -> [String] {
+    document.split(separator: "\n").compactMap { line in
+      let trimmed = line.trimmingCharacters(in: .whitespaces)
+      guard trimmed.hasPrefix("--"), trimmed.hasSuffix(";"),
+            let colon = trimmed.firstIndex(of: ":")
+      else { return nil }
+      return String(trimmed[trimmed.index(after: colon)...])
+        .dropLast()
+        .trimmingCharacters(in: .whitespaces)
+    }
+  }
 
   /// Every exportable format survives a trip through a custom-property block.
   ///
@@ -105,23 +120,6 @@ struct ExportRoundTripTests {
         options.render(entries, formatting: coarseOptions).contains(coarse),
         "\(shape) ignored the coarse precision for \(description)",
       )
-    }
-  }
-
-  /// Extracts the value from every `--name: value;` line.
-  ///
-  /// Not private: ``ExportShapeTests`` reuses it to pull *both* of `p3WithFallback`'s
-  /// blocks out at once, which works unchanged because the media block's lines are the
-  /// same declarations one indent deeper and this trims before matching.
-  static func propertyValues(in document: String) -> [String] {
-    document.split(separator: "\n").compactMap { line in
-      let trimmed = line.trimmingCharacters(in: .whitespaces)
-      guard trimmed.hasPrefix("--"), trimmed.hasSuffix(";"),
-            let colon = trimmed.firstIndex(of: ":")
-      else { return nil }
-      return String(trimmed[trimmed.index(after: colon)...])
-        .dropLast()
-        .trimmingCharacters(in: .whitespaces)
     }
   }
 }

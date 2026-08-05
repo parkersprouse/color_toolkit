@@ -125,6 +125,23 @@ nonisolated struct ExportOptions: Sendable, Equatable {
   /// worse experience than accepting them and writing something valid.
   var name: String = ExportOptions.defaultName
 
+  /// The format the "mapped" count is measured against, which is not always ``format``.
+  ///
+  /// One predicate decides both the badge and the serialized string — the invariant this
+  /// property exists to preserve, now that one shape writes two spellings. For that shape
+  /// the answer is the **fallback**: hex is where a wide color is actually moved, and the
+  /// `@media` block is what recovers it. Measuring against the P3 block instead would
+  /// report `0 mapped` for a color sitting outside sRGB while the hex line right below the
+  /// badge had been rounded — the badge silent about a value that changed.
+  ///
+  /// The count therefore refers to the fallback block, and the panel's wording says so.
+  /// **A color outside P3 is mapped in both blocks and the badge does not distinguish it**
+  /// — an accepted limitation, recorded in PLAN.md rather than answered with a second
+  /// count, because a two-number badge is a different feature from the one M16 asked for.
+  var mappedCountFormat: CSSOutputFormat {
+    shape.usesFormat ? format : Self.fallbackFormat
+  }
+
   /// `text` reduced to something usable as a CSS identifier and a JavaScript key.
   ///
   /// Anything outside `[A-Za-z0-9_-]` becomes a hyphen, runs collapse, and the ends are
@@ -179,23 +196,6 @@ nonisolated struct ExportOptions: Sendable, Equatable {
     case .tailwindConfig: return tailwindConfig(entries, formatting: formatting)
     case .p3WithFallback: return p3WithFallback(entries, formatting: formatting)
     }
-  }
-
-  /// The format the "mapped" count is measured against, which is not always ``format``.
-  ///
-  /// One predicate decides both the badge and the serialized string — the invariant this
-  /// property exists to preserve, now that one shape writes two spellings. For that shape
-  /// the answer is the **fallback**: hex is where a wide color is actually moved, and the
-  /// `@media` block is what recovers it. Measuring against the P3 block instead would
-  /// report `0 mapped` for a color sitting outside sRGB while the hex line right below the
-  /// badge had been rounded — the badge silent about a value that changed.
-  ///
-  /// The count therefore refers to the fallback block, and the panel's wording says so.
-  /// **A color outside P3 is mapped in both blocks and the badge does not distinguish it**
-  /// — an accepted limitation, recorded in PLAN.md rather than answered with a second
-  /// count, because a two-number badge is a different feature from the one M16 asked for.
-  var mappedCountFormat: CSSOutputFormat {
-    shape.usesFormat ? format : Self.fallbackFormat
   }
 
   /// One color, spelled in ``format``.
