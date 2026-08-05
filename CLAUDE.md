@@ -8,11 +8,11 @@ shortcut, WCAG 2.2 / APCA contrast checking, a gamut-aware HSV/OKLCH picker, OKL
 transforms — adjustment, harmonies, shade ramps and a contrast solver — export to CSS
 declarations, custom properties, JSON and both Tailwind generations, and saved projects
 on SwiftData with reordering and hand-picked palettes, CSS Color 4 §13.2's
-missing-component carry-forward, and a scoped `calc()`. M0–M13 are built. **M14–M18 are
-planned and not started** — the CSS syntaxes the parser still rejects (`rgb(from …)`,
-`color-mix()`), a `@media (color-gamut)` export shape, design-token import, and a CLI
-over `ColorCore`. M12 was the spine and M13 was the last dependency, so every remaining
-milestone is independent of every other and is only the work it says it is. Swift 6,
+missing-component carry-forward, a scoped `calc()`, and CSS Color 5 relative color syntax
+(`rgb(from …)`). M0–M14 are built. **M15–M18 are planned and not started** — `color-mix()`,
+a `@media (color-gamut)` export shape, design-token import, and a CLI over `ColorCore`.
+M12 was the spine and M13 was M14's only blocker, so the plan has no dependency chains
+left: all four remaining milestones are independent and can be taken in any order. Swift 6,
 SwiftUI, no third-party runtime dependencies.
 
 **[PLAN.md](PLAN.md) is the source of truth** for milestone status, what is deferred
@@ -28,8 +28,8 @@ Build:
 xcodebuild -project "Color Toolkit.xcodeproj" -scheme "Color Toolkit" -destination 'platform=macOS' build
 ```
 
-Full test suite (~7 minutes, nearly all of it UI tests — the 324 Swift Testing functions
-finish in under a second, the 26 XCUITests take about seven minutes):
+Full test suite (~7 minutes, nearly all of it UI tests — the 340 Swift Testing functions
+finish in under a second, the 27 XCUITests take about seven minutes):
 
 ```bash
 xcodebuild -project "Color Toolkit.xcodeproj" -scheme "Color Toolkit" -destination 'platform=macOS' test
@@ -259,6 +259,31 @@ Layered so the numeric core stays independently testable and UI-free:
   component takes the *other* color's value when interpolated, where a powerless one is
   zero. Marking first destroys the value the spec wants preserved. Powerless marking
   also *blanks* what it flags; carry-forward must not.
+- **`ColorSpace.channelKeywords` is transcribed from CSS Color 5, never derived** — the
+  same rule as `componentRoles` and for a sharper reason. Deriving from `componentLabels`
+  works today for all fourteen spaces, which is the trap: those labels are editorial copy
+  the UI layer may reword, so renaming "Chroma" would make the parser accept
+  `oklch(from red l o h)` and reject the spec's spelling. Deriving from `componentRoles`
+  is outright wrong — XYZ shares sRGB's `(.reds, .greens, .blues)` there but spells its
+  channels `x y z`.
+- **A relative channel keyword carries its *function's* written scale, not its space's.**
+  `stored / numberScale`, which diverges only in `rgb()` — stored 0–1, written 0–255. So
+  red's `r` is 255 in `rgb(from red …)` and 1 in `color(from red srgb …)`, on one space.
+  `ChannelBindings` takes both the function and the space because neither implies the
+  other: the function fixes the scale, the space fixes the spelling and is the conversion
+  target.
+- **In relative syntax `none` means two different things.** Written bare, a missing
+  channel stays missing; inside a `calc()`, the spec reads it as zero. `ChannelValue` has
+  two cases rather than being a `Double?` precisely so the two cannot be flattened, and
+  each half is pinned by a mutation the other survives.
+- **The origin color's closing paren is found by depth; a `calc()` body's is not.** These
+  look like one problem and are two — a calc body cannot nest, so its first `)` is its
+  own, while color functions nest freely. Note that the obvious nesting tests do *not*
+  discriminate: "first close paren wins" passes them all, and only an origin containing
+  another function (a `calc()` inside it is the cheapest) tells the two apart.
+- **Alpha is clamped at parse time and the three components are not.** The spec's rule in
+  both directions, not an oversight: an out-of-gamut color has to be writable — the
+  "Outside sRGB" badge reports exactly those — while nothing lies beyond fully opaque.
 - **A `calc()` body is consumed as a unit, before separator logic sees inside it.**
   `/` is the alpha separator *and* calc's division, so `rgb(0 0 0 / calc(1 / 2))` has
   two slashes meaning different things and which side of the parens they fall on is
@@ -434,6 +459,25 @@ the accessibility-tree conventions before writing UI tests.
   to regress against, mutate the feature instead — every load-bearing claim in
   `Transform/` was checked that way, which is what proved the ramp's conditional clamp
   is a correctness rule and not an optimization.
+- **A mutation that survives means the tests are incomplete, not that the rule is safe.**
+  M14 replaced the origin color's paren-depth counting with "first close paren wins" and
+  the entire suite passed — because the obvious nesting cases do not discriminate
+  (`rgb(from color(display-p3 1 0 0) r g b)` has one paren level, so the first `)` already
+  is the right one). The rule was fine; the coverage was not. Treat a green mutation run
+  as a finding to chase, and prefer a blunt mutation's *failure set* over its size — M13's
+  first attempt at the slash rule simply switched the feature off and failed fifteen
+  tests, which proved nothing until it was sharpened to fail only the slash cases.
+- **Three parser features have no oracle, each for a different reason** — worth knowing
+  before reaching for colorjs.io. It *resolves* `none` on conversion (so it cannot answer
+  §13.2 at all, M12), it *rejects* `calc()` outright (M13), and it has *no relative color
+  syntax* whatsoever — every `rgb(from …)` comes back "Expected 3 coordinates … got 4"
+  (M14). Ask it before assuming either way; the answer has differed each time.
+- **Where floating point intrudes, assert the discrimination rather than the value.** Not
+  a loosened equality — a different claim. White's OKLab lightness is
+  `1.0000000000000002`, so M14's "is `l` written 0–1 or 0–100?" is settled by a tolerance
+  four orders of magnitude below the ~100 that separates the two readings. Say in the test
+  what the competing hypothesis is and by how much it differs, or the tolerance looks
+  arbitrary and the next person tightens it.
 - **Missing-component semantics have no oracle either, and the reason is different.**
   colorjs.io *resolves* `none` on conversion — `hsl(none 50% 50%).to("oklch")` comes
   back with a real hue — so it cannot answer §13.2's question at all. The spec's worked

@@ -1,7 +1,7 @@
 # Color Toolkit — Implementation Plan
 
-> **Status (2026-08-05): M0–M13 and M5b (CVD) complete**, with the full suite green —
-> **324 Swift Testing functions across 38 suites plus 26 XCUITests**, both read off a run
+> **Status (2026-08-05): M0–M14 and M5b (CVD) complete**, with the full suite green —
+> **340 Swift Testing functions across 41 suites plus 27 XCUITests**, both read off a run
 > rather than counted by hand. ColorCore is validated against **colorjs.io 0.7.0** (pinned
 > exact) — 6,384 conversions, 1,368 gamut mappings and 108 contrast pairs — plus
 > independent definitional anchors, and **405 CVD vectors** over Machado's Table 1.
@@ -10,20 +10,21 @@
 > not be read as if they were:** M10 changed no behavior and has no UI to look at, M11's
 > *drag* gesture is untestable by XCUITest and unconfirmed by hand — its Move Left/Right
 > commands, which share the same handler, are covered end to end — and M12 is core-only,
-> reachable from no panel. M13 is core-only in code but a user reaches it by typing, so it
-> is driven against the running app by an XCUITest rather than eyeballed.
+> reachable from no panel. M13 and M14 are core-only in code but a user reaches both by
+> typing, so each is driven against the running app by an XCUITest rather than eyeballed.
 >
 > **M10–M18 take up what the deferred list had been holding**: the CSS syntaxes the
-> parser still rejects (`rgb(from …)`, `color-mix()`), the missing-component
+> parser still rejects (`color-mix()`), the missing-component
 > semantics all three of those rest on, a `@media (color-gamut)` export shape, design-token
 > import, and a CLI over `ColorCore`. M10 (relocating `ColorCore`) and M11 (the three items
 > M9 deferred) are done, plus the two housekeeping commits recorded after M11 — the
 > exported `UTType` declaration M11's drag was missing, and Xcode's recommended build
 > settings. **M12, the spine, is done too**: `ComponentRole` and carry-forward exist, so
-> every "depends on M12" is discharged — M15 and M17 are unblocked outright. **M13 is done**,
-> which discharges the last dependency in the plan: M14 waited only on it. Every remaining
-> milestone is now independent of every other. What remains beyond that is **M8b** (saving
-> an export to a file) and the shorter deferred list at the end.
+> every "depends on M12" is discharged. **M13 and M14 are done too**, which closes the
+> plan's last dependency chain — M13 was M14's only blocker, and nothing waits on anything
+> now. **M15, M16, M17 and M18 remain, and all four are independent**, so they can be taken
+> in any order. What remains beyond that is **M8b** (saving an export to a file) and the
+> shorter deferred list at the end.
 >
 > **M12 is the first milestone with no oracle *and* nothing to look at**, so its standard
 > of proof is the spec's own worked examples plus five mutations. Two of its findings are
@@ -1164,15 +1165,59 @@ Two findings worth carrying:
   written expecting the first to be the unterminated one, and the failure is what taught
   the distinction.
 
-### M14 — Relative color syntax
+### M14 — Relative color syntax ✅
 
-Depends on M13, which is **done**; `calc(l * 0.5)` is where most of the value lives.
-M12's half — `none` in
-an origin channel — is already in place. Both hook points already exist as dead ends: `parseFunction` extracts a
-`spaceIdentifier` and discards it with `_ = spaceIdentifier`, and the `.ident` throw in
-`scanArguments` is the single gate for every channel keyword. The origin resolves in the
-**output function's** space. `ColorNotation` gains a case, which reaches
-`ColorStore.ParsedInput`, `ColorInputField.summary(for:)` and `notationIsReported()`.
+Both predicted hook points were exactly where the plan said, and both were the dead ends
+it described. `ParsedInput` needed no change after all — it wraps `ParseResult` opaquely
+and never inspects the notation, so `ColorInputField.describe` and `notationIsReported()`
+were the only consumers.
+
+Four rules carry the milestone, and every one came from the spec rather than from reading
+the existing code:
+
+- **Channel keywords are a transcribed table on `ColorSpace`, never derived.** Not from
+  `componentLabels`, which is display copy the UI layer may reword freely — today every
+  label's first letter *is* the right keyword, which makes the derivation tempting and its
+  failure silent, because rewording "Chroma" would make the parser accept
+  `oklch(from red l o h)` and reject the spec's spelling. And not from `componentRoles`,
+  which genuinely disagrees: XYZ counts as a super-saturated RGB space there and shares
+  `(.reds, .greens, .blues)`, but its keywords are `x y z`. This is M12's lesson arriving
+  a second time, at a different table.
+- **A keyword's value is a `<number>` in its own *function's* written scale.** Which is
+  `stored / numberScale`, and the two diverge in exactly one place — `rgb()`, stored 0–1
+  and written 0–255. So `rgb()` and `color(srgb …)` disagree on the same space: red's `r`
+  is 255 in one and 1 in the other. `ChannelBindings` therefore takes the function *and*
+  the space, because neither implies the other — the function fixes the scale, the space
+  fixes the spelling and is what the origin converts into.
+- **The origin converts with M12's carry-forward.** The spec names CSS Color 4 §13.2
+  outright, so this is `convertedForInterpolation(to:)` and not the similar-looking
+  `converted(to:)`. Substituting the latter fails exactly the two missing-component tests.
+- **`none` means two different things, and both are load-bearing.** Written bare a missing
+  channel stays missing; inside a `calc()` the spec reads it as zero. Modelling a channel
+  as `Double?` flattens them, which is why `ChannelValue` has two cases. Mutating either
+  half fails tests the other does not.
+
+Legacy commas with an origin are a **hard error**, unlike this parser's other comma
+leniencies — those parse because the intent is unambiguous, and this one the spec rules
+out. `ColorNotation.relative` accordingly carries no `legacy:` flag: there is no such
+combination, so the type has nowhere to express it.
+
+An origin is a nested color, so `consumeColor` reads one from the token stream and finds
+its closing paren **by depth** — the opposite of `consumeCalc`, whose body cannot nest and
+whose first `)` is therefore its own.
+
+**Alpha clamping came out of this milestone and is not part of it.** The spec's relative
+section states that alpha is clamped while components are not; measuring showed this
+parser clamped neither, and had not since M2. Fixed in `assemble` for *every* syntax
+rather than only the relative one, in its own commit — clamping just the relative path
+would have made `rgb(0 0 0 / 2)` and `rgb(from black r g b / 2)` disagree for no
+reconstructible reason. The asymmetry is the part worth keeping: components must stay
+unclamped or an out-of-gamut color could not be written at all, and the "Outside sRGB"
+badge exists to report exactly those; alpha has no equivalent story.
+
+**Out of scope, deliberately:** the spec's `alpha()` function, which has its own grammar
+row and its own processing-space rule (the *origin's* space, not the output's). Recorded
+in the deferred list rather than left implied by a ✅.
 
 ### M15 — `color-mix()`
 
@@ -1267,6 +1312,7 @@ Per milestone:
 - **M11:** the store rules are in [ProjectStoreTests](Color%20ToolkitTests/ProjectStoreTests.swift), each confirmed against a mutation of the rule it covers — dropping the move's offset discount, skipping the dense renumber, disabling key dedup, re-deriving stored text, and moving colors instead of copying them all fail the suite. Reordering is checked across a real store close and reopen, since an in-memory container proves only that the objects in hand were mutated. [ProjectsSmokeTests](Color%20ToolkitUITests/ProjectsSmokeTests.swift) covers the wiring — **through the menu commands, not the drag**, because XCUITest cannot start a dragging session and a drag-driven test would fail whether the feature worked or not. **The drag gesture itself is not covered by any automated test and wants a human to try it once.**
 - **M12:** [MissingComponentTests](Color%20ToolkitTests/MissingComponentTests.swift), and the standard of proof is the spec rather than a reference implementation — colorjs.io resolves `none` on conversion, so it cannot answer this at all. Each test names the spec example or role-table property it encodes, and all five load-bearing rules were confirmed by mutation (see the milestone). The spec's *printed* conversions are asserted as roundings, not with a tolerance, because that is the claim actually available from a displayed figure.
 - **M13:** [CalcTests](Color%20ToolkitTests/CalcTests.swift), hand-written throughout because there is no oracle — colorjs.io rejects `rgb(calc(10 + 20) 0 0)` outright with "Expected 3 coordinates … got 5", so `parse-vectors.json` is untouched. The arithmetic is checkable by inspection; what is not obvious from reading the code is pinned by five mutations, each failing only what it should. Stripping precedence fails one test, dropping the `±` type check one, ignoring leftover tokens two, and hoisting the tokenizer's operator rules above the number scanner fails the *curated fixture* — `rgb(+128 0 0)` — plus the numeric-edge-forms test. The fifth is the discriminating one: letting a calc body's slash escape to separator logic fails every test whose input contains a slash and **no test without one**, which is the sharpest available statement that consuming the body as a unit is what resolves the ambiguity. A first, blunter version of that mutation (not consuming the body at all) failed fifteen tests and proved nothing except that the feature was off. A sixth mutation covers the seam the other five do not touch: dropping `min` from `UnsupportedFunctions.names` makes `rgb(calc(min(1, 2) * 2) 0 0)` come back `calcUnsupportedSyntax("min(")` instead of naming the function, which is the observable proof that the pre-tokenize check still runs *before* calc consumption. `firstCalled` scans its own list rather than the input, so the case is checked with a first-listed name (`var`) and a later one (`min`) both.
+- **M14:** [RelativeColorTests](Color%20ToolkitTests/RelativeColorTests.swift), hand-written for a *third* distinct no-oracle reason — colorjs.io 0.7.0 has no relative color syntax at all, so every form comes back "Expected 3 coordinates … got 4". (M13's reason was that it rejects `calc()`; M12's was that it resolves `none` on conversion and so cannot be asked the question.) The conversions underneath are oracle-validated already and are deliberately not re-tested. **Eight mutations, and the most useful one passed.** Seven failed exactly what they should — deriving the keyword table from roles, ignoring `numberScale`, dropping carry-forward, collapsing either half of the `none` rule, allowing legacy commas, and removing the alpha clamp. The eighth, replacing the origin's depth counting with "first close paren wins", **passed the entire suite**, which is the finding worth carrying: *a mutation that survives means the test set is incomplete, not that the rule is safe.* The obvious nesting cases do not discriminate — in `rgb(from color(display-p3 1 0 0) r g b)` the first `)` already is the right one, and `rgb(from rgb(from red r g b) r g b)` is still one level deep because `from red` opens nothing. Depth counting only earns its keep when the origin's function contains another function, so a case was added for the cheapest one, a `calc()` inside the origin, and the mutation now fails with `wrongComponentCount(got: 1)`. Two assertions are deliberately loose and say so in place: white's OKLab lightness is `1.0000000000000002` and an sRGB → OKLCh → sRGB round trip returns red as the same, so both claims are checked by discrimination — the competing readings are off by ~100× and ~1 — rather than by an equality the conversion never promised.
 - **M3/M4 (UI):** run the app and verify interactively. Spot-check conversions against a browser's DevTools color picker, which implements the same spec — a fast, honest end-to-end sanity check.
 
 The scheme is shared and works from the command line:
@@ -1379,6 +1425,10 @@ What remains genuinely deferred:
   CSS Values 4, deliberately, and loosening them is a separate decision from nesting.
 - **`var()` and `env()`** in parsing. Unlike `calc()`, these cannot be resolved from the
   string alone — they need a cascade the app does not have and should not invent.
+- **The `alpha()` function** from CSS Color 5, which M14 scoped out. It has its own
+  grammar row and, unlike every other relative form, its processing space is the
+  *origin's* rather than the output's — so it is a genuinely separate rule and not one
+  more case in the same switch.
 - **Figma Variables API and Tokens Studio import.** M17 covers the vendor-neutral format;
   these are two more parsers with materially different shapes, worth adding only if a real
   file arrives that needs one.
