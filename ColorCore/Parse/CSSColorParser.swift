@@ -225,7 +225,7 @@ nonisolated enum CSSColorParser {
       throw ParseError.missingOriginColor
 
     case let .hash(digits):
-      return (try parseHex(digits), index + 1)
+      return try (parseHex(digits), index + 1)
 
     case let .ident(name):
       guard let color = ColorValue.named(name) else {
@@ -248,7 +248,7 @@ nonisolated enum CSSColorParser {
       }
       guard depth == 0 else { throw ParseError.unterminatedFunction(name) }
       let body = Array(tokens[(index + 1) ..< scan])
-      return (try parseFunction(name, tokens: body), scan)
+      return try (parseFunction(name, tokens: body), scan)
 
     default:
       throw ParseError.unexpectedToken(tokens[index].description)

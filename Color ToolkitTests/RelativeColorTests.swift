@@ -227,6 +227,8 @@ struct RelativeColorMissingTests {
 
 @Suite("Relative color syntax — rejection")
 struct RelativeColorRejectionTests {
+  // MARK: Internal
+
   @Test("Channel keywords are rejected without an origin")
   func keywordsNeedAnOrigin() {
     // The gate has to stay shut by default, or every typo becomes a color.
