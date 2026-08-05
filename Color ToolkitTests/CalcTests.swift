@@ -130,6 +130,8 @@ struct CalcSlashTests {
 
 @Suite("calc() — rejection")
 struct CalcRejectionTests {
+  // MARK: Internal
+
   @Test("Two operands with no operator are rejected")
   func adjacentOperands() throws {
     // `calc(1 -2)` is the reason this rule exists. CSS requires whitespace on
