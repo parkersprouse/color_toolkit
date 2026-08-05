@@ -606,8 +606,10 @@ the accessibility-tree conventions before writing UI tests.
   app it cannot activate, and using the Mac during a run is enough to cause it. Check
   `ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print $NF/1000000000; exit}'` before
   reading it as a regression, and confirm by re-running the one test at an unmodified
-  commit in a worktree. Do not "fix" it by loosening the wait — a chain that falls back
-  to a non-hittable click is a test that cannot fail.
+  commit in a worktree. Observed in M15: `testASavedRampExportsUnderItsOwnName` failed
+  three times running, failed identically at the unmodified commit, and then passed six
+  of six once the Mac was idle. Do not "fix" it by loosening the wait — a chain that
+  falls back to a non-hittable click is a test that cannot fail.
 - A `GeometryReader` square inside a `ScrollView` claims the whole unbounded height
   proposal. Size it from *width*, which is bounded.
 - Every running instance owns its own `MenuBarExtra` icon, so an orphaned process

@@ -19,13 +19,16 @@
 > mutations, two of them only after tests were added for exemptions nothing was holding —
 > see M15's milestone note.
 >
-> **One XCUITest is failing for a host reason, and it is not M15's.**
-> `ProjectsSmokeTests.testASavedRampExportsUnderItsOwnName` reports the whole
-> `Application` as `Disabled` and its Export button as never hittable; the same test at
-> the same commit passed earlier the same session, and it fails identically at *unmodified*
-> `ed68e20` in a clean worktree, so it is the machine and not the code — XCUITest needs the
-> app frontmost, and the run was competing with a machine in use. Re-run it on an idle Mac
-> before reading anything into it. Everything else is green: **391 of 392**.
+> **One XCUITest failed mid-session for a host reason and then passed on retry**, and the
+> diagnosis is worth keeping. `ProjectsSmokeTests.testASavedRampExportsUnderItsOwnName`
+> reported its Export button as never hittable, with the whole `Application`, `Window` and
+> `Toolbar` reading `Disabled` — the button was right there with real coordinates. Three
+> things placed it: it had passed earlier in the same session, it failed *identically* at
+> unmodified `ed68e20` in a clean worktree, and `ColorInterpolation` is reachable only
+> from the parser's mix branch and `TransformPanel`, so no M15 code runs in that test at
+> all. XCUITest cannot click into a macOS app it cannot bring frontmost, and the Mac was
+> in use. It passed on re-run, six of six. **392 of 392 green**, across two runs rather
+> than one — which is the honest way to say it.
 >
 > M0–M9 were each reviewed on the running app. **Three later things were not, and should
 > not be read as if they were:** M10 changed no behavior and has no UI to look at, M11's
