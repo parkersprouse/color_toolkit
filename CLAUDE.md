@@ -63,6 +63,25 @@ xcodebuild -project "Color Toolkit.xcodeproj" -scheme "Color Toolkit" -destinati
 xcrun xcresulttool get test-results tests --path /tmp/res.xcresult --compact
 ```
 
+**That command names the failing tests; it does not carry the failure text.** Measured in
+M17, chasing an assertion that failed on a tolerance: the `tests` view returns node names
+and `"result":"Failed"` and no expectation anywhere in it. The values live one command
+further down:
+
+```bash
+xcrun xcresulttool get test-results test-details --test-id "ProjectStoreTests/importedPalettesExport()" --path /tmp/res.xcresult
+```
+
+That prints `Expectation failed: (parsed.deltaEOK(…) → 4.59e-05) < (1e-9 → 1e-09)` —
+the actual numbers, which is usually the whole question.
+
+**The two identifiers are spelled differently and neither accepts the other's form.**
+`-only-testing:` takes the **target prefix** (`Color ToolkitTests/ProjectStoreTests/foo()`);
+`--test-id` takes the bare `nodeIdentifier` (`ProjectStoreTests/foo()`) and answers a
+target-prefixed one with *"Failed to find test with the provided identifier"*. Both need
+the trailing `()`: omit it from `-only-testing:` and the run selects nothing and reports
+`Test run with 0 tests … passed`, which reads exactly like a pass.
+
 One suite. The target is the Swift **type** name, not the `@Suite("…")` display
 string, and one file often holds several suites — `CSSParsingTests.swift` defines
 `CSSParseValidTests`, `CSSParseRejectionTests`, and `CSSParseLeniencyTests`:
@@ -222,6 +241,15 @@ Layered so the numeric core stays independently testable and UI-free:
   `Color Toolkit/`; a file dropped in either compiles. Editing the project file is for
   adding a *target*, or a build setting with nowhere else to live — never for adding
   files.
+- **The token import is the app's only file read, and two things make it work.**
+  `ENABLE_USER_SELECTED_FILES = readonly` — a build setting, in *both* the Debug and
+  Release blocks, with no `.entitlements` file anywhere — is what grants a URL the user
+  chose in an open panel; `ProjectsPanel` then claims it with
+  `startAccessingSecurityScopedResource()` and stops on the way out only `if scoped`,
+  which is correct whether or not a powerbox URL turns out to need the claim. Verified in
+  the built binary with `codesign -d --entitlements -` and then end to end on the running
+  app. There is nothing else in the app that reads a file, so a regression here has
+  exactly one symptom and no test will catch it — see the M17 entries in PLAN.md.
 - **`Info.plist` sits at the repo root, and that is the only place it can.** The app is
   otherwise `GENERATE_INFOPLIST_FILE = YES`, so every scalar stays an `INFOPLIST_KEY_*`
   build setting; the file exists solely for `UTExportedTypeDeclarations`, which is an
@@ -242,10 +270,16 @@ Layered so the numeric core stays independently testable and UI-free:
   positions are append-only — slotting a *moved* color into a gap means inventing a value
   between neighbours, and two moves into one gap collide. `moveColors` is the only place
   that renumbers. Do not "unify" the two.
-- **Two `savePalette` overloads, and merging them destroys data.** The `[PaletteEntry]`
-  one re-derives a spelling because ramp stops and harmony members never had one; the
-  `from: [SavedColor]` one copies `ColorRecord` so a user's typed `rebeccapurple` survives.
-  Palette keys from a hand-picked set are **deduplicated** — two entries sharing a key
+- **Three `savePalette` overloads, and merging any of them destroys data.** What differs
+  is how each derives the stored *spelling*, which is the one thing a shared door loses.
+  The `[PaletteEntry]` one re-derives a spelling because ramp stops and harmony members
+  never had one; the `from: [SavedColor]` one copies `ColorRecord` so a user's typed
+  `rebeccapurple` survives; the `importing: [DesignToken]` one spells each color in the
+  space its token named, because a token's `colorSpace` is authored information too.
+  `newPalette(named:kind:in:)` is deliberately the *only* shared part — it carries no
+  decision, and extracting it is what keeps three identical-looking preambles from
+  inviting the merge. Palette keys from a hand-picked set are **deduplicated**, and so are
+  imported ones (against the sanitized key — see below) — two entries sharing a key
   collapse into one CSS property and a color vanishes from the export silently.
 - **Never assert a gamut-containment claim from reasoning.** Space "widths" do not
   nest (Rec.2020 does not contain Display P3). Query the oracle.
@@ -662,6 +696,15 @@ the accessibility-tree conventions before writing UI tests.
   as a bug. Give the same action a menu or keyboard command, test *that*, and let the two
   share one handler. This is worth doing regardless: a drag-only affordance is unusable
   from the keyboard and from VoiceOver.
+- **`fileImporter` is the same shape: XCUITest cannot drive `NSOpenPanel`.** It is a
+  separate process, so a test that clicked Import Tokens… would hang on a panel it cannot
+  reach and fail whether the feature worked or not. `ProjectsSmokeTests` therefore stops
+  at asserting the control exists and is hittable; the decode is covered by
+  `DesignTokenImportTests` and the save by `ProjectStoreTests`, and **the file read itself
+  is covered by nothing and is a recorded manual check**. Note this generalizes past
+  tests: driving that panel from outside needs assistive access, which `osascript` does
+  not have here, and `screencapture` is likewise blocked — so an agent cannot verify this
+  one either, and should say so rather than infer it from a green suite.
 - A palette swatch is `app.otherElements[…]`; a saved color is `app.buttons[…]`. Both
   publish their label, but they are different element kinds and the wrong query never
   matches. A palette swatch's label is its **key**, not its CSS.

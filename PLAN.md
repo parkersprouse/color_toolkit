@@ -1187,7 +1187,7 @@ rule's `allSatisfy` into `contains` fails three, and dropping alpha's carry fail
 Storage was safe as predicted: `ColorRecord.missingMask` is an `Int` and the `& 0b1111`
 truncation is only on the read path, so this sets existing bits and forces no schema change.
 
-### M13 — `calc()`, scoped ✅
+### ✅ M13 — `calc()`, scoped
 
 All three predicted layers moved, and each blocked for the predicted reason.
 `UnsupportedFunctions` loses `calc` and keeps the rest — `min`/`max`/`clamp`/`round`
@@ -1231,7 +1231,7 @@ Two findings worth carrying:
   written expecting the first to be the unterminated one, and the failure is what taught
   the distinction.
 
-### M14 — Relative color syntax ✅
+### ✅ M14 — Relative color syntax
 
 Both predicted hook points were exactly where the plan said, and both were the dead ends
 it described. `ParsedInput` needed no change after all — it wraps `ParseResult` opaquely
@@ -1285,7 +1285,7 @@ badge exists to report exactly those; alpha has no equivalent story.
 row and its own processing-space rule (the *origin's* space, not the output's). Recorded
 in the deferred list rather than left implied by a ✅.
 
-### M15 — `color-mix()` ✅
+### ✅ M15 — `color-mix()`
 
 The milestone M12 was written for, and it consumed it exactly as planned: each side goes
 through `convertedForInterpolation(to:)` rather than `converted(to:)`. Nothing else was
@@ -1383,7 +1383,7 @@ the same reason, since repeated application converges on the background. The
 `color-mix()` expression is printed under the result, which is now something you can paste
 back into the field.
 
-### M16 — `@media (color-gamut)` export shape ✅
+### ✅ M16 — `@media (color-gamut)` export shape
 
 One `ExportShape` case, `p3WithFallback`, and one private generator at
 `ExportOptions.render`: a hex fallback block, then `@media (color-gamut: p3)` re-declaring
