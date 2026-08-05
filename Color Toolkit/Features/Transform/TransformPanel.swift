@@ -366,20 +366,6 @@ struct TransformPanel: View {
     }
   }
 
-  /// The `color-mix()` that produces what the panel is showing, spelled to paste.
-  ///
-  /// Worth showing beside the result rather than only the result, because this app now
-  /// *reads* the syntax as well as computing it — so the line below the swatch is
-  /// something you can put straight back in the field. Both colors are printed at
-  /// display precision, like every other caption here, so pasting it reproduces the
-  /// preview to the digits shown rather than to the last bit.
-  private func mixExpression(_ color: ColorValue, _ background: ColorValue) -> String {
-    let arc = store.mixSpace.hueIndex == nil ? "" : " \(store.mixHueMethod.rawValue) hue"
-    let share = String(format: "%.0f%%", (1 - mixAmount) * 100)
-    return "color-mix(in \(store.mixSpace.rawValue)\(arc), "
-      + "\(css(color)) \(share), \(css(background)))"
-  }
-
   // MARK: - Legibility
 
   private func legibilitySection(_ color: ColorValue) -> some View {
@@ -692,6 +678,20 @@ struct TransformPanel: View {
         .font(.caption)
         .foregroundStyle(.secondary)
     }
+  }
+
+  /// The `color-mix()` that produces what the panel is showing, spelled to paste.
+  ///
+  /// Worth showing beside the result rather than only the result, because this app now
+  /// *reads* the syntax as well as computing it — so the line below the swatch is
+  /// something you can put straight back in the field. Both colors are printed at
+  /// display precision, like every other caption here, so pasting it reproduces the
+  /// preview to the digits shown rather than to the last bit.
+  private func mixExpression(_ color: ColorValue, _ background: ColorValue) -> String {
+    let arc = store.mixSpace.hueIndex == nil ? "" : " \(store.mixHueMethod.rawValue) hue"
+    let share = String(format: "%.0f%%", (1 - mixAmount) * 100)
+    return "color-mix(in \(store.mixSpace.rawValue)\(arc), "
+      + "\(css(color)) \(share), \(css(background)))"
   }
 
   // MARK: - Adjust

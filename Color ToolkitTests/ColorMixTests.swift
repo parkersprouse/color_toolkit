@@ -221,8 +221,6 @@ struct ColorMixGrammarTests {
 
 @Suite("color-mix() — percentages")
 struct ColorMixPercentageTests {
-  // MARK: Internal
-
   @Test("Omitted percentages fill themselves in")
   func defaulting() throws {
     let even = try parse("color-mix(in srgb, red, blue)")
