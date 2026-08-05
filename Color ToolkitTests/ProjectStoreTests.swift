@@ -119,6 +119,70 @@ struct ProjectStoreTests {
     }
   }
 
+  // MARK: - Imported palettes
+
+  /// The whole import path against a container: decoded tokens in, a palette out, with
+  /// the keys, the order and the provenance the file gave them.
+  @Test("An imported token file becomes a palette that keeps its keys and order")
+  func importedTokensBecomeAPalette() throws {
+    let library = try Self.makeLibrary()
+    let project = try library.createProject(named: "Site")
+    let document = try DesignTokenImport.decode(Data(Self.rampTokens.utf8))
+
+    try library.savePalette(importing: document.colors, named: "Brand", to: project)
+
+    let palette = try #require(try library.projects().first?.orderedPalettes.first)
+    #expect(palette.name == "Brand")
+    // Provenance, kept for the reason every other kind is: an imported palette's keys are
+    // somebody else's names, and that is what explains why they look nothing like a ramp's.
+    #expect(palette.kind == .imported)
+    #expect(palette.paletteEntries.map(\.key) == ["brand-50", "brand-100", "brand-900"])
+  }
+
+  /// **A design token's `colorSpace` is authored information, so it survives storage.**
+  ///
+  /// The `PaletteEntry` overload spells everything `oklch()`, which is right for a ramp
+  /// stop that never had a space of its own. Route an import through it and a
+  /// `display-p3` token comes back spelled `oklch(…)` — the same color, and not the same
+  /// answer, exactly as re-deriving `rebeccapurple` as `#663399` would be.
+  @Test("An imported color keeps the space its token named")
+  func importedColorsKeepTheirOwnSpelling() throws {
+    let library = try Self.makeLibrary()
+    let project = try library.createProject(named: "Site")
+    let document = try DesignTokenImport.decode(Data(#"""
+    { "t": { "$type": "color", "wide": { "$value": {
+      "colorSpace": "display-p3", "components": [0.9, 0.2, 0.15] } } } }
+    """#.utf8))
+
+    try library.savePalette(importing: document.colors, named: "Wide", to: project)
+
+    let saved = try #require(
+      try library.projects().first?.orderedPalettes.first?.orderedEntries.first,
+    )
+    #expect(saved.text.hasPrefix("color(display-p3"), "Stored as “\(saved.text)”")
+    #expect(saved.colorValue?.space == .displayP3)
+  }
+
+  /// `$description` is the field a design system says *why* in, exactly once. Notes are
+  /// where this app already keeps that, so nothing is invented to hold it.
+  @Test("A token's description is stored as the color's notes")
+  func importedDescriptionsBecomeNotes() throws {
+    let library = try Self.makeLibrary()
+    let project = try library.createProject(named: "Site")
+    let document = try DesignTokenImport.decode(Data(#"""
+    { "t": { "$type": "color", "c": {
+      "$description": "The one on the buttons",
+      "$value": { "colorSpace": "srgb", "components": [0, 0, 1] } } } }
+    """#.utf8))
+
+    try library.savePalette(importing: document.colors, named: "Tokens", to: project)
+
+    let saved = try #require(
+      try library.projects().first?.orderedPalettes.first?.orderedEntries.first,
+    )
+    #expect(saved.notes == "The one on the buttons")
+  }
+
   /// An orphaned `SavedColor` belongs to no project, so no view would ever show it and
   /// nobody would ever know it was there. The cascade is declared on the relationships;
   /// this is what proves it reaches both of them — the loose colors *and* the ones two
@@ -485,6 +549,15 @@ struct ProjectStoreTests {
   }
 
   /// A store on disk, for the one test that has to leave memory.
+  /// Three shades out of numeric order in the file, so the palette's order is a claim
+  /// about the importer rather than about how the JSON happened to be typed.
+  private static let rampTokens = #"""
+  { "brand": { "$type": "color",
+    "900": { "$value": { "colorSpace": "srgb", "components": [0.05, 0.1, 0.4] } },
+    "50":  { "$value": { "colorSpace": "srgb", "components": [0.9, 0.94, 1] } },
+    "100": { "$value": { "colorSpace": "srgb", "components": [0.8, 0.88, 1] } } } }
+  """#
+
   private static func makeContainer(at url: URL) throws -> ModelContainer {
     try ModelContainer(
       for: PersistenceStack.schema,

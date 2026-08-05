@@ -104,6 +104,14 @@ struct ProjectsPanel: View {
   @State private var errorMessage: String?
   @State private var confirmingProjectDeletion = false
 
+  /// Whether the open panel is up, and what the last import came back with.
+  ///
+  /// The summary is separate from ``errorMessage`` rather than folded into it because an
+  /// import routinely half-succeeds — eleven colors in, three tokens skipped — and that is
+  /// neither an error nor silence.
+  @State private var isImporting = false
+  @State private var importSummary: String?
+
   /// Which saved color's notes are open. A `@Model` is `Identifiable`, so this drives
   /// `.popover(item:)` directly.
   @State private var noteTarget: SavedColor?
@@ -250,6 +258,21 @@ struct ProjectsPanel: View {
         Button("Save Selection") { saveSelection(to: project) }
           .disabled(selectedColors(in: project).isEmpty)
           .accessibilityIdentifier("saveSelection")
+
+        // The one control here that brings colors in from outside the app rather than
+        // from another of its tools. Beside the save buttons because it answers the same
+        // question they do — what ends up in this project — and because an import lands
+        // as a palette, which is what the two buttons to its left produce.
+        Button("Import Tokens…") { isImporting = true }
+          .accessibilityIdentifier("importTokens")
+      }
+
+      if let summary = importSummary {
+        Text(summary)
+          .font(.caption)
+          .foregroundStyle(.secondary)
+          .fixedSize(horizontal: false, vertical: true)
+          .accessibilityIdentifier("importSummary")
       }
 
       Text(
@@ -260,6 +283,16 @@ struct ProjectsPanel: View {
       .font(.caption)
       .foregroundStyle(.tertiary)
       .fixedSize(horizontal: false, vertical: true)
+    }
+    // `.json` covers the conventional `name.tokens.json`; the bare `.tokens` spelling
+    // exists too and has no registered type, so it is admitted by extension. A dynamic
+    // type is the whole cost of that, and the alternative is a file the panel refuses to
+    // show for no reason a user could work out.
+    .fileImporter(
+      isPresented: $isImporting,
+      allowedContentTypes: [.json] + (UTType(filenameExtension: "tokens").map { [$0] } ?? []),
+    ) { result in
+      importTokens(result, into: project)
     }
   }
 
@@ -511,6 +544,122 @@ struct ProjectsPanel: View {
       try library.savePalette(entries, named: entryName, kind: source.paletteKind, to: project)
       entryName = ""
     }
+  }
+
+  // MARK: - Importing
+
+  /// Reads a W3C design token file and saves its colors as a palette.
+  ///
+  /// **Every failure mode gets its own sentence, and that is not politeness.** This is the
+  /// app's only file read, so it is the only place a *sandbox* denial can happen — and a
+  /// denial that reported as "no color tokens in that file" would be undiagnosable, since
+  /// the file plainly has them. So: the panel dismissal, the read, the decode, the
+  /// "readable file with nothing importable in it", and the save are five outcomes with
+  /// five messages.
+  ///
+  /// The security-scoped access is what makes the read legal at all. The app is sandboxed
+  /// with `ENABLE_USER_SELECTED_FILES = readonly`, which grants a URL the user chose in an
+  /// open panel — but the grant has to be *claimed*, and the failure without it is a
+  /// permission error on a file the user just picked.
+  private func importTokens(_ result: Result<URL, Error>, into project: Project) {
+    importSummary = nil
+
+    guard case let .success(url) = result else {
+      if case let .failure(error) = result {
+        errorMessage = "Could not open that file: \(error.localizedDescription)"
+      }
+      return
+    }
+
+    let scoped = url.startAccessingSecurityScopedResource()
+    defer {
+      if scoped {
+        url.stopAccessingSecurityScopedResource()
+      }
+    }
+
+    let data: Data
+    do {
+      data = try Data(contentsOf: url)
+    } catch {
+      errorMessage = "Could not read \(url.lastPathComponent): \(error.localizedDescription)"
+      return
+    }
+
+    let document: DesignTokenDocument
+    do {
+      document = try DesignTokenImport.decode(data)
+    } catch {
+      errorMessage = error.message
+      return
+    }
+
+    guard !document.colors.isEmpty else {
+      errorMessage = Self.nothingImported(document)
+      return
+    }
+
+    perform {
+      try library.savePalette(
+        importing: document.colors,
+        named: Self.paletteName(for: url),
+        to: project,
+      )
+      importSummary = Self.summary(document, from: url)
+    }
+  }
+
+  /// What the imported palette is called: the file's name, minus the extensions that only
+  /// say what kind of file it is.
+  ///
+  /// `brand.tokens.json` is the conventional spelling, and dropping one extension leaves
+  /// `brand.tokens` — a palette named after a file format rather than after a brand.
+  private static func paletteName(for url: URL) -> String {
+    let stem = url.deletingPathExtension().lastPathComponent
+    return stem.hasSuffix(".tokens") ? String(stem.dropLast(".tokens".count)) : stem
+  }
+
+  private static func summary(_ document: DesignTokenDocument, from url: URL) -> String {
+    var parts = ["Imported \(counted(document.colors.count, "color")) from \(url.lastPathComponent)."]
+    if document.otherTypeCount > 0 {
+      parts.append("Ignored \(counted(document.otherTypeCount, "token")) of other types.")
+    }
+    if let note = skippedNote(document.skipped) {
+      parts.append(note)
+    }
+    return parts.joined(separator: " ")
+  }
+
+  /// Why a file that read perfectly well produced nothing.
+  ///
+  /// Distinct from every message above it: the file was found, opened and understood. One
+  /// of the two counts is necessarily non-zero here — a file with no tokens at all throws
+  /// ``DesignTokenError/noTokens`` and never reaches this.
+  private static func nothingImported(_ document: DesignTokenDocument) -> String {
+    guard let note = skippedNote(document.skipped) else {
+      return "No color tokens in that file — its \(counted(document.otherTypeCount, "token")) "
+        + "have some other “$type”."
+    }
+    return "No colors imported. " + note
+  }
+
+  /// The first failure in full, and a count of the rest.
+  ///
+  /// One reason rather than all of them, because the reasons repeat: a file with a
+  /// misspelled color space has that same complaint forty times, and forty lines of it
+  /// would bury the count.
+  ///
+  /// "Token", not "color token", and the imprecision is the honest direction: a token
+  /// whose reference does not resolve is reported before its `$type` can be known, so
+  /// some of these may not have been colors at all.
+  private static func skippedNote(_ skipped: [SkippedToken]) -> String? {
+    guard let first = skipped.first else { return nil }
+    let head = "Skipped \(counted(skipped.count, "token")) — “\(first.name)”: \(first.reason.message)"
+    return skipped.count == 1 ? head : head + " (\(skipped.count - 1) more like it.)"
+  }
+
+  private static func counted(_ count: Int, _ noun: String) -> String {
+    "\(count) \(noun)\(count == 1 ? "" : "s")"
   }
 
   /// The ticked colors, in the order they appear rather than the order they were ticked.

@@ -236,6 +236,30 @@ final class ProjectsSmokeTests: XCTestCase {
     )
   }
 
+  /// **The import's affordance, and deliberately not the import.**
+  ///
+  /// Clicking this raises `NSOpenPanel`, which XCUITest cannot drive — the same shape as
+  /// the drag-and-drop this suite declines to test, and for the same reason: a test that
+  /// tried would fail whether the feature worked or not. So the assertion stops at what a
+  /// running app can honestly be asked, which is that the control reached the panel and is
+  /// usable. What happens after a file is chosen is covered by ``DesignTokenImportTests``
+  /// and ``ProjectStoreTests`` between them, and the *file read itself* — the sandbox, the
+  /// security-scoped URL — is covered by neither and wants a human once. See PLAN.md.
+  func testTheImportControlIsThereToBeUsed() {
+    click(radioButton: "Projects", "the tool switcher")
+    createProject()
+
+    let button = app.buttons["importTokens"]
+    XCTAssertTrue(
+      button.waitForExistence(timeout: 15),
+      "No import button in the projects panel. Tree was:\n\(app.debugDescription)",
+    )
+    XCTAssertTrue(
+      waitUntilHittable(button),
+      "The import button never became hittable. Tree was:\n\(app.debugDescription)",
+    )
+  }
+
   // MARK: Private
 
   private var app: XCUIApplication!

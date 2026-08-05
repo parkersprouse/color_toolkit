@@ -71,10 +71,19 @@
 > spine, is done**: `ComponentRole` and carry-forward exist, so every "depends on M12" is
 > discharged — M14 was the first milestone to consume it, which is what turned that claim
 > into a tested one, and M15 is the one it was written for. **M13 and M14 closed the
-> plan's last dependency chain**, and M15 waited on nothing. **M16 is done; M17 and M18
-> remain, and both are independent**, so they can be taken in either order. What remains
-> beyond that is **M8b** (saving an export to a file) and the shorter deferred list at the
-> end.
+> plan's last dependency chain**, and M15 waited on nothing. **M16 and M17 are done; M18
+> is all that remains of the numbered plan.** What remains beyond that is **M8b** (saving
+> an export to a file) and the shorter deferred list at the end.
+>
+> **M17's own plan note was wrong about one thing, and reading the spec is what caught it.**
+> It said to reuse `ComponentGrammar.fullScale` as the token format's range table. The Color
+> module leaves `lab`'s and `oklab`'s a/b and both chromas **unbounded**, where `fullScale`
+> reports 125, 0.4 and 0.4 — it is a precision hint, not a bound, and validating against it
+> would have rejected legal tokens. The salvageable half is sharper than the original: the
+> mapping needs no arithmetic *at all*, because the format's ranges are CSS's own number
+> forms and this app stores number forms. The one trap is `rgb()`, whose number form runs
+> 0–255 while the format's `srgb` runs 0–1 — so a `[1, 0, 0]` scaled by it imports a
+> near-black that still renders and still round-trips. Nine mutations, all nine killed.
 >
 > **M12 is the first milestone with no oracle *and* nothing to look at**, so its standard
 > of proof is the spec's own worked examples plus five mutations. Two of its findings are
@@ -418,7 +427,7 @@ Key facts about the project, established during exploration and still current:
 
 ## Architecture
 
-Four layers, strictly one-directional. **`ColorCore` imports nothing but `Foundation`** — no SwiftUI, no AppKit, no SwiftData. Every one of its 27 files, measured rather than assumed. That constraint is what keeps it exhaustively testable and reusable, and M10 turned "reusable in principle" into "addressable by a second target": it now sits beside the app rather than inside it.
+Four layers, strictly one-directional. **`ColorCore` imports nothing but `Foundation`** — no SwiftUI, no AppKit, no SwiftData. Every one of its 31 files, measured rather than assumed (the figure stood at 27 for three milestones without being recounted, which is what measuring is for). That constraint is what keeps it exhaustively testable and reusable, and M10 turned "reusable in principle" into "addressable by a second target": it now sits beside the app rather than inside it.
 
 ```
 Color Toolkit/                    ← repo root
@@ -431,7 +440,8 @@ Color Toolkit/                    ← repo root
 │   ├── Format/                   CSS serializer + format catalog
 │   ├── Analysis/                 WCAG, APCA, CVD, deltaE
 │   ├── Transform/                lightness/sat/hue, harmonies, ramps
-│   └── Export/                   declaration templates + document shapes
+│   ├── Export/                   declaration templates + document shapes
+│   └── Import/                   W3C design token decoding (M17)
 ├── Color Toolkit/                ← the app target's own group
 │   ├── Services/                 eyedropper, global hotkey, clipboard
 │   ├── Persistence/              SwiftData @Models + Codable bridge
@@ -1464,6 +1474,63 @@ return through import unchanged.
 
 UI lives in `ProjectsPanel`. No eighth `Tool` case.
 
+**Done.** `ColorCore/Import/DesignTokens.swift` decodes a token file; `ProjectsPanel` owns
+the `fileImporter`; `ProjectLibrary.savePalette(importing:named:to:)` is the mutation, so
+the whole path is assertable against a container. `PaletteKind.imported` records the
+provenance — schema-safe, since `kindID` is a string with a `?? .custom` fallback and no
+property changed. What the note above got right held up: the fourteen `colorSpace`
+identifiers *are* `ColorSpace`'s raw values, and `ColorSpace(rawValue:)` is the whole
+decoder. Note it is **not** `ColorGrammar.colorFunctionSpaces`, which additionally accepts
+CSS's `xyz` alias that this format does not have.
+
+Five decisions worth keeping, three of which came out of the design review rather than the
+build:
+
+- **Aliases resolve *before* the type filter, not after.** The format's precedence is
+  explicit `$type` → **the resolved reference's** type → the nearest group's. So a token
+  with no type of its own that aliases a color token is a color token, and filtering first
+  drops exactly those — silently, which is the same class of defect as a colliding key.
+  Both alias spellings are supported (`{group.token}` and the draft's `$ref` JSON Pointer),
+  because they are one lookup with two spellings and declining the second means a file
+  using it imports as empty. Cycle detection is not defensive tidying: without it a
+  self-referential file — legal JSON, plausible hand-editing mistake — takes the process
+  down, which is exactly what the mutation showed.
+- **Paths are unique; the keys they sanitize to are not.** `-` is a legal name character
+  and `.` is not, so `brand.500` and `brand-500` are two legal tokens that
+  `ExportOptions.cssIdentifier` maps onto one identifier. Two entries sharing a key do not
+  produce a duplicate property — they produce a *single* one, and a color disappears from
+  the export with nothing in the document to say so. So the uniquing runs against the
+  **sanitized** key, not the raw path.
+- **A deterministic order had to be chosen, because there is none to preserve.**
+  `JSONSerialization` returns an unordered dictionary, so the document's own ordering is
+  not available at any price — and a palette's order is load-bearing. All-digit names
+  compare numerically and everything else compares as text, so a shade ramp lands
+  `50, 100, 950` rather than the alphabetical `100, 1000, 50`.
+- **An imported color is stored spelled in the space its token named.** A third
+  `savePalette` overload rather than a conversion into either existing one, for the reason
+  that keeps those two apart: what differs is how the stored *spelling* is derived. The
+  `PaletteEntry` overload writes `oklch()`, which is right for a ramp stop that never had a
+  space of its own; a design token's `colorSpace` is authored information, so a
+  `display-p3` token comes back `color(display-p3 …)`. Same objection as rewriting a typed
+  `rebeccapurple`, applied to somebody else's authoring. `$description` becomes the color's
+  notes, the field it was already for.
+- **`hex` is a fallback for an unknown *space*, and nothing else.** A known space with
+  unreadable components is a broken token and is reported as one, even when a perfectly
+  good `hex` sits beside it — taking it would substitute a 6-digit sRGB approximation for
+  whatever the components meant and say so nowhere. The unknown-space path mirrors how
+  `ColorRecord.colorValue` already treats a stored space it does not recognize.
+
+**No `ColorStore` change, which retires this milestone's own concern about `stage`.** The
+note above worried that `stage(_:named:)` flips `tool = .export` and wanted a sibling path.
+None is needed: once an import lands as a `Palette`, the existing `Export` button on
+`paletteRow` stages it exactly as a saved harmony is staged. `stagingCarriesTheName` is
+untouched, and export came free.
+
+The honest limitation the note asked for is recorded and unchanged: `cssIdentifier` is
+lossy, so a name that leaves through export does not return through import unchanged.
+Composite token types that *contain* colors — `shadow`, `border`, `gradient` — are counted
+as other types rather than descended into; that is a second feature, not this one.
+
 ### M18 — CLI front-end
 
 Last, so it exposes a finished `ColorCore` rather than being revised by every milestone
@@ -1498,6 +1565,8 @@ Per milestone:
 - **M14:** [RelativeColorTests](Color%20ToolkitTests/RelativeColorTests.swift), hand-written for a *third* distinct no-oracle reason — colorjs.io 0.7.0 has no relative color syntax at all, so every form comes back "Expected 3 coordinates … got 4". (M13's reason was that it rejects `calc()`; M12's was that it resolves `none` on conversion and so cannot be asked the question.) The conversions underneath are oracle-validated already and are deliberately not re-tested. **Eight mutations, and the most useful one passed.** Seven failed exactly what they should — deriving the keyword table from roles, ignoring `numberScale`, dropping carry-forward, collapsing either half of the `none` rule, allowing legacy commas, and removing the alpha clamp. The eighth, replacing the origin's depth counting with "first close paren wins", **passed the entire suite**, which is the finding worth carrying: *a mutation that survives means the test set is incomplete, not that the rule is safe.* The obvious nesting cases do not discriminate — in `rgb(from color(display-p3 1 0 0) r g b)` the first `)` already is the right one, and `rgb(from rgb(from red r g b) r g b)` is still one level deep because `from red` opens nothing. Depth counting only earns its keep when the origin's function contains another function, so a case was added for the cheapest one, a `calc()` inside the origin, and the mutation now fails with `wrongComponentCount(got: 1)`. Two assertions are deliberately loose and say so in place: white's OKLab lightness is `1.0000000000000002` and an sRGB → OKLCh → sRGB round trip returns red as the same, so both claims are checked by discrimination — the competing readings are off by ~100× and ~1 — rather than by an equality the conversion never promised.
 - **M15:** [ColorMixTests](Color%20ToolkitTests/ColorMixTests.swift), split on what each half can be held to. The **numbers** are generated — 1,760 vectors over fifteen color pairs, all fourteen interpolation spaces, four hue arcs and five positions along each mix — with the two oracle corrections above baked into the generator. The **grammar and the percentage rules** are hand-written, because colorjs.io can compute a mix and cannot parse one, which is the fourth distinct no-oracle reason this plan has recorded. Three assertions carry more than their length suggests: `null` in a recorded component is checked against our *missing mask* rather than against a number, which is a claim about §12.2's substitution rather than about arithmetic; the hue-arc test runs the same pair in both directions, because for any pair the four methods only ever produce two answers and it is *which method gets which* that proves direction is honoured rather than length; and the premultiplication case is stated as the wrong answer it discriminates against, `rgb(50% 0% 50%)` versus `rgb(33.3% 0% 66.7%)`. The tolerance is 1e-8 rather than the conversions' 1e-9, and says why in place: un-premultiplying divides by an interpolated alpha as low as 0.1, multiplying any upstream difference by up to ten. **Eleven mutations, all eleven killed, two of them only after three tests were added** — the survey found a shipped bug in the premultiplication guard plus two exemptions nothing was holding, and the milestone note above records all three. The failure sets are tight: the alpha shortfall is owned by two tests, the powerless marking by three, carry-forward by one, the hue's premultiplication exemption by the recorded vectors alone, and gamut-mapping the result by four — including `The ends of the mix are the colors themselves`, which is the cheapest possible statement that a mix returns its endpoints untouched.
 - **M16:** the same oracle M8 has — this app's own parser — applied to *both* blocks at once, since `propertyValues(in:)` already trims before matching `--…;` and so returns the media block's lines unchanged. The discriminating input is a color **outside sRGB and inside P3**: asserting only that every value parses would pass a document that wrote the same rounded hex twice, so the test requires the fallback to come back inside sRGB *and* the override to come back as the color that went in. The syntax — the braces, the query, the blank line between blocks — is pinned with an exact string, while the P3 *values* in it are computed from the serializer rather than transcribed, because those conversions are oracle-validated in the fixture suite and re-typing them would only test whether they were copied correctly. **Four mutations, all four killed, and each failure set is tight**: a per-entry conditional media block fails four tests, a fallback honoring `options.format` fails three, desynchronized property names fail three, and the badge measured against the P3 block instead of the fallback fails exactly one — the store test written for that decision. One existing test had to change and the reason is worth keeping: `formattingReachesEveryShape` is parameterized over `allCases` and asserts a precision-sensitive string, so it now asks each shape for the format it *actually writes* — and for this shape that has to be the **wide** one, because **hex is precision-invariant**. Pointing it at the fallback would have left the test unable to fail, and its own `lossless != coarse` blindness guard could not have caught that, since the guard is computed from whatever format the test picks. That in turn left the *fallback's* `formatting` pass-through unpinned — hardcoding `.default` there would have survived the whole file — so a second test asserts it through hex casing, the cheapest setting hex does observe. **The last test added is the one that found a shipped defect**, and it found it by failing first: `p3OverrideIsNotAnExactnessPromise` was written against `.lossless` and reported the override *un*mapped, because that constant is `.preserve`. The override is not hex — it is not `cannotRepresentOutOfGamut` — so it has no fixed answer at all and follows the **app-wide gamut policy**, which is `.map` in the panel. Both policies are now asserted, because it is the dependence rather than either instance that makes an exactness claim unsafe.
+- **M17:** [DesignTokenImportTests](Color%20ToolkitTests/DesignTokenImportTests.swift) for the decoder and [ProjectStoreTests](Color%20ToolkitTests/ProjectStoreTests.swift) for the path through a container. **A fifth distinct no-oracle reason, and the simplest one yet**: colorjs.io parses CSS, and a design token's `$value` is a JSON object rather than a CSS string, so there is nothing to ask it. The Color module's own documented shapes are the fixtures, written inline rather than in fixture files — the generated vector sets earn their own files by being thousands of numbers, where these are five lines of JSON apiece and only read as the spec examples they are when they sit beside the assertion. **Nine mutations, all nine killed, and every failure set is tight**: uniquing on the raw path instead of the sanitized key fails one test, ignoring a resolved reference's type one, letting `hex` rescue broken components one, sorting names as text two (both the ordering claims), dropping the `none` mask one, dropping the alpha clamp one, spelling imports `oklch()` one, and ignoring a token's own `$type` one — that last mutation being the one that *found* a gap, since nothing had pinned the first arm of the precedence chain until it was written. The ninth is the odd one out and worth its own sentence: removing cycle detection fails the suite **without reporting a single test**, because the unbounded recursion takes the test process down with it. That is the shape of the bug the visited set prevents, and it is why the rule is not an optimization. Two claims are asserted by discrimination rather than by equality alone — an sRGB `[1, 0, 0]` is checked against the `1/255` it would be under `rgb()`'s scale, and the `hex` fallback is checked with a *known* space and broken components, where a fallback that fired would look perfectly plausible.
+- **M17, the part no test reaches:** this is the app's only file read, so it is the only place a **sandbox** denial can happen — and every test above loads its JSON from a string in the test bundle, which exercises the decoder and nothing about the sandbox. Same shape as M4's loupe and global chord: links a test cannot touch, wanting a named manual check instead. That check is *choose a token file in `~/Downloads` through the Import button and confirm a palette appears*, and it is the one thing here a human has to do. XCUITest cannot drive `NSOpenPanel`, exactly as it cannot start a dragging session, so [ProjectsSmokeTests](Color%20ToolkitUITests/ProjectsSmokeTests.swift) stops at asserting the control reached the panel and is hittable — a test that clicked it would fail whether the feature worked or not. The panel's error copy is built for this: the open-panel dismissal, the read, the decode, "readable file with nothing importable in it", and the save are five outcomes with five different sentences, because a denial reported as "no color tokens in that file" would be undiagnosable.
 - **M3/M4 (UI):** run the app and verify interactively. Spot-check conversions against a browser's DevTools color picker, which implements the same spec — a fast, honest end-to-end sanity check.
 
 The scheme is shared and works from the command line:

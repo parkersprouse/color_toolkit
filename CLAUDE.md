@@ -10,12 +10,10 @@ declarations, custom properties, JSON, both Tailwind generations and a
 `@media (color-gamut: p3)` block with a hex fallback, and saved projects
 on SwiftData with reordering and hand-picked palettes, CSS Color 4 §13.2's
 missing-component carry-forward, a scoped `calc()`, CSS Color 5 relative color syntax
-(`rgb(from …)`), and `color-mix()` with premultiplied alpha and the four hue arcs.
-M0–M16 are built. **M17 and M18 are planned and not started** — design-token import and
-a CLI over `ColorCore`. M12 was the spine and M13
-was M14's only blocker, so the plan has no dependency chains left: both remaining
-milestones are independent and can be taken in either order. Swift 6, SwiftUI, no
-third-party runtime dependencies.
+(`rgb(from …)`), `color-mix()` with premultiplied alpha and the four hue arcs, and W3C
+design token import.
+M0–M17 are built. **M18 is planned and not started** — a CLI over `ColorCore`. Swift 6,
+SwiftUI, no third-party runtime dependencies.
 
 **[PLAN.md](PLAN.md) is the source of truth** for milestone status, what is deferred
 and why, and the reasoning behind every decision recorded below. This file is the
@@ -30,8 +28,8 @@ Build:
 xcodebuild -project "Color Toolkit.xcodeproj" -scheme "Color Toolkit" -destination 'platform=macOS' build
 ```
 
-Full test suite (~9 minutes, nearly all of it UI tests — the 374 Swift Testing functions
-finish in under a second, the 29 XCUITests take seven minutes and up):
+Full test suite (~9 minutes, nearly all of it UI tests — the 403 Swift Testing tests
+finish in about a second, the 30 XCUITests take seven minutes and up):
 
 ```bash
 xcodebuild -project "Color Toolkit.xcodeproj" -scheme "Color Toolkit" -destination 'platform=macOS' test
@@ -190,7 +188,7 @@ Layered so the numeric core stays independently testable and UI-free:
   `color-mix()`'s percentage rules, and premultiplied interpolation),
   `Transform/` (relative adjustment, the S-curve,
   harmonies, shade ramps, the contrast solver — all in OKLCH), and `Export/`
-  (declaration templates and six document shapes).
+  (declaration templates and six document shapes), and `Import/` (W3C design tokens).
 - **`Features/Shell/ColorStore.swift`** — `@MainActor @Observable`, one instance
   injected into both scenes (menu bar + window). Holds a *pair* of `ColorField`s
   (foreground + background) and which `Tool` the window is showing.
@@ -476,6 +474,46 @@ Layered so the numeric core stays independently testable and UI-free:
   be unique: two entries sharing a key silently collapse into one property and a color
   vanishes. `ExportOptions.javaScriptKey` and `cssIdentifier` are the only places that
   decide this; do not format a key inline.
+- **An imported token's keys are uniqued against the *sanitized* key, never the raw path.**
+  Token paths are unique by construction, which makes "so the keys are too" the obvious and
+  wrong conclusion: `-` is a legal name character in the token format and `.` is not, so
+  `brand.500` and `brand-500` are two legal tokens that `cssIdentifier` maps onto one
+  identifier — and then the rule above fires and a color vanishes from the export. The
+  `-2` suffix loop in `DesignTokenImport.keyed` is the same one `ProjectLibrary`'s
+  hand-picked overload uses, for the same reason.
+- **The design token importer performs no arithmetic on a component and must not start.**
+  The format's ranges are CSS Color 4's own *number* forms and this app stores number
+  forms, so the mapping is the identity for all fourteen spaces. Reaching for
+  `ColorGrammar` to "convert" is wrong twice over: those tables are CSS *syntax* and have
+  no authority over this format, and `rgb()`'s number form runs 0–255 where the format's
+  `srgb` runs 0–1 — scale by it and `[1, 0, 0]` imports as a near-black that still renders
+  and still round-trips. PLAN.md's original M17 note said to validate against
+  `ComponentGrammar.fullScale`; that is a *precision hint*, not a bound, and the Color
+  module leaves both chromas and both a/b pairs unbounded, so it would reject legal
+  tokens. A test asserts each space's written scale is 1, so the assumption fails loudly
+  rather than quietly.
+- **Token aliases resolve *before* the `$type` filter, not after.** The format's precedence
+  is explicit `$type` → the **resolved reference's** type → the nearest group's, so a token
+  with no type of its own that aliases a color token *is* a color token. Filter first and
+  exactly those disappear with nothing said. Cycle detection is load-bearing for a sharper
+  reason than usual: removing it does not fail a test, it takes the process down — the
+  mutation run reported no failing test at all.
+- **In a token file, `hex` is a fallback for an unknown *space* and for nothing else.** A
+  known space with unreadable components is a broken token and is reported as one, even
+  with a good `hex` sitting beside it — using it would substitute a 6-digit sRGB
+  approximation for whatever the components meant and say so nowhere. The unknown-space
+  path mirrors `ColorRecord.colorValue` skipping a stored space it does not recognize.
+- **Imported colors are stored spelled in the space their token named**, which is why
+  `savePalette(importing:)` is a third overload rather than a call into either existing
+  one. Same rule as the other two: what differs between them is how a stored *spelling* is
+  derived, and merging destroys it. A `display-p3` token comes back
+  `color(display-p3 …)`, not canonicalized to `oklch()` — a token's `colorSpace` is
+  authored information, exactly like a typed `rebeccapurple`.
+- **`JSONSerialization` hands back an unordered dictionary, so an imported palette's order
+  is chosen, not preserved.** All-digit names compare numerically and everything else as
+  text, which is what puts a shade ramp in `50, 100, 950` rather than the alphabetical
+  `100, 1000, 50`. Same class of hazard as the SwiftData to-many relationship below: the
+  output looks well-formed either way.
 - **`.keyword` is excluded from `CSSOutputFormat.exportable` on purpose.** It names 148
   colors, so an eleven-shade palette would come back part keyword and part something
   else with nothing in the document to say so. Every other catalog format is *total*,
@@ -494,7 +532,8 @@ Layered so the numeric core stays independently testable and UI-free:
   over. Do not move it back — M9 added a seventh segment, and all seven fit in the body.
   **Seven is the tested ceiling at `minWidth: 520`; an eighth is unmeasured risk.** This
   is why M15's mixing folded into `Transform` — a fifth section, not an eighth tool —
-  and why M17's import will fold into `Projects`, rather than either taking a `Tool` case. Adding an eighth means budgeting for shorter
+  and why M17's import folded into `Projects` — a button beside the save controls, not an
+  eighth tool. Adding an eighth means budgeting for shorter
   titles, a raised `minWidth`, or a different control — not just one more enum case.
 - **A ramp stop on the gamut boundary can round outward at display precision.** The
   printed `oklch(0.97 0.0142 259.81)` is 2.3e-5 of chroma past a boundary at `0.014177`,
@@ -572,7 +611,9 @@ the accessibility-tree conventions before writing UI tests.
   syntax* whatsoever — every `rgb(from …)` comes back "Expected 3 coordinates … got 4"
   (M14) — and it cannot *parse* `color-mix()` even though it can compute one, so M15's
   grammar is hand-written while only its numbers are generated. Ask it before assuming
-  either way; the answer has differed every time.
+  either way; the answer has differed every time. **M17's importer is a fifth case and the
+  simplest**: colorjs.io parses CSS, and a design token's `$value` is a JSON object, so
+  there is nothing to ask. The Color module's documented shapes are the fixtures.
 - **Where floating point intrudes, assert the discrimination rather than the value.** Not
   a loosened equality — a different claim. White's OKLab lightness is
   `1.0000000000000002`, so M14's "is `l` written 0–1 or 0–100?" is settled by a tolerance

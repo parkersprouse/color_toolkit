@@ -40,6 +40,30 @@ nonisolated extension CSSOutputFormat {
     // Exact, but rarely authored by hand.
     .color(.srgb), .color(.srgbLinear), .color(.xyzD65), .color(.xyzD50),
   ]
+
+  /// The format that writes a color in the space it is already in.
+  ///
+  /// The inverse of ``space``, and useful wherever the space a color arrived in is
+  /// *authored information* rather than an implementation detail. A design token names
+  /// its `colorSpace` explicitly, so importing one and then storing it spelled `oklch()`
+  /// would throw away something the author wrote down — the same objection this app makes
+  /// to canonicalizing a typed `rebeccapurple`.
+  ///
+  /// An RGB-family space answers `color(srgb …)` rather than `rgb()`, and both XYZ spaces
+  /// answer `color()` too, because that is the spelling those spaces have. Derived rather
+  /// than transcribed — every arm is already stated by ``space``, which is what
+  /// `nativeFormatRoundTripsThroughItsSpace` asserts.
+  static func native(for space: ColorSpace) -> CSSOutputFormat {
+    switch space {
+    case .hsl: .hsl
+    case .hwb: .hwb
+    case .lab: .lab
+    case .lch: .lch
+    case .oklab: .oklab
+    case .oklch: .oklch
+    default: .color(space)
+    }
+  }
 }
 
 nonisolated extension ColorValue {

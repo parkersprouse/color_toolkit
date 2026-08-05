@@ -20,6 +20,10 @@ nonisolated enum PaletteKind: String, CaseIterable, Sendable, Identifiable {
   case harmony
   case ramp
   case recents
+  /// Read out of a W3C design token file. Provenance worth keeping for the reason the
+  /// others are kept: an imported palette's keys are somebody else's names, and knowing
+  /// they came from a file is what explains why they look nothing like a ramp's.
+  case imported
   case custom
 
   // MARK: Internal
@@ -33,6 +37,7 @@ nonisolated enum PaletteKind: String, CaseIterable, Sendable, Identifiable {
     case .harmony: "Harmony"
     case .ramp: "Ramp"
     case .recents: "Recents"
+    case .imported: "Imported"
     case .custom: "Custom"
     }
   }

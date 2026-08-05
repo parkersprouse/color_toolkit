@@ -163,13 +163,7 @@ struct ProjectLibrary {
     kind: PaletteKind,
     to project: Project,
   ) throws -> Palette {
-    let palette = Palette(
-      name: Self.cleaned(name, fallback: kind.title),
-      kind: kind,
-      sortIndex: Self.nextIndex(after: project.palettes.map(\.sortIndex)),
-    )
-    context.insert(palette)
-    palette.project = project
+    let palette = newPalette(named: name, kind: kind, in: project)
 
     for (index, entry) in entries.enumerated() {
       let color = SavedColor(
@@ -206,19 +200,55 @@ struct ProjectLibrary {
     named name: String,
     to project: Project,
   ) throws -> Palette {
-    let palette = Palette(
-      name: Self.cleaned(name, fallback: PaletteKind.custom.title),
-      kind: .custom,
-      sortIndex: Self.nextIndex(after: project.palettes.map(\.sortIndex)),
-    )
-    context.insert(palette)
-    palette.project = project
+    let palette = newPalette(named: name, kind: .custom, in: project)
 
     let keys = Self.paletteKeys(for: colors)
     for (index, color) in colors.enumerated() {
       let copy = SavedColor(record: color.record, name: keys[index], sortIndex: index)
       context.insert(copy)
       copy.palette = palette
+    }
+
+    project.touch()
+    try context.save()
+    return palette
+  }
+
+  /// Saves the color tokens read out of a design token file as a palette.
+  ///
+  /// **A third overload rather than a conversion into either of the two above**, for the
+  /// reason that keeps those two apart: what differs is how a stored *spelling* is
+  /// derived, and that is the one thing routing through a shared door destroys. The
+  /// `PaletteEntry` overload spells everything `oklch()` because a ramp stop and a
+  /// harmony member have no space of their own to keep. A design token does — its
+  /// `colorSpace` is written down in the file — so each color is spelled in the space it
+  /// arrived in, and a `display-p3` token comes back `color(display-p3 …)` rather than
+  /// canonicalized. That is the same objection this app makes to rewriting a typed
+  /// `rebeccapurple`, applied to somebody else's authoring instead of your own.
+  ///
+  /// Keys arrive already sanitized and already unique — see
+  /// ``DesignTokenImport/keyed(_:)`` — so unlike the hand-picked overload this one does
+  /// no deduplication of its own. Both facts are pinned by tests, because a key that
+  /// collides costs a color silently.
+  ///
+  /// `$description` becomes the color's notes, which is the field it was already for.
+  @discardableResult
+  func savePalette(
+    importing tokens: [DesignToken],
+    named name: String,
+    to project: Project,
+  ) throws -> Palette {
+    let palette = newPalette(named: name, kind: .imported, in: project)
+
+    for (index, token) in tokens.enumerated() {
+      let color = SavedColor(
+        record: .derived(token.color, preferring: .native(for: token.color.space)),
+        name: token.key,
+        notes: token.description,
+        sortIndex: index,
+      )
+      context.insert(color)
+      color.palette = palette
     }
 
     project.touch()
@@ -241,6 +271,25 @@ struct ProjectLibrary {
   // MARK: Private
 
   private static let untitledProject = "Untitled Project"
+
+  /// The part of saving a palette that is genuinely the same for all three overloads:
+  /// an empty palette, named, positioned and attached.
+  ///
+  /// Extracted *because* the three must not be merged. What differs between them is how
+  /// each color's stored spelling is derived, and three identical copies of this
+  /// boilerplate is precisely what invites somebody to unify the overloads and destroy
+  /// that — see the notes on each. Sharing the part that carries no decision leaves the
+  /// parts that do standing alone, where they read as choices rather than as duplication.
+  private func newPalette(named name: String, kind: PaletteKind, in project: Project) -> Palette {
+    let palette = Palette(
+      name: Self.cleaned(name, fallback: kind.title),
+      kind: kind,
+      sortIndex: Self.nextIndex(after: project.palettes.map(\.sortIndex)),
+    )
+    context.insert(palette)
+    palette.project = project
+    return palette
+  }
 
   /// Trimmed, and never empty. A blank name is a row you cannot click on in a list, so
   /// the fallback is applied at the point of storage rather than at the point of
