@@ -7,12 +7,13 @@ conversion across 14 spaces, a menu bar panel, a screen eyedropper with a global
 shortcut, WCAG 2.2 / APCA contrast checking, a gamut-aware HSV/OKLCH picker, OKLCH
 transforms — adjustment, harmonies, shade ramps and a contrast solver — export to CSS
 declarations, custom properties, JSON and both Tailwind generations, and saved projects
-on SwiftData with reordering and hand-picked palettes, and CSS Color 4 §13.2's
-missing-component carry-forward. M0–M12 are built. **M13–M18 are planned and not
-started** — the CSS syntaxes the parser still rejects (`calc()`, `rgb(from …)`,
+on SwiftData with reordering and hand-picked palettes, CSS Color 4 §13.2's
+missing-component carry-forward, and a scoped `calc()`. M0–M13 are built. **M14–M18 are
+planned and not started** — the CSS syntaxes the parser still rejects (`rgb(from …)`,
 `color-mix()`), a `@media (color-gamut)` export shape, design-token import, and a CLI
-over `ColorCore`. M12 was the spine and is done, so each of those is now only the work
-it says it is. Swift 6, SwiftUI, no third-party runtime dependencies.
+over `ColorCore`. M12 was the spine and M13 was the last dependency, so every remaining
+milestone is independent of every other and is only the work it says it is. Swift 6,
+SwiftUI, no third-party runtime dependencies.
 
 **[PLAN.md](PLAN.md) is the source of truth** for milestone status, what is deferred
 and why, and the reasoning behind every decision recorded below. This file is the
@@ -27,8 +28,8 @@ Build:
 xcodebuild -project "Color Toolkit.xcodeproj" -scheme "Color Toolkit" -destination 'platform=macOS' build
 ```
 
-Full test suite (~7 minutes, nearly all of it UI tests — the 308 Swift Testing functions
-finish in under a second, the 25 XCUITests take about six minutes):
+Full test suite (~7 minutes, nearly all of it UI tests — the 324 Swift Testing functions
+finish in under a second, the 26 XCUITests take about seven minutes):
 
 ```bash
 xcodebuild -project "Color Toolkit.xcodeproj" -scheme "Color Toolkit" -destination 'platform=macOS' test
@@ -258,6 +259,28 @@ Layered so the numeric core stays independently testable and UI-free:
   component takes the *other* color's value when interpolated, where a powerless one is
   zero. Marking first destroys the value the spec wants preserved. Powerless marking
   also *blanks* what it flags; carry-forward must not.
+- **A `calc()` body is consumed as a unit, before separator logic sees inside it.**
+  `/` is the alpha separator *and* calc's division, so `rgb(0 0 0 / calc(1 / 2))` has
+  two slashes meaning different things and which side of the parens they fall on is
+  the only thing telling them apart. This is why `scanArguments` iterates by index
+  rather than with `for in`. Let a calc body's slash escape to separator logic and
+  every test with a slash in its input fails, which is exactly the set that should.
+- **The tokenizer's three readings of `-` are ordered, and the order is load-bearing.**
+  Number sign (`-0.5`), then identifier start (`--custom`), then subtraction — each
+  earlier rule the more specific. Hoisting the operator rules above `isNumberStart`
+  breaks `rgb(+128 0 0)` in the *curated fixture*. The ordering also buys CSS's
+  whitespace rule for free: `scanNumber` claims `-2`, so `calc(1 -2)` is two adjacent
+  values and gets rejected, exactly as the spec intends. `calc(1- 2)` is the leniency
+  that costs — invalid CSS, accepted here, because whitespace is already discarded.
+- **`calc()`'s type rules are scoped to this parser, not claimed as CSS invalidity.**
+  Percentages resolve against a reference in a color component, so CSS Values 4's type
+  algebra is more permissive than `CalcExpression` is. Keep error text and test comments
+  saying "here" — widening the rules later should not have to retract a claim.
+- **A resolved `calc()` is indistinguishable from a written value downstream**, on
+  purpose: `Value.init(_ term: CalcTerm)` is the whole bridge, and the per-component
+  grammar, the legacy same-type rules and the angle-slot check all run unchanged. So
+  `rgb(calc(50%), 0, 0)` passes legacy rgb's same-type rule and
+  `hsl(120, calc(25 * 2), 50%)` fails its percentage-required one. Both are pinned.
 - `ColorStore` keeps **text** as its source of truth, so an adopted color is
   serialized and immediately re-parsed. Storage precision (`CSSFormatOptions.lossless`)
   and display precision (`store.formatOptions.precision`) are separate settings; a

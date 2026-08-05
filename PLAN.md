@@ -1,7 +1,7 @@
 # Color Toolkit — Implementation Plan
 
-> **Status (2026-07-25): M0–M12 and M5b (CVD) complete**, with the full suite green —
-> **308 Swift Testing functions across 35 suites plus 25 XCUITests**, both read off a run
+> **Status (2026-08-05): M0–M13 and M5b (CVD) complete**, with the full suite green —
+> **324 Swift Testing functions across 38 suites plus 26 XCUITests**, both read off a run
 > rather than counted by hand. ColorCore is validated against **colorjs.io 0.7.0** (pinned
 > exact) — 6,384 conversions, 1,368 gamut mappings and 108 contrast pairs — plus
 > independent definitional anchors, and **405 CVD vectors** over Machado's Table 1.
@@ -10,18 +10,20 @@
 > not be read as if they were:** M10 changed no behavior and has no UI to look at, M11's
 > *drag* gesture is untestable by XCUITest and unconfirmed by hand — its Move Left/Right
 > commands, which share the same handler, are covered end to end — and M12 is core-only,
-> reachable from no panel.
+> reachable from no panel. M13 is core-only in code but a user reaches it by typing, so it
+> is driven against the running app by an XCUITest rather than eyeballed.
 >
 > **M10–M18 take up what the deferred list had been holding**: the CSS syntaxes the
-> parser still rejects (`calc()`, `rgb(from …)`, `color-mix()`), the missing-component
+> parser still rejects (`rgb(from …)`, `color-mix()`), the missing-component
 > semantics all three of those rest on, a `@media (color-gamut)` export shape, design-token
 > import, and a CLI over `ColorCore`. M10 (relocating `ColorCore`) and M11 (the three items
 > M9 deferred) are done, plus the two housekeeping commits recorded after M11 — the
 > exported `UTType` declaration M11's drag was missing, and Xcode's recommended build
 > settings. **M12, the spine, is done too**: `ComponentRole` and carry-forward exist, so
-> every "depends on M12" is discharged — M15 and M17 are now unblocked outright, and M14
-> waits only on M13. What remains beyond that is **M8b** (saving an export to a file) and
-> the shorter deferred list at the end.
+> every "depends on M12" is discharged — M15 and M17 are unblocked outright. **M13 is done**,
+> which discharges the last dependency in the plan: M14 waited only on it. Every remaining
+> milestone is now independent of every other. What remains beyond that is **M8b** (saving
+> an export to a file) and the shorter deferred list at the end.
 >
 > **M12 is the first milestone with no oracle *and* nothing to look at**, so its standard
 > of proof is the spec's own worked examples plus five mutations. Two of its findings are
@@ -1118,22 +1120,54 @@ rule's `allSatisfy` into `contains` fails three, and dropping alpha's carry fail
 Storage was safe as predicted: `ColorRecord.missingMask` is an `Int` and the `& 0b1111`
 truncation is only on the read path, so this sets existing bits and forces no schema change.
 
-### M13 — `calc()`, scoped
+### M13 — `calc()`, scoped ✅
 
-Three independent layers block it, and all three have to move: `UnsupportedFunctions`
-rejects `calc` by substring *before tokenizing*; `CSSTokenizer` throws on a bare `(` and
-has no infix-operator class; and `/` is already the alpha separator, so `calc(1/2)` is a
-genuine ambiguity — the sub-expression must be consumed **as a unit** before separator
-logic sees its tokens.
+All three predicted layers moved, and each blocked for the predicted reason.
+`UnsupportedFunctions` loses `calc` and keeps the rest — `min`/`max`/`clamp`/`round`
+because they are the other math functions and none is evaluated, `var`/`env`/`attr` for
+the permanent reason that they cannot be resolved from the string at all. The pre-tokenize
+check therefore keeps its job and needed only a different worked example; it still fires
+for a `var()` nested inside a `calc()`. `CSSTokenizer` gained `.plus`, `.minus`,
+`.asterisk` and `.openParen`. And the slash was the real one: `calc()` is consumed **as a
+unit** in `scanArguments`, so `rgb(0 0 0 / calc(1 / 2))` has two slashes meaning different
+things with only the parens to separate them.
 
-Scope is deliberately `+ - * /` over numbers, percentages and angles, with no nesting and
-no `var()`. That covers realistic authored CSS and what M14 needs, and keeps the milestone
-finishable. Rejection cases stay hand-written Swift: the oracle cannot parse `calc()` at
-all.
+Scope held as drawn — `+ - * /` over numbers, percentages and angles, flat. Two things
+inside that scope are more than they look. **Precedence is real**: `calc(1 + 2 * 3)` is 7,
+which a left-to-right fold gets wrong, so the grammar is two levels rather than one. And
+**the type rules are enforced** — matching types for `±`, a plain number on one side of
+`*` and on the right of `/` — but they are phrased as *this parser's scope*, never as CSS
+invalidity. Percentages resolve against a reference in a color component, so CSS Values
+4's type algebra is more permissive here than these rules are; saying otherwise would be a
+claim wider than the evidence, and widening the rules later should not have to retract one.
+
+**A resolved `calc()` becomes an ordinary written `Value`, and that is a decision.**
+Everything downstream — the per-component grammar, the legacy same-type rules, the
+angle-slot check — then runs unchanged and cannot tell a computed value from a typed one,
+which is why the milestone cost so little. It is also why `rgb(calc(50%), 0, 0)` satisfies
+legacy rgb's same-type rule and `hsl(120, calc(25 * 2), 50%)` fails its
+percentage-required one. Both are pinned rather than left to fall out.
+
+Two findings worth carrying:
+
+- **`calc(1 -2)` is rejected for free, and the reason is the same as CSS's.** The spec
+  demands whitespace around `+` and `-` precisely because `-2` is otherwise a signed
+  number — and `scanNumber` claims it here before the operator rules run, so the body is
+  two adjacent values with no expression in it. The converse does not hold: `calc(1- 2)`
+  is invalid CSS and parses here as a subtraction, because whitespace is discarded and
+  nothing downstream can tell it from `calc(1 - 2)`. Documented leniency, in the safe
+  direction — it accepts a typo rather than misreading a valid expression.
+- **`calcUnterminated` needs *every* closing paren missing.** Drop only calc's own and it
+  swallows the outer function's, so `rgb(calc(1 + 1 0 0)` fails as a malformed *body*
+  rather than an unterminated call. The genuinely unterminated case is `rgb(calc(1 + 1`,
+  which is what a field parsing as you type actually sees. Both are pinned; the test was
+  written expecting the first to be the unterminated one, and the failure is what taught
+  the distinction.
 
 ### M14 — Relative color syntax
 
-Depends on M13 (`calc(l * 0.5)` is where most of the value lives); M12's half — `none` in
+Depends on M13, which is **done**; `calc(l * 0.5)` is where most of the value lives.
+M12's half — `none` in
 an origin channel — is already in place. Both hook points already exist as dead ends: `parseFunction` extracts a
 `spaceIdentifier` and discards it with `_ = spaceIdentifier`, and the `.ident` throw in
 `scanArguments` is the single gate for every channel keyword. The origin resolves in the
@@ -1232,6 +1266,7 @@ Per milestone:
 - **M10:** the milestone has no behavior to test, so the test suite proves nothing beyond "still compiles". The real check is that **re-running all four generators reproduces every generated Swift file byte-for-byte** — that is what shows the output paths moved with the sources rather than quietly writing somewhere stale. (`cvd-vectors.json` is the exception and stays as committed; see the libm note in CLAUDE.md.)
 - **M11:** the store rules are in [ProjectStoreTests](Color%20ToolkitTests/ProjectStoreTests.swift), each confirmed against a mutation of the rule it covers — dropping the move's offset discount, skipping the dense renumber, disabling key dedup, re-deriving stored text, and moving colors instead of copying them all fail the suite. Reordering is checked across a real store close and reopen, since an in-memory container proves only that the objects in hand were mutated. [ProjectsSmokeTests](Color%20ToolkitUITests/ProjectsSmokeTests.swift) covers the wiring — **through the menu commands, not the drag**, because XCUITest cannot start a dragging session and a drag-driven test would fail whether the feature worked or not. **The drag gesture itself is not covered by any automated test and wants a human to try it once.**
 - **M12:** [MissingComponentTests](Color%20ToolkitTests/MissingComponentTests.swift), and the standard of proof is the spec rather than a reference implementation — colorjs.io resolves `none` on conversion, so it cannot answer this at all. Each test names the spec example or role-table property it encodes, and all five load-bearing rules were confirmed by mutation (see the milestone). The spec's *printed* conversions are asserted as roundings, not with a tolerance, because that is the claim actually available from a displayed figure.
+- **M13:** [CalcTests](Color%20ToolkitTests/CalcTests.swift), hand-written throughout because there is no oracle — colorjs.io rejects `rgb(calc(10 + 20) 0 0)` outright with "Expected 3 coordinates … got 5", so `parse-vectors.json` is untouched. The arithmetic is checkable by inspection; what is not obvious from reading the code is pinned by five mutations, each failing only what it should. Stripping precedence fails one test, dropping the `±` type check one, ignoring leftover tokens two, and hoisting the tokenizer's operator rules above the number scanner fails the *curated fixture* — `rgb(+128 0 0)` — plus the numeric-edge-forms test. The fifth is the discriminating one: letting a calc body's slash escape to separator logic fails every test whose input contains a slash and **no test without one**, which is the sharpest available statement that consuming the body as a unit is what resolves the ambiguity. A first, blunter version of that mutation (not consuming the body at all) failed fifteen tests and proved nothing except that the feature was off.
 - **M3/M4 (UI):** run the app and verify interactively. Spot-check conversions against a browser's DevTools color picker, which implements the same spec — a fast, honest end-to-end sanity check.
 
 The scheme is shared and works from the command line:
@@ -1336,8 +1371,12 @@ What remains genuinely deferred:
 - **Saving to a file** rather than the clipboard — still M8b above, still standing on its
   own reasons.
 - **Full `calc()`**: arbitrary nesting, parenthesized sub-expressions, `min()`/`max()`/
-  `clamp()`. M13 deliberately stops short; the tokenizer would need real precedence
-  climbing.
+  `clamp()`. M13 deliberately stops short and now says so in its own errors rather than
+  failing with a raw tokenizer complaint — `calc((1 + 2) * 3)` and `calc(1 + calc(2))`
+  each name what is outside the subset. Going further wants real precedence climbing over
+  a paren depth, at which point the flat two-level grammar in `CalcExpression` is replaced
+  rather than extended. Also worth revisiting then: M13's `±` type rules are narrower than
+  CSS Values 4, deliberately, and loosening them is a separate decision from nesting.
 - **`var()` and `env()`** in parsing. Unlike `calc()`, these cannot be resolved from the
   string alone — they need a cascade the app does not have and should not invent.
 - **Figma Variables API and Tokens Studio import.** M17 covers the vendor-neutral format;
