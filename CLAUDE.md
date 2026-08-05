@@ -288,10 +288,23 @@ Layered so the numeric core stays independently testable and UI-free:
   maps both endpoints in first — a gradient nicety — so the fixture generator skips
   those cases and a Swift test pins the un-mapped answer instead. Adding a map here to
   "fix" a strange-looking swatch would silently make this app disagree with browsers.
-- **Premultiplication skips a hue, skips a component missing on both sides, and does not
-  happen at all when alpha is missing; un-premultiplying additionally stops at alpha 0.**
-  Scaling an angle by opacity is meaningless, and dividing by a zero alpha is a NaN
-  rather than a recovery. All four exemptions are exercised by the recorded vectors.
+- **Every premultiplication exemption is stated against what is missing on *both* sides,
+  never against one color's own `missing` flag.** Substitution has already run by the
+  time anything is scaled, so a one-sided `none` alpha *has* the other color's value and
+  premultiplies like any other — both ends scale by the same number and it cancels,
+  which is why the reference answers such a mix with the plain average. Reading the flag
+  instead scales one side only and then divides the other side's components by an alpha
+  they never gained: `color-mix(in srgb, rgb(255 0 0 / none), rgb(0 0 255 / 0.25))` comes
+  back at **200% red**. It is also not symmetric, so it makes an even mix depend on the
+  order of its operands — the cheaper thing to assert. This was a real bug, shipped in
+  M15's first commit and fixed on first contact with a compiler.
+  The three exemptions themselves: a hue is never premultiplied (scaling an angle by
+  opacity is meaningless), a component missing on both sides is not (there is no value
+  to scale), and un-premultiplying additionally stops at alpha 0, where dividing is a
+  NaN rather than a recovery. **Only the hue skip is exercised by the recorded vectors** —
+  no fixture endpoint can carry a missing component, since `MixFixture.Endpoint`'s alpha
+  is a plain `Double` — so the other two are pinned by hand-written tests, and both of
+  those tests exist because the mutation that removed the rule survived without them.
 - **`color-mix()`'s percentage shortfall only ever reaches *down*.** Percentages summing
   under 100% re-normalize *and* multiply the result's alpha by the sum — `red 20%,
   blue 20%` is an even mix at 0.4 alpha. Over 100% only re-normalizes, because scaling
@@ -587,6 +600,14 @@ the accessibility-tree conventions before writing UI tests.
 - Wait on **hittability**, not existence, before clicking something a tool switch may
   have moved — switching panels resizes the window, and a click already in flight
   lands where the control used to be.
+- **"Never became hittable" plus a tree whose `Application`, `Window` and `Toolbar` all
+  read `Disabled` is the host, not the app.** The element is present with real
+  coordinates and the app is simply not frontmost — XCUITest cannot click into a macOS
+  app it cannot activate, and using the Mac during a run is enough to cause it. Check
+  `ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print $NF/1000000000; exit}'` before
+  reading it as a regression, and confirm by re-running the one test at an unmodified
+  commit in a worktree. Do not "fix" it by loosening the wait — a chain that falls back
+  to a non-hittable click is a test that cannot fail.
 - A `GeometryReader` square inside a `ScrollView` claims the whole unbounded height
   proposal. Size it from *width*, which is bounded.
 - Every running instance owns its own `MenuBarExtra` icon, so an orphaned process
