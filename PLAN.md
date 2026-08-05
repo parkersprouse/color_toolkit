@@ -27,8 +27,10 @@
 > unmodified `ed68e20` in a clean worktree, and `ColorInterpolation` is reachable only
 > from the parser's mix branch and `TransformPanel`, so no M15 code runs in that test at
 > all. XCUITest cannot click into a macOS app it cannot bring frontmost, and the Mac was
-> in use. It passed on re-run, six of six. **392 of 392 green**, across two runs rather
-> than one — which is the honest way to say it.
+> in use. It passes on an idle Mac, and the whole suite is **392 of 392 in one run at
+> HEAD** — read off a single `** TEST SUCCEEDED **`, after the formatting commit rather
+> than before it, since the formatter moved a declaration in `TransformPanel.swift` and
+> `TransformSmokeTests` is what covers that file.
 >
 > M0–M9 were each reviewed on the running app. **Three later things were not, and should
 > not be read as if they were:** M10 changed no behavior and has no UI to look at, M11's

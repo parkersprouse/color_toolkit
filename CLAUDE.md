@@ -29,8 +29,8 @@ Build:
 xcodebuild -project "Color Toolkit.xcodeproj" -scheme "Color Toolkit" -destination 'platform=macOS' build
 ```
 
-Full test suite (~7 minutes, nearly all of it UI tests — the 340 Swift Testing functions
-finish in under a second, the 27 XCUITests take about seven minutes):
+Full test suite (~9 minutes, nearly all of it UI tests — the 364 Swift Testing functions
+finish in under a second, the 28 XCUITests take seven minutes and up):
 
 ```bash
 xcodebuild -project "Color Toolkit.xcodeproj" -scheme "Color Toolkit" -destination 'platform=macOS' test
