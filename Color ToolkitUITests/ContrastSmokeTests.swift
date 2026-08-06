@@ -16,6 +16,9 @@ final class ContrastSmokeTests: XCTestCase {
   override func setUpWithError() throws {
     continueAfterFailure = false
     app = XCUIApplication()
+    // See `ProjectsSmokeTests` for why this pairs with the AppKit opt-out even though
+    // this suite has no persistence argument of its own to pair it with.
+    app.launchArguments = ["-NSTreatUnknownArgumentsAsOpen", "NO", "UITestEphemeralPreferences"]
     app.launch()
     XCTAssertTrue(app.wait(for: .runningForeground, timeout: 30), "App did not reach the foreground")
   }

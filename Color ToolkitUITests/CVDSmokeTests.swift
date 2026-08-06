@@ -17,6 +17,11 @@ final class CVDSmokeTests: XCTestCase {
   override func setUpWithError() throws {
     continueAfterFailure = false
     app = XCUIApplication()
+    // Without this, the run inherits whatever `Preferences` a previous run — or the
+    // developer's own use of the app — last saved to the real `UserDefaults`. See
+    // `ProjectsSmokeTests` for why the pairing with the AppKit opt-out is required
+    // even though this suite has no persistence argument of its own to pair it with.
+    app.launchArguments = ["-NSTreatUnknownArgumentsAsOpen", "NO", "UITestEphemeralPreferences"]
     app.launch()
     XCTAssertTrue(app.wait(for: .runningForeground, timeout: 30), "App did not reach the foreground")
   }

@@ -33,6 +33,12 @@ struct Color_ToolkitApp: App {
       ContentView()
         .environment(store)
         .environment(\.projectStoreStatus, persistence.status)
+        // The window is the scene most likely to be open, so it is the primary place
+        // a settings change gets written back — but not the only one. See the same
+        // modifier on `MenuBarLabel`.
+        .onChange(of: store.preferences) { _, updated in
+          PreferenceStore.save(updated)
+        }
     }
     .defaultSize(width: 620, height: 700)
     .modelContainer(persistence.container)
@@ -49,6 +55,11 @@ struct Color_ToolkitApp: App {
     // containers over one store would compile and then disagree, and a project created
     // in one would be invisible to the other until something forced a refetch.
     .modelContainer(persistence.container)
+
+    Settings {
+      SettingsView()
+        .environment(store)
+    }
   }
 
   // MARK: Private
@@ -58,7 +69,17 @@ struct Color_ToolkitApp: App {
   /// Constructing it separately per scene would compile cleanly and then silently
   /// diverge: colors filed from the menu bar would never reach the window, and the
   /// two would disagree about what the current color even is.
-  @State private var store = ColorStore()
+  ///
+  /// Loaded with whatever ``PreferenceStore`` last saved, rather than plain
+  /// `ColorStore()`. That happens here and not inside `ColorStore.init` on purpose: the
+  /// plain initializer is what every unit test constructs, and loading real
+  /// `UserDefaults` into it would make a fresh `ColorStore()`'s `pickerMode` depend on
+  /// whichever preferences happen to be sitting on the machine running the test.
+  @State private var store: ColorStore = {
+    let store = ColorStore()
+    store.preferences = PreferenceStore.load()
+    return store
+  }()
 
   /// Built once, here, rather than by `.modelContainer(for:)` on each scene — that
   /// modifier makes a container per call site.
@@ -81,6 +102,14 @@ struct MenuBarLabel: View {
       // window's exists unless the window is closed, and `activateGlobalShortcut`
       // is idempotent so whichever appears first wins.
       .task { store.activateGlobalShortcut() }
+      // The other of two places preferences are saved — see the same modifier on the
+      // window's content. This one is what covers a settings change made while the
+      // main window is closed, since this label exists as long as the menu bar item
+      // does. Saving twice for one change is harmless: `PreferenceStore.save` just
+      // overwrites the same key with an equal value.
+      .onChange(of: store.preferences) { _, updated in
+        PreferenceStore.save(updated)
+      }
   }
 
   // MARK: Private

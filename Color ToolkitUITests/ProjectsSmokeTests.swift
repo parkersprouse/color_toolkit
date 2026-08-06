@@ -33,7 +33,12 @@ final class ProjectsSmokeTests: XCTestCase {
     // meaningless argument to a passing suite reproduced it exactly, and this pair fixed
     // it. The store argument itself keeps its bare spelling — a leading hyphen would be
     // claimed by `NSUserDefaults` instead, which is the opposite trap.
-    app.launchArguments = ["-NSTreatUnknownArgumentsAsOpen", "NO", "UITestInMemoryStore"]
+    // `UITestEphemeralPreferences` joins it for the same reason: without it this run
+    // would inherit whatever `Preferences` a previous run — or the developer's own use
+    // of the app — last saved to the real `UserDefaults`.
+    app.launchArguments = [
+      "-NSTreatUnknownArgumentsAsOpen", "NO", "UITestInMemoryStore", "UITestEphemeralPreferences",
+    ]
     app.launch()
     XCTAssertTrue(
       app.wait(for: .runningForeground, timeout: 30),

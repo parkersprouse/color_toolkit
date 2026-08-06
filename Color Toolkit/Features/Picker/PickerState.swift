@@ -10,7 +10,7 @@ import Foundation
 /// - Note: `nonisolated`, like everything the renderer touches. The app builds with
 ///   `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, so plain data in the UI layer has to
 ///   say otherwise or it cannot cross to the thread doing the drawing.
-nonisolated enum PickerMode: String, CaseIterable, Identifiable, Sendable {
+nonisolated enum PickerMode: String, CaseIterable, Identifiable, Sendable, Codable {
   /// Saturation across, value down, hue on the strip. What every design tool shows.
   case hsv
   /// Chroma across, lightness down, hue on the strip — with the sRGB edge drawn on

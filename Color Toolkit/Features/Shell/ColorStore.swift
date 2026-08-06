@@ -248,6 +248,62 @@ final class ColorStore {
   var exportSource: ExportSource = .color
   var exportOptions = ExportOptions.default
 
+  /// Hides exotic formats and keeps every value inside sRGB. See M22 in PLAN.md.
+  var webFriendly = false
+
+  /// Whether the recents row is shown. Off is a legitimate preference for someone who
+  /// never uses it, not a way to clear the list — ``recents`` keeps filling either way.
+  var showsRecents = true
+
+  /// How many colors ``recents`` keeps. Settable — was `private static let recentLimit
+  /// = 12` — because M19 makes it a preference like the rest of this group rather than
+  /// a constant. "Enough to be useful, few enough to stay scannable" no longer fixes the
+  /// number at 12, only supplies the default.
+  var recentLimit = 12
+
+  /// The subset of the properties above (and ``formatOptions``, ``pickerMode``,
+  /// ``cvdDeficiency``) that persists across a launch. See ``Preferences`` for which
+  /// fields are missing and why.
+  ///
+  /// A computed property rather than a stored one so there is exactly one copy of each
+  /// value — a mirrored `Preferences` field would need its own synchronization and could
+  /// drift from the property it duplicates. Reading it registers `@Observable` access to
+  /// every field the getter touches, which is what lets a view depend on "the persisted
+  /// preferences changed" without listing eight properties itself.
+  var preferences: Preferences {
+    get {
+      Preferences(
+        formatOptions: formatOptions,
+        webFriendly: webFriendly,
+        showsRecents: showsRecents,
+        recentLimit: recentLimit,
+        pickerMode: pickerMode,
+        cvdDeficiency: cvdDeficiency,
+        exportShape: exportOptions.shape,
+        exportTemplate: exportOptions.template,
+        exportFormat: exportOptions.format,
+      )
+    }
+    set {
+      formatOptions = newValue.formatOptions
+      webFriendly = newValue.webFriendly
+      showsRecents = newValue.showsRecents
+      // Clamped, not trusted as-is: `newValue` can come from `PreferenceStore.load()`,
+      // and `Preferences`' decode succeeds for any `Int` — a corrupt or hand-edited
+      // preferences file with `"recentLimit": -5` would otherwise reach `remember()`'s
+      // `recents.removeLast(recents.count - recentLimit)` and crash the first time it
+      // ran, since the count subtracted would exceed the array's size. The Settings
+      // panel's own Stepper already restricts to `1...50`; this is the boundary where
+      // a value that did *not* come from that Stepper becomes trusted.
+      recentLimit = max(1, newValue.recentLimit)
+      pickerMode = newValue.pickerMode
+      cvdDeficiency = newValue.cvdDeficiency
+      exportOptions.shape = newValue.exportShape
+      exportOptions.template = newValue.exportTemplate
+      exportOptions.format = newValue.exportFormat
+    }
+  }
+
   /// Which project the Projects panel is showing.
   ///
   /// A `UUID` rather than SwiftData's own `PersistentIdentifier`, and that is the point:
@@ -475,8 +531,8 @@ final class ColorStore {
     // refuses to throw away.
     recents.removeAll { $0.color == color }
     recents.insert(RecentColor(color: color, text: text), at: 0)
-    if recents.count > Self.recentLimit {
-      recents.removeLast(recents.count - Self.recentLimit)
+    if recents.count > recentLimit {
+      recents.removeLast(recents.count - recentLimit)
     }
   }
 
@@ -538,9 +594,6 @@ final class ColorStore {
   }
 
   // MARK: Private
-
-  /// Enough to be useful, few enough to stay scannable in a menu-bar panel.
-  private static let recentLimit = 12
 
   /// The color everything is about: the one being converted, sampled, and copied.
   private var foreground: ColorField

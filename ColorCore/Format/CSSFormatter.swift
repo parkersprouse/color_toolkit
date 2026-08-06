@@ -51,12 +51,69 @@ nonisolated enum CSSOutputFormat: Hashable, Sendable {
   }
 }
 
-nonisolated struct CSSFormatOptions: Sendable, Equatable {
-  nonisolated enum AlphaPolicy: Sendable, Hashable {
+/// Written by hand rather than derived: `CSSOutputFormat` is not `RawRepresentable`
+/// (`.color` carries a `ColorSpace`), so there is no raw value for `Codable` synthesis
+/// to key off. The spelling below is the same one `ColorToolkitCLI/Names.swift` uses for
+/// its `--format` argument — the `color()` cases named by their space's own raw value,
+/// which *is* the CSS identifier — chosen for the same reason, not shared code: the two
+/// targets cannot import one another (see the CLI/app module split in CLAUDE.md), so
+/// this is a second, independently-checked transcription of one fact rather than a
+/// second decision.
+nonisolated extension CSSOutputFormat: Codable {
+  // MARK: Lifecycle
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.singleValueContainer()
+    let raw = try container.decode(String.self)
+    switch raw {
+    case "hex": self = .hex
+    case "keyword": self = .keyword
+    case "rgb": self = .rgb
+    case "hsl": self = .hsl
+    case "hwb": self = .hwb
+    case "lab": self = .lab
+    case "lch": self = .lch
+    case "oklab": self = .oklab
+    case "oklch": self = .oklch
+    default:
+      guard let space = ColorSpace(rawValue: raw) else {
+        throw DecodingError.dataCorruptedError(
+          in: container,
+          debugDescription: "Unknown CSSOutputFormat identifier \"\(raw)\"",
+        )
+      }
+      self = .color(space)
+    }
+  }
+
+  // MARK: Internal
+
+  func encode(to encoder: Encoder) throws {
+    var container = encoder.singleValueContainer()
+    switch self {
+    case .hex: try container.encode("hex")
+    case .keyword: try container.encode("keyword")
+    case .rgb: try container.encode("rgb")
+    case .hsl: try container.encode("hsl")
+    case .hwb: try container.encode("hwb")
+    case .lab: try container.encode("lab")
+    case .lch: try container.encode("lch")
+    case .oklab: try container.encode("oklab")
+    case .oklch: try container.encode("oklch")
+    case let .color(space): try container.encode(space.rawValue)
+    }
+  }
+}
+
+nonisolated struct CSSFormatOptions: Sendable, Equatable, Codable {
+  /// `String` raw values, and `Codable`, purely so ``Preferences`` can persist a whole
+  /// `CSSFormatOptions` by synthesis rather than a mirrored copy that can drift — the
+  /// same reasoning ``ColorSpace``'s raw values already follow.
+  nonisolated enum AlphaPolicy: String, Sendable, Hashable, Codable {
     case whenNotOpaque, always, never
   }
 
-  nonisolated enum GamutPolicy: Sendable, Hashable {
+  nonisolated enum GamutPolicy: String, Sendable, Hashable, Codable {
     /// Map into the target's gamut so the output renders as shown.
     case map
     /// Keep out-of-range values wherever the syntax permits them. Faithful to the

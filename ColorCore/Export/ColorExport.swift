@@ -12,7 +12,7 @@ import Foundation
 /// *per color* — how one value is spelled in a declaration. A shape is *per document* —
 /// what wraps the set. `background-color:` repeated eleven times is not a stylesheet,
 /// and a `:root` block containing one `border` shorthand is not a custom property.
-nonisolated enum ExportShape: String, CaseIterable, Sendable, Hashable, Identifiable {
+nonisolated enum ExportShape: String, CaseIterable, Sendable, Hashable, Identifiable, Codable {
   /// Bare declarations, one per color, ready to paste inside a rule.
   case declaration
   /// A `:root` block of custom properties.

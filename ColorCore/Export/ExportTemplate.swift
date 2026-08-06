@@ -45,7 +45,7 @@ nonisolated struct PaletteEntry: Sendable, Hashable, Identifiable {
 /// changing them. This app is a color tool, so it declines to grow a shadow editor to
 /// make them adjustable; the declaration is a starting point you paste and then edit,
 /// and every template is one line so editing it is trivial.
-nonisolated enum ExportTemplate: String, CaseIterable, Sendable, Hashable, Identifiable {
+nonisolated enum ExportTemplate: String, CaseIterable, Sendable, Hashable, Identifiable, Codable {
   case color
   case backgroundColor = "background-color"
   case border

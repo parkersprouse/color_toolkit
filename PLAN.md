@@ -1828,69 +1828,127 @@ Each milestone is its own commit (or small stack), each of which must build and 
 standalone – verify in a throwaway worktree before stacking the next, per this file's
 commit discipline below. Formatting is always a separate follow-up commit, per CLAUDE.md.
 
-### ⬜ M19 – Settings scene and persisted preferences
+### ✅ M19 – Settings scene and persisted preferences
 
-The foundation M22 and M23 both need, and the first persistence the app has outside
-SwiftData.
+The foundation M22 and M23 will need, and the first persistence the app has outside
+SwiftData. Built as planned, with one addition the plan note had not spelled out: a
+manual Codable conformance for `CSSOutputFormat`.
 
-**Where preferences live does not change.** `ColorStore` already documents itself as the
+**Where preferences live did not change.** `ColorStore` already documented itself as the
 home for "preferences about how you like to work" (`pickerMode`, `cvdDeficiency`,
-`harmony`, `mixSpace`, `exportOptions`). Two new ones join them:
-
-```swift
-var webFriendly = false      // M22
-var showsRecents = true      // M23
-```
-
-and `recentLimit` moves from `private static let recentLimit = 12`
-(`ColorStore.swift:543`) to a settable instance property.
+`harmony`, `mixSpace`, `exportOptions`). Two new ones joined them, `webFriendly` (for
+M22) and `showsRecents` (for M23), and `recentLimit` moved from
+`private static let recentLimit = 12` to a settable instance property, defaulting to the
+same 12.
 
 **One new seam, not a second store.** `Color Toolkit/Services/Preferences.swift`:
 
 - `struct Preferences: Codable, Equatable, Sendable` with **explicit `CodingKeys`**,
   holding the deliberate persisted subset – `formatOptions`, `webFriendly`,
-  `showsRecents`, `recentLimit`, `pickerMode`, `cvdDeficiency`, `exportOptions.shape`,
-  `exportOptions.template`, `exportOptions.format`. Explicit keys because `Codable`
-  derives its keys from property names and a future rename would break decoding with a
-  green build – the same hazard `.swiftformat`'s empty `--acronyms` exists to prevent.
-  *Not* persisted: `inputText`, `backgroundText`, `exportOptions.name`, `recents`,
-  `selectedProjectID`, `stagedPalette` – session state, not preferences, and a toolkit
-  that reopens on last week's half-typed color is worse than one that reopens clean.
-- `enum PreferenceStore` – one `UserDefaults` key, JSON-encoded, with `load()` and
-  `save(_:)`. A decode failure returns defaults silently; a corrupt preference file is
-  not worth a banner the way a corrupt project store is.
+  `showsRecents`, `recentLimit`, `pickerMode`, `cvdDeficiency`, `exportShape`,
+  `exportTemplate`, `exportFormat`. Explicit keys because `Codable` derives its keys
+  from property names and a future rename would break decoding with a green build – the
+  same hazard `.swiftformat`'s empty `--acronyms` exists to prevent. *Not* persisted:
+  `inputText`, `backgroundText`, `exportOptions.name`, `recents`, `selectedProjectID`,
+  `stagedPalette` – session state, not preferences, and a toolkit that reopens on last
+  week's half-typed color is worse than one that reopens clean. A regression test pins
+  this directly: assigning a full `Preferences` to `ColorStore` must not touch
+  `exportOptions.name` or `inputText`.
+- `enum PreferenceStore` – one `UserDefaults` key, JSON-encoded, with `load(from:)` and
+  `save(_:to:)` both defaulting to `.standard` but accepting an injected `UserDefaults`,
+  which is what lets `PreferencesTests` write and read without touching the real
+  defaults. A decode failure returns defaults silently; a corrupt preference file is not
+  worth a banner the way a corrupt project store is. `defaultsKey` stays non-`private`
+  on purpose – it is what lets a test plant a corrupt value directly, the only way to
+  exercise that path without going through `save` first.
 - **`UITestEphemeralPreferences` launch argument**, exactly parallel to
-  `PersistenceStack.inMemoryLaunchArgument`. Without it XCUITest inherits the developer's
-  settings and a run's result depends on who ran it. **This costs three launch strings,
-  not one** – `["-NSTreatUnknownArgumentsAsOpen", "NO", "UITestEphemeralPreferences"]` –
-  for the reason CLAUDE.md records: a bare argument goes to AppKit as a file to open and
-  the app launches with a menu bar and no window. Every existing UI test's launch
-  arguments array gains the new string.
+  `PersistenceStack.inMemoryLaunchArgument`. Without it XCUITest would inherit the
+  developer's settings and a run's result would depend on who ran it. **This cost three
+  launch strings, not one** – `["-NSTreatUnknownArgumentsAsOpen", "NO",
+  "UITestEphemeralPreferences"]` – for the reason CLAUDE.md records: a bare argument goes
+  to AppKit as a file to open and the app launches with a menu bar and no window. All
+  seven existing UI test files gained the string, not only `ProjectsSmokeTests` – six of
+  the seven previously launched with no arguments at all, so this is also the first time
+  those six needed the AppKit opt-out paired with it.
 
-**`CSSFormatOptions` becomes `Codable`** in `ColorCore/Format/CSSFormatter.swift`: add
-`Codable` to it and to `GamutPolicy` and `AlphaPolicy`, giving both enums `String` raw
-values. Compiler-checked, and it keeps one source of truth rather than a mirrored copy
-that can drift.
+**`CSSFormatOptions` becomes `Codable`**, and so do `GamutPolicy` and `AlphaPolicy`,
+given `String` raw values so `Codable` synthesis has something to key off. Compiler-
+checked, and it keeps one source of truth rather than a mirrored copy that can drift.
+**`CSSOutputFormat` needed a hand-written conformance instead** – the plan note did not
+anticipate this. It is not `RawRepresentable` (`.color` carries a `ColorSpace`), so there
+is no raw value for synthesis to use. The chosen spelling mirrors
+`ColorToolkitCLI/Names.swift`'s `--format` vocabulary exactly – the `color()` cases named
+by their space's own raw value – not because the two share code (they cannot; see the
+CLI/app module split) but because it is one fact transcribed twice rather than two
+decisions. `CSSFormattingTests.formatCodableRoundTrips()` walks the whole catalog through
+encode/decode so a copy-paste slip in either switch has somewhere to surface.
 
 **The scene.** `Settings { SettingsView().environment(store) }` in
-`Color_ToolkitApp.swift` – the environment must be applied explicitly, as it is for the
-other two scenes. New `Color Toolkit/Features/Settings/SettingsView.swift` with three
-sections: General (web-friendly, recents row, recents count), Output (the existing seven
-controls from `OutputOptionsMenu`), and a Reset button.
+`Color_ToolkitApp.swift`. New `Color Toolkit/Features/Settings/SettingsView.swift` with
+three sections: General (web-friendly, recents row, recents count), Output (the existing
+seven controls from `OutputOptionsMenu`, bound to the same store properties), and a Reset
+button that assigns `Preferences()` wholesale.
 
-**`OutputOptionsMenu` stays** (`ContentView.swift:95`). It is a second surface onto the
-same values, which is the precedent the export panel's Precision picker already set and
+**`OutputOptionsMenu` stays** (`ContentView.swift`). It is a second surface onto the same
+values, which is the precedent the export panel's Precision picker already set and
 documented – not a second setting.
 
-**Testing.** `Preferences` round-trips through encode/decode with every field changed
-from its default (a field omitted from `CodingKeys` fails this). A test that decoding
-garbage yields defaults. `ColorStore` applies a loaded `Preferences` and re-emits an
-equal one. **Confirm the mutation:** drop one `CodingKeys` entry and the round-trip test
-must fail – a `Codable` conformance that silently ignores a field is exactly the failure
-this is guarding. **Manual check, recorded for when this ships:** quit and relaunch,
-confirm preferences survive; and confirm a UI-test launch does *not* inherit them –
-the same class of check M8b's file write and M17's file read are, and just as
-unreachable by XCUITest.
+**Load-at-launch and save-on-change live in `Color_ToolkitApp`, not in `ColorStore`.**
+`ColorStore.preferences` is a plain computed property – no I/O – so every unit test's
+`ColorStore()` stays deterministic regardless of what the machine running it has saved to
+its real `UserDefaults`. The app loads once, in the `@State private var store` initial-
+value closure (`store.preferences = PreferenceStore.load()`), and saves via
+`.onChange(of: store.preferences)` registered in **two** places – the window's
+`ContentView` and `MenuBarLabel` – for the same reason the global shortcut is claimed
+from both scenes: neither is guaranteed to be on screen, and a change made while the
+window is closed still needs to reach disk. Saving twice for one change is harmless,
+since it overwrites the same key with an equal value.
+
+**A negative `recentLimit` is a real crash, not a hypothetical one, and the fix is a
+clamp at the one place an untrusted value becomes trusted state.** `remember()` computes
+`recents.removeLast(recents.count - recentLimit)`, and `Preferences.recentLimit` decodes
+successfully for *any* `Int` – the Settings panel's Stepper is the only thing keeping it
+in `1...50` along the ordinary path, and a hand-edited or corrupted preferences file
+bypasses it entirely. `ColorStore.preferences`'s setter now clamps to `max(1, …)`.
+**Confirmed empirically, not assumed**: with the clamp removed, assigning
+`recentLimit: -5` and calling `remember()` crashed with
+`Fatal error: Can't remove more items from a collection than it contains` – exactly the
+trap – before the clamp was restored.
+
+**Testing.** [PreferencesTests](Color%20ToolkitTests/PreferencesTests.swift): every field
+round-trips through encode/decode changed from its default in one fixture (including
+`exportFormat: .color(.displayP3)`, the one case that exercises `CSSOutputFormat`'s
+associated-value branch rather than a plain one); decoding garbage yields defaults;
+`save` then `load` round-trips through an injected `UserDefaults` suite;
+`ColorStore.preferences` re-emits what was assigned to it; session state survives an
+assignment untouched; and the negative-`recentLimit` crash above is pinned as a
+regression. **Confirmed the mutation directly**: dropping `webFriendly` from
+`CodingKeys` was built, run, and failed exactly `roundTrips()` and
+`saveThenLoadRoundTrips()` – the two tests that could tell – before being reverted. Two
+more tests exercise `CSSFormatOptions`'s own synthesized conformance and
+`CSSOutputFormat`'s hand-written one directly, in `CSSFormattingTests.swift`, since
+`Preferences`'s round trip alone would only prove the composition and not each type on
+its own. **A ninth test pins the claim the `preferences` doc comment makes rather than
+leaving it as reasoning in a comment**: `withObservationTracking` around a read of
+`store.preferences`, mutated at three sites – a field on the store directly, one nested
+in `formatOptions`, one nested in `exportOptions` – confirms the getter's `@Observable`
+access really does reach through both levels of nesting, which is what lets
+`Color_ToolkitApp`'s `.onChange` fire on any persisted change without listing nine
+properties itself.
+
+**Manual check, recorded for when this ships and not yet run.** Quit and relaunch,
+confirm preferences survive; confirm a UI-test launch does *not* inherit them; look at
+`SettingsView` on screen for the first time, since M0–M9's precedent of reviewing every
+new panel on the running app was not followed here. Unlike M8b's file write and M17's
+file read, `SettingsView` is an ordinary in-process window and XCUITest *could* reach
+it – this is not the file-panel class of check – but writing that coverage was judged
+out of scope for the milestone that introduces the scene, matching the plan note's
+original call that this check stays manual. When run: locate the container with
+`ls ~/Library/Containers/*olor-*oolkit/Data/Library/Preferences/` (the container's
+bundle-id casing does not match `PRODUCT_BUNDLE_IDENTIFIER` exactly) and read the key
+back with `plutil -p`, and quit with ⌘Q or `osascript -e 'quit app "Color Toolkit"'`
+rather than `kill -9` – `UserDefaults` writes go through `cfprefsd` asynchronously, so a
+hard kill can lose an unflushed write and look like a bug that is not one.
 
 ### ⬜ M20 – Grouped export: write a whole project at once
 

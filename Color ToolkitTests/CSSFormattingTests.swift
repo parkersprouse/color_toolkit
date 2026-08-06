@@ -332,6 +332,52 @@ struct CSSFormattingTests {
     let text = color.cssString(as: .oklab, options: CSSFormatOptions(precision: 3))
     #expect(text?.contains("-0") == false, "got \(text ?? "nil")")
   }
+
+  // MARK: - Codable (M19: Preferences persists both types)
+
+  /// `CSSOutputFormat` is hand-written Codable, unlike `CSSFormatOptions` below —
+  /// see the doc comment on its conformance for why. Exercised over the whole
+  /// catalog rather than one case, so a copy-paste slip in one branch of the
+  /// encoder or decoder switch has somewhere to show up.
+  @Test("Every catalog format survives an encode/decode round trip")
+  func formatCodableRoundTrips() throws {
+    for format in CSSOutputFormat.catalog {
+      let data = try JSONEncoder().encode(format)
+      let decoded = try JSONDecoder().decode(CSSOutputFormat.self, from: data)
+      #expect(decoded == format, Comment(rawValue: describe(format)))
+    }
+  }
+
+  @Test("An unrecognized format identifier fails to decode rather than substituting one")
+  func unknownFormatIdentifierFailsToDecode() throws {
+    let data = try JSONEncoder().encode("not-a-format")
+    #expect(throws: (any Error).self) {
+      try JSONDecoder().decode(CSSOutputFormat.self, from: data)
+    }
+  }
+
+  /// `CSSFormatOptions` is synthesized Codable, so this is a sanity check that the
+  /// two new `String`-raw-value enums it gained — `AlphaPolicy` and `GamutPolicy` —
+  /// actually participate rather than tripping synthesis silently.
+  @Test("CSSFormatOptions survives an encode/decode round trip with every field changed")
+  func formatOptionsCodableRoundTrips() throws {
+    let options = CSSFormatOptions(
+      precision: 7,
+      legacy: true,
+      rgbAsPercentage: true,
+      collapseHex: true,
+      uppercaseHex: true,
+      alpha: .never,
+      gamut: .preserve,
+      noneForPowerlessComponents: true,
+    )
+
+    let data = try JSONEncoder().encode(options)
+    let decoded = try JSONDecoder().decode(CSSFormatOptions.self, from: data)
+
+    #expect(decoded == options)
+    #expect(decoded != CSSFormatOptions())
+  }
 }
 
 private func describe(_ format: CSSOutputFormat) -> String {

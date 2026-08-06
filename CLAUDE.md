@@ -15,7 +15,9 @@ design token import.
 M0–M18 are built, so the numbered plan is complete — M18 is `colorkit`, a nine-command
 CLI over `ColorCore` in its own tool target — and **M8b is done too**, so an export can be
 saved to a file as well as copied. Swift 6, SwiftUI, no third-party runtime dependencies.
-**M19–M26 are planned and not yet built**; see PLAN.md.
+**M19 is done too**: a `Settings` scene and `Preferences`, the app's first persistence
+outside SwiftData — see the invariant below on where loading and saving live.
+**M20–M26 are planned and not yet built**; see PLAN.md.
 
 **[PLAN.md](PLAN.md) is the source of truth** for milestone status, what is deferred
 and why, and the reasoning behind every decision recorded below. This file is the
@@ -722,6 +724,35 @@ Layered so the numeric core stays independently testable and UI-free:
   `dataSurvivesAReopen` writes a real store, drops the container and reopens it. Use a
   temp *directory*: SQLite leaves `-wal` and `-shm` beside the file, and removing only
   the `.store` leaves state that can make the next run pass for the wrong reason.
+- **UI tests must also launch with `UITestEphemeralPreferences`, and this one is not
+  optional even for a suite that never touches Settings.** `Preferences` (M19) persists
+  to the real `UserDefaults` the moment anything changes `store.formatOptions`,
+  `store.pickerMode`, or any of the other seven persisted fields, and every panel that
+  touches them runs during ordinary UI tests. Without the argument, a run's result
+  depends on whatever the developer's own use of the app last saved. It pairs with the
+  same `["-NSTreatUnknownArgumentsAsOpen", "NO", …]` opt-out `UITestInMemoryStore` needs
+  and for the identical reason — a bare argument alone is read by AppKit as a file to
+  open — which is why all seven UI test files carry the pair now, not only
+  `ProjectsSmokeTests`.
+- **`Preferences` loads and saves only from `Color_ToolkitApp`, never from
+  `ColorStore.init`.** `ColorStore()` is what every unit test constructs, so if the plain
+  initializer read real `UserDefaults` a fresh store's `pickerMode` would depend on
+  whichever preferences happen to be sitting on the machine running the test — the same
+  hazard `PersistenceStack` avoids by taking `inMemory` as a parameter rather than
+  reading the environment inside `ColorStore`. `ColorStore.preferences` is a plain
+  computed property with no I/O; the app's `@State private var store` initial-value
+  closure loads once, and `.onChange(of: store.preferences)` — registered on **both**
+  the window's content and `MenuBarLabel`, for the reason the global shortcut is claimed
+  from both scenes — saves on every change.
+- **`CSSOutputFormat` cannot get `Codable` by synthesis, unlike its sibling enums.**
+  `CSSFormatOptions`, `AlphaPolicy`, `GamutPolicy`, `ExportShape`, `ExportTemplate`,
+  `PickerMode` and `ColorVisionDeficiency` are all `String`-raw-value enums, so adding
+  `Codable` is free — the compiler derives it from the raw value. `CSSOutputFormat` is
+  not `RawRepresentable` (`.color` carries a `ColorSpace`), so it has a hand-written
+  conformance in `CSSFormatter.swift` instead, spelled to match
+  `ColorToolkitCLI/Names.swift`'s `--format` vocabulary — the same fact transcribed
+  twice because the two targets cannot import one another, not two independent
+  decisions that happen to agree.
 - New tool panels: add a `Tool` case, a folder under `Features/`, and a branch in
   `ContentView`. Keep spec facts in ColorCore and wording in the panel — see
   `RequirementPresentation`.

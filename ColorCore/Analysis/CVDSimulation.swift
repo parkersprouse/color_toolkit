@@ -13,7 +13,7 @@ import Foundation
 /// severity `0.0` is normal vision. Carried as a *fact* only: the display names
 /// ("Red-blind", "Deuteranomaly") are editorial copy and belong to the UI layer, the
 /// same split ``ContrastRequirement`` keeps.
-nonisolated enum ColorVisionDeficiency: String, CaseIterable, Sendable, Hashable {
+nonisolated enum ColorVisionDeficiency: String, CaseIterable, Sendable, Hashable, Codable {
   /// Defective long-wavelength (L / "red") cones. Severity 1.0 is protanopia.
   case protanomaly
   /// Defective medium-wavelength (M / "green") cones. Severity 1.0 is deuteranopia.
