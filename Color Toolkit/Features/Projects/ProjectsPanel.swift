@@ -571,6 +571,27 @@ struct ProjectsPanel: View {
     "\(count) \(noun)\(count == 1 ? "" : "s")"
   }
 
+  /// Palettes first, then one single-entry group per loose color — a ramp is the thing
+  /// you came for and a loose color is a note beside it.
+  ///
+  /// Each loose color's entry carries an **empty key**, the same rule
+  /// ``PaletteEntry`` documents for a palette of one: it is what turns a project color
+  /// named `text color` into a one-entry group that renders `--text-color` rather than
+  /// a suffix nothing would reference. The group is named after the color's label —
+  /// its own name if it has one, its authored text otherwise — matching how the tile
+  /// below labels itself.
+  private static func exportGroups(for project: Project) -> [PaletteGroup] {
+    let palettes = project.orderedPalettes.map {
+      PaletteGroup(name: $0.name, entries: $0.paletteEntries)
+    }
+    let colors = project.orderedColors.compactMap { saved -> PaletteGroup? in
+      guard let color = saved.colorValue else { return nil }
+      let label = saved.name.isEmpty ? saved.text : saved.name
+      return PaletteGroup(name: label, entries: [PaletteEntry(color: color)])
+    }
+    return palettes + colors
+  }
+
   /// Name, spelling and notes, in whatever combination exists.
   private func tooltip(_ saved: SavedColor) -> String {
     let heading = saved.name.isEmpty ? saved.text : "\(saved.name) — \(saved.text)"
@@ -613,27 +634,6 @@ struct ProjectsPanel: View {
   private func exportProject() {
     guard let project = selectedProject else { return }
     store.stage(project: Self.exportGroups(for: project), named: project.name)
-  }
-
-  /// Palettes first, then one single-entry group per loose color — a ramp is the thing
-  /// you came for and a loose color is a note beside it.
-  ///
-  /// Each loose color's entry carries an **empty key**, the same rule
-  /// ``PaletteEntry`` documents for a palette of one: it is what turns a project color
-  /// named `text color` into a one-entry group that renders `--text-color` rather than
-  /// a suffix nothing would reference. The group is named after the color's label —
-  /// its own name if it has one, its authored text otherwise — matching how the tile
-  /// below labels itself.
-  private static func exportGroups(for project: Project) -> [PaletteGroup] {
-    let palettes = project.orderedPalettes.map {
-      PaletteGroup(name: $0.name, entries: $0.paletteEntries)
-    }
-    let colors = project.orderedColors.compactMap { saved -> PaletteGroup? in
-      guard let color = saved.colorValue else { return nil }
-      let label = saved.name.isEmpty ? saved.text : saved.name
-      return PaletteGroup(name: label, entries: [PaletteEntry(color: color)])
-    }
-    return palettes + colors
   }
 
   // MARK: - Importing

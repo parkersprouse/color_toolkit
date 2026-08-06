@@ -275,15 +275,6 @@ nonisolated struct ExportOptions: Sendable, Equatable {
 
   // MARK: Private
 
-  /// The family name, sanitized. Computed rather than stored so ``name`` stays exactly
-  /// what the user typed and the field does not fight them mid-word.
-  ///
-  /// Every shape goes through this rather than calling ``cssIdentifier(_:fallback:)``
-  /// itself, so an emptied field cannot produce one name in CSS and another in JSON.
-  private var identifier: String {
-    Self.cssIdentifier(name, fallback: Self.defaultName)
-  }
-
   /// One group, resolved to the identifier it will actually be written under.
   ///
   /// Sanitized and uniqued against every other group in the same document — two
@@ -301,6 +292,15 @@ nonisolated struct ExportOptions: Sendable, Equatable {
   private struct ResolvedGroup {
     let identifier: String
     let entries: [PaletteEntry]
+  }
+
+  /// The family name, sanitized. Computed rather than stored so ``name`` stays exactly
+  /// what the user typed and the field does not fight them mid-word.
+  ///
+  /// Every shape goes through this rather than calling ``cssIdentifier(_:fallback:)``
+  /// itself, so an emptied field cannot produce one name in CSS and another in JSON.
+  private var identifier: String {
+    Self.cssIdentifier(name, fallback: Self.defaultName)
   }
 
   private func resolvedGroups(_ groups: [PaletteGroup]) -> [ResolvedGroup] {
@@ -372,7 +372,9 @@ nonisolated struct ExportOptions: Sendable, Equatable {
     var lines: [String] = []
     for (index, group) in groups.enumerated() {
       if groups.count > 1 {
-        if index > 0 { lines.append("") }
+        if index > 0 {
+          lines.append("")
+        }
         lines.append("  /* From \"\(group.identifier)\" */")
       }
       lines.append(contentsOf: group.entries.map { entry in
