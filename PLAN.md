@@ -1950,81 +1950,129 @@ back with `plutil -p`, and quit with ⌘Q or `osascript -e 'quit app "Color Tool
 rather than `kill -9` – `UserDefaults` writes go through `cfprefsd` asynchronously, so a
 hard kill can lose an unflushed write and look like a bug that is not one.
 
-### ⬜ M20 – Grouped export: write a whole project at once
+### ✅ M20 – Grouped export: write a whole project at once
 
-**The core change is one generalization, not a second renderer.** Today
-`ExportOptions.render(_ entries: [PaletteEntry], formatting:)`
-(`ColorCore/Export/ColorExport.swift:192`) takes one list and one family name from
-`options.name`. A project needs many lists, each with its own name.
+Built as planned – one generalization, not a second renderer – with one correction the
+advisor caught before it shipped and one compile-time trap the two-overload design
+introduces that the plan note did not anticipate.
 
-Add to `ColorCore/Export/ExportTemplate.swift`, beside `PaletteEntry`:
+**`PaletteGroup` landed exactly as sketched**, beside `PaletteEntry` in
+`ExportTemplate.swift`, and `render(_ entries:formatting:)` is now the one-line special
+case of `render(_ groups:formatting:)`. Single-group output is byte-identical to before –
+proved by leaving every exact string in the pre-M20 `ExportShapeTests` and
+`ExportRoundTripTests` untouched rather than re-asserting the claim, since a wrapper that
+calls the general case is trivially equal to itself and a new test saying so would pass
+under any bug in the grouped renderer.
 
-```swift
-nonisolated struct PaletteGroup: Sendable, Hashable, Identifiable {
-  let name: String
-  let entries: [PaletteEntry]
-  var id: String { name }
-}
-```
+**That proof turned out to be uneven across shapes, and an advisor pass is what caught
+it.** `declaration` and the three shapes sharing `groupedPropertyLines`
+(`customProperties`, `tailwindTheme`, both of `p3WithFallback`'s blocks) each guard their
+own `/* From "…" */` header independently, so "always emit the header" was really four
+separate mutations, not one. Forcing it on in `groupedPropertyLines` fails
+`customProperties` and `p3WithFallback`'s pre-existing exact-string tests – three
+failures, the byte-identity claim made concrete for those two – but **`tailwindTheme`'s
+own pre-existing test passed anyway**: `tailwindThemeBlock` only checks
+`.contains`/`.hasPrefix`/`.hasSuffix`, none of which notices an extra comment appearing.
+A single-group exact-string test had to be added for `tailwindTheme` specifically
+(`tailwindThemeSingleGroupHasNoHeader`) before the mutation had anywhere to fail.
+`declaration`'s own header guard was already covered – its pre-existing single- and
+two-entry tests are both exact strings – but had no *two-group* test at all, so
+`declarationGroupsGetHeaders` was added alongside it. Both additions were confirmed
+against the mutation they close before being trusted, the same as the four below.
 
-Then `render(_ groups: [PaletteGroup], formatting:)` becomes the general renderer, and
-the existing signature becomes one line:
+The four things the plan flagged all held:
 
-```swift
-func render(_ entries: [PaletteEntry], formatting: CSSFormatOptions = .default) -> String {
-  render([PaletteGroup(name: name, entries: entries)], formatting: formatting)
-}
-```
+- **The loose-color case needed no new rule.** `PaletteEntry`'s existing empty-key
+  convention does the work; a project color's group is one entry with an empty key, and
+  `propertyName`/`soleEntry` already treat that as `--text-color` rather than inventing
+  a suffix.
+- **Group names are uniqued against the sanitized name**, with the same `-2`/`-3` suffix
+  loop `DesignTokenImport.keyed` and `ProjectLibrary.paletteKeys` use. **One limitation is
+  recorded rather than fixed**: uniquing is group-versus-group only, so a palette
+  `brand` with a `500` entry and a loose color literally named `brand 500` both resolve
+  to `--brand-500` – the entry's own key was never in scope for this rule, and widening
+  it would be a different feature than the one asked for.
+- **`p3WithFallback` walks groups after branching on shape**, through a `groupedPropertyLines`
+  helper shared by `customProperties`, `tailwindTheme` and both of `p3WithFallback`'s
+  blocks – so no two of them can name a group's properties differently.
+- **Group comments are `/* From "…" */`, in the four CSS shapes only**, sanitized through
+  `cssIdentifier` for the reason the per-entry comment already was. The plan's example
+  text said `/* From a ramp named "primary" */`; the shipped wording drops "a ramp
+  named" because `PaletteGroup` carries no provenance – it is a name and a list, and a
+  loose color's group is not a ramp. Inventing a "kind" just to fill in that phrase would
+  have been a second table for no reader-facing gain.
 
-Single-group output must be **byte-identical** to today's. That is the discriminating
-test, and `ExportTests.swift` (665 lines) already pins enough output to catch a drift.
+**The one correction:** the plan's `entries(for:)` sketch put `.project` in the `switch`
+below the `guard let color else { return [] }`, mirroring `.saved`'s original position –
+but `.saved` had already been *hoisted above* that guard for exactly the reason a staged
+palette must survive an empty field, and copying the switch-arm position instead of the
+hoist would have made a staged project disappear the moment the input field was cleared.
+Caught before writing any test, by an advisor pass; `stagedProjectSurvivesAnEmptyField`
+now pins it, mirroring `stagedPaletteSurvivesAnEmptyField`.
 
-Four things this design has to get right:
+**The compile-time trap:** two `render` overloads differing only in `[PaletteEntry]` vs.
+`[PaletteGroup]` make a bare `options.render([])` ambiguous – Swift has no context to
+pick an element type for an empty array literal. One call site in the pre-existing
+`ExportTests.swift` had exactly this shape (`emptyPaletteIsEmpty`) and needed
+`options.render([PaletteEntry]())` instead; every other call site was already typed by
+an initializer inside the literal (`[PaletteEntry(color: …)]`) and needed nothing.
 
-- **`propertyName` already handles the loose-color case.** An entry with an empty key
-  yields `--<family>` rather than `--<family>-<key>`, so a project color named
-  `text color` becomes a one-entry group and comes out `--text-color` – exactly the
-  requested shape, with no new rule. `soleEntry` gives the same result in JSON
-  (`"text-color": "#e0e0e0"`) and in the Tailwind config.
-- **Group names must be uniqued, against the sanitized name.** Two palettes both called
-  `brand`, or `brand` and `Brand!`, collapse into one set of properties and colors vanish
-  silently – the identical hazard `DesignTokenImport.keyed` (`DesignTokens.swift:463`)
-  and `ProjectLibrary.paletteKeys` (`ProjectLibrary.swift:299`) already handle. Use the
-  same `-2`/`-3` suffix loop, run over `cssIdentifier(name)`, never over the raw name.
-- **`p3WithFallback` is not "render each group and concatenate".** It needs every group
-  in the hex block and then every group again inside the media query. The renderer
-  branches per shape *first*, then walks groups – which is also what keeps
-  `propertyLines` the one place a property is named, so the two blocks still cannot
-  disagree.
-- **Group comments belong only to the CSS shapes.** `/* From a ramp named "primary" */`
-  goes in `declaration`, `customProperties`, `tailwindTheme` and `p3WithFallback`. JSON
-  and the Tailwind config already name each group by nesting it, and neither has a
-  comment syntax to carry it. The comment text must go through `cssIdentifier` for the
-  reason `declarations` already sanitizes its key comment: a name containing `*/` closes
-  the comment early and turns the rest of the file into stray CSS.
+**App wiring landed as planned**: `ExportSource.project` with its own `title` and
+`emptyMessage`; `ColorStore.stagedProject: [PaletteGroup]` and `stage(project:named:)`
+beside their single-palette counterparts; `ExportPanel`'s top guard extended to
+`store.stagedProject.isEmpty`. `entries(for: .project)` flattens every group into one
+list – for the badge count and the swatch strip, which have no notion of a group – while
+`exportDocument` reaches `stagedProject` directly for the real document, since flattening
+would lose exactly the per-group names the shape exists to keep.
 
-**App wiring.** A new `ExportSource.project` case in
-`Features/Export/ExportPresentation.swift:19`, with its own `title` and `emptyMessage`;
-`ColorStore.stagedProject: [PaletteGroup]` beside `stagedPalette`, and
-`stage(project:named:)` beside `stage(_:named:)`. `entries(for:)` keeps returning
-`[PaletteEntry]` for the other five sources; `exportDocument` picks the grouped renderer
-when the source is `.project`.
+**Projects panel**: `Export Project` in `header`, next to New and Delete, disabled when
+the project has neither colors nor palettes. It builds `project.orderedPalettes` (each
+under `palette.name`) followed by one single-entry group per `project.orderedColors`,
+named after the color's own label (its `name` if set, its authored `text` otherwise) –
+palettes first, matching the plan's reasoning that a ramp is the thing you came for.
 
-**Projects panel.** An `Export Project` button in `header` (`ProjectsPanel.swift:169`),
-next to New/Delete. It builds groups from `project.orderedPalettes` (each
-`palette.paletteEntries` under `palette.name`) followed by one single-entry group per
-`project.orderedColors` – palettes first, because a ramp is the thing you came for and a
-loose color is a note beside it.
+**One decision recorded rather than resolved either way:** `ExportOptions.name` never
+reaches a grouped document – every family comes from the group's own name – so
+`ExportPanel`'s Name field, still shown because `shape.usesName` has no notion of groups,
+does not move a character of the preview once a project is staged. It is not inert,
+though: it still drives `suggestedFilename`, which is what `stage(project:named:)`
+intends by seeding it with the project's own name. That is the same shape of thing
+`usesFormat`'s doc comment warns about – "a flag that changed nothing looks like it
+worked" – so it is pinned rather than left implicit:
+`nameDoesNotReachAGroupedDocument` asserts both halves, that changing `name` leaves a
+two-group document identical and still changes the filename. Gating the control was
+considered and rejected – it is genuinely doing something, just not the thing a glance at
+the preview would suggest.
 
-**Testing.** `ExportStoreTests` has two parameterized suites over `ExportSource.allCases`
-(`:91`, `:224`) that pick the new case up automatically – check they still pass and that
-they are actually asserting something about it. New tests: single-group output is
-identical to the ungrouped call; a two-group document parses back through
-`CSSColorParser` with every color surviving (the `Export/` oracle rule – this app's own
-parser); colliding group names produce distinct properties; `p3WithFallback` emits every
-group in both blocks. Check **both cardinalities** for `json` and `tailwindConfig`, which
-fork on lone-color versus scale – a single-entry test has passed a broken multi-entry
-branch here before.
+**Testing.** Both parameterized `ExportSource.allCases` suites in `ExportStoreTests`
+picked `.project` up automatically, and one of them – `sourcesMapToKinds` – is itself an
+exhaustive switch that needed a line added or the build breaks, which is the point of
+writing it that way. New coverage: `GroupedExportTests` in `ExportTests.swift` pins
+two-group documents exactly for `declaration`, `customProperties`, `tailwindTheme`, `json`
+and `tailwindConfig` (the JSON/Tailwind cases at both per-group cardinalities in one
+document – a lone-color group beside a scale), a single-group `tailwindTheme` document
+with no header, the multi-group round trip through `CSSColorParser`, `p3WithFallback`
+covering every group in both blocks, and the Name-field claim above; `StagedProjectTests`
+in `ExportStoreTests.swift` covers the store side, including the empty-field survival
+above. **Six mutations, all six caught by the intended test and no other**: uniquing
+against the raw name instead of `cssIdentifier(name)` fails `collidingGroupNamesStaySeparate`;
+deleting the suffix loop's `while` (always appending a bare `-2`) fails only
+`thirdCollisionSkipsTakenSuffix`, not the simpler two-way collision test – proof the loop
+itself is exercised, not just the branch that enters it; truncating `p3WithFallback`'s
+wide block to the first group fails `p3WithFallbackCoversEveryGroup`; forcing
+`groupedPropertyLines`'s header unconditionally fails three tests in the pre-existing
+suite (`customProperties` and `p3WithFallback`) and none in the new one, and needed a
+dedicated single-group `tailwindTheme` test before it had anywhere to fail for that
+shape; and both directions of `declaration`'s own separate header guard were checked –
+always off fails only the new two-group test, always on fails both pre-existing
+single-group ones. `ProjectsSmokeTests` adds an end-to-end run – a ramp and a loose
+color, saved separately, exported together under the project's own groups – **and
+asserts the Source picker's "Project" segment itself is hittable**, not merely that the
+right document ended up in the field. That distinction mattered: the existing
+`ExportSmokeTests` only ever click "Export" and "Ramp", so they would pass identically
+whether or not a sixth segment rendered usably, and the new test's own first pass reached
+the document through `store.stage(project:)` programmatically without ever touching the
+control it was meant to prove.
 
 ### ⬜ M21 – Every swatch is a live handle
 
@@ -2450,7 +2498,9 @@ Per milestone:
 - **M17:** [DesignTokenImportTests](Color%20ToolkitTests/DesignTokenImportTests.swift) for the decoder and [ProjectStoreTests](Color%20ToolkitTests/ProjectStoreTests.swift) for the path through a container. **A fifth distinct no-oracle reason, and the simplest one yet**: colorjs.io parses CSS, and a design token's `$value` is a JSON object rather than a CSS string, so there is nothing to ask it. The Color module's own documented shapes are the fixtures, written inline rather than in fixture files – the generated vector sets earn their own files by being thousands of numbers, where these are five lines of JSON apiece and only read as the spec examples they are when they sit beside the assertion. **Ten mutations, all ten killed, and every failure set is tight**: uniquing on the raw path instead of the sanitized key fails one test, ignoring a resolved reference's type one, letting `hex` rescue broken components one, sorting names as text two (both the ordering claims), dropping the `none` mask one, dropping the alpha clamp one, spelling imports `oklch()` one, keying on a token's leaf name instead of its whole path three (every claim about keys), and ignoring a token's own `$type` one – that last mutation being the one that *found* a gap, since nothing had pinned the first arm of the precedence chain until it was written. The cycle-detection mutation is the odd one out and worth its own sentence: removing the visited set fails the suite **without reporting a single test**, because the unbounded recursion takes the test process down with it. That is the shape of the bug the visited set prevents, and it is why the rule is not an optimization. Two claims are asserted by discrimination rather than by equality alone – an sRGB `[1, 0, 0]` is checked against the `1/255` it would be under `rgb()`'s scale, and the `hex` fallback is checked with a *known* space and broken components, where a fallback that fired would look perfectly plausible. One test deliberately does *not* isolate a rule: `awholeFileImports` takes an alias, two color spaces, a description and a dimension token in one document, because the per-rule tests are diagnostic precisely by testing one thing at a time and a real token file is never one thing. It asserts the three counts together, since those are what the panel reports and "imported 4, ignored 1" is only true if all three are – and it is in the failure set of the reference-type mutation, so it discriminates rather than decorates.
 - **M17, the part no test reaches – and it passed.** This is the app's only file read, so it is the only place a **sandbox** denial can happen, and every test above loads its JSON from a string in the test bundle: that exercises the decoder and nothing about the sandbox. Same shape as M4's loupe and global chord – links a test cannot touch, wanting a named manual check instead. The check is *choose a token file in `~/Downloads` through the Import button and confirm a palette appears*, and it was run on the built app: four swatches under an `Imported` badge, with the summary reading `Imported 4 colors from color-toolkit-m17-check.tokens.json. Ignored 1 token of other types.` So the powerbox URL reads under `ENABLE_USER_SELECTED_FILES = readonly` with the security-scoped claim, which was the open question. **The screenshot happens to discriminate three separate rules, which is why it is worth more than a pass**: the second and fourth swatches are the *same blue*, so `semantic.primary` – a token with no `$type` of its own – resolved through its alias to `brand.500` and took both its value and its type, the rule a filter-then-resolve design drops silently; the order is `50, 500, 900, primary`, so numeric sorting held on real data where alphabetical would have filed `500` ahead of `50`; and the navy is the `display-p3` token, so the wide-gamut path rendered as well as the sRGB ones. XCUITest cannot drive `NSOpenPanel`, exactly as it cannot start a dragging session, so [ProjectsSmokeTests](Color%20ToolkitUITests/ProjectsSmokeTests.swift) stops at asserting the control reached the panel and is hittable – a test that clicked it would fail whether the feature worked or not. The panel's error copy is built for this: the open-panel dismissal, the read, the decode, "readable file with nothing importable in it", and the save are five outcomes with five different sentences, because a denial reported as "no color tokens in that file" would be undiagnosable.
 - **M18:** [ColorToolkitCLITests](ColorToolkitCLITests/CommandTests.swift), and **the oracle is this app's own parser** – the same standard `Export/` is held to and for the same reason: the CLI's output is text a machine will read back. So the discriminating assertion is that a printed value survives `CSSColorParser`, applied to all six document shapes at both cardinalities and to every listing; exact strings are kept for *syntax* (exit codes, which stream a message lands on, `:root {`) and are wrong for anything editorial. Three claims are asserted as totality over an `allCases` rather than by example, because each is a table that a change in ColorCore can silently outgrow: every catalog format has a CLI name and the name inverts, every export shape has one that is lowercase and round-trips, and every command in the `--help` listing dispatches to something. **Twelve mutations, all twelve killed, and every failure set is tight** – collapsing the usage and failure exit codes fails one test, routing diagnostics to stdout five, accepting an unknown option as a positional one, accepting an inert `--format` one, uniquing export keys on the raw path instead of the sanitized key one, ignoring `mappedCountFormat` one, dropping `solve`'s read-back check two, canonicalizing the token listing's spelling one, short-circuiting `--help` before argument scanning one, deriving shape names from raw values three, dropping the listing's mapped note three, and dropping the `convert` table's mapped marker one. **The value extractor took two attempts and the first one is the lesson**: reading "everything after the first space" agreed with three output shapes and silently handed the other five a value with punctuation attached, which reads exactly like a broken serializer – so it now matches structurally, on a `#` run or a *color* function name followed by a balanced paren group. That last qualifier is not decoration: `tailwind-config` opens with `/** @type {import('tailwindcss').Config} */`, and `import(…)` satisfies every part of the shape rule but the name. **Three findings came out of the suite failing first.** The ramp's in-gamut assertion has to read the value at full precision, because a stop on the boundary rounds outward at four decimals and the test would otherwise be measuring the serializer; the mapped-note test had to move from `ramp` to `harmony`, because every ramp stop is already in gamut and asking a ramp for a mapped value tests nothing; and `solve`'s guarantee turned out not to survive serialization at all, which is the milestone note above.
-- **M19–M26 (planned):** none of the eight has landed yet, so nothing below is a finding – it is the standard of proof each milestone must meet before its commit lands, stated in advance so the mutation run has a target. **M19:** `Preferences` round-trips through encode/decode with every field changed, decoding garbage yields defaults, and dropping a `CodingKeys` entry must fail the round-trip test; the quit-and-relaunch check is manual, in the shape of M8b's write and M17's read. **M20:** single-group output byte-identical to today's `render`, a two-group document round-tripping through `CSSColorParser`, colliding group names producing distinct properties, and both cardinalities of `json`/`tailwindConfig` checked separately. **M21:** `TransformSmokeTests`' pattern extended to a CVD swatch and a palette tile, plus a unit test that the authored-text initializer never re-derives a spelling. **M22:** `webFriendly` asserted as a subset of `catalog`; each of the three enumeration sites filtered; a harmony's disagreement between `gamut: .srgb` and the unclamped default asserted explicitly; three named mutations (deriving the table from `if case .color`, dropping the `spelling` change, restricting rather than hiding the mix picker) each required to fail a specific test; the P3-display sample is a manual check. **M23:** `recentLimit` honoured and truncating when lowered; a UI test that a recent appears after a submit and restores the authored spelling on click. **M24:** the header swatch hittable, the popover revealing `pickerPlane`, dragging changing `colorInput` – waited on hittability, not existence. **M25:** every exportable format round-trips the active color when chosen from the menu (or gamut-maps where `cannotRepresentOutOfGamut`); the control queried as a `menuButton`. **M26:** shape detection for every shape and ambiguous inputs, the `primary`/`primar` segment-wise extraction case, the export round trip at both cardinalities, a malformed value skipped without losing its neighbours, the fourth `savePalette` overload's pasted text surviving a re-parse, and the sheet's controls queried through `app.sheets`.
+- **M19:** [PreferencesTests](Color%20ToolkitTests/PreferencesTests.swift) – every field round-trips through encode/decode with each field changed from its default (including `exportFormat: .color(.displayP3)`, the one case that exercises `CSSOutputFormat`'s hand-written conformance rather than a plain raw value), decoding garbage yields defaults, and the negative-`recentLimit` crash is pinned as a regression after being reproduced directly (`Fatal error: Can't remove more items from a collection than it contains`, with the clamp removed). `withObservationTracking` confirms `ColorStore.preferences`'s getter reaches through both `formatOptions` and `exportOptions` rather than only the top level. **Confirmed the mutation directly**: dropping `webFriendly` from `CodingKeys` failed exactly the two tests that could tell. The quit-and-relaunch check is manual, in the shape of M8b's write and M17's read – see the M19 section above for what was found.
+- **M20:** [GroupedExportTests](Color%20ToolkitTests/ExportTests.swift) and [StagedProjectTests](Color%20ToolkitTests/ExportStoreTests.swift). The single-group case is not re-pinned as a new assertion – it would be true by construction, since the one-list `render` is now a one-line call into the grouped renderer – so the discriminating check is that every exact string in the *pre-existing* `ExportShapeTests` and `ExportRoundTripTests` still passes unchanged. **That check turned out to be uneven across shapes**: `declaration` and the three shapes sharing `groupedPropertyLines` each guard their own header independently, and `tailwindTheme`'s pre-existing test (`.contains`/`.hasPrefix`/`.hasSuffix`) does not notice an extra comment appearing, so a dedicated single-group `tailwindTheme` test was added before that shape's byte-identity claim had anywhere to fail. Two-group documents are pinned exactly for `declaration`, `customProperties`, `tailwindTheme`, `json` and `tailwindConfig` (the latter two at both per-group cardinalities in one document – a lone-color group beside a scale), plus a multi-group round trip through `CSSColorParser`, `p3WithFallback` covering every group in both blocks, and a test that `options.name` moves a grouped document's filename and never its content. **Six mutations, all six caught by the intended test and no other**: uniquing against the raw name instead of the sanitized one fails `collidingGroupNamesStaySeparate`; deleting the suffix loop's `while` (always appending a bare `-2`) fails only `thirdCollisionSkipsTakenSuffix`, not the simpler two-way collision test – proof the loop itself is exercised, not just the branch that enters it; truncating `p3WithFallback`'s wide block to the first group fails `p3WithFallbackCoversEveryGroup`; forcing `groupedPropertyLines`'s header unconditionally fails three pre-existing tests and the new single-group `tailwindTheme` one, none of the new two-group ones; and both directions of `declaration`'s separate header guard were checked, one against a new two-group test and the other against two pre-existing single-group ones. [ProjectsSmokeTests](Color%20ToolkitUITests/ProjectsSmokeTests.swift) adds the end-to-end run – a ramp and a loose color, saved separately, exported together under the project's own groups – **and asserts the Source picker's "Project" segment is itself hittable**, not merely that the right document reached the field; the pre-existing `ExportSmokeTests` never click that segment, so they would not have caught a sixth entry rendering unusably, and this is the test that actually closes that question rather than the one first assumed to.
+- **M21–M26 (planned):** none of the six has landed yet, so nothing below is a finding – it is the standard of proof each milestone must meet before its commit lands, stated in advance so the mutation run has a target. **M21:** `TransformSmokeTests`' pattern extended to a CVD swatch and a palette tile, plus a unit test that the authored-text initializer never re-derives a spelling. **M22:** `webFriendly` asserted as a subset of `catalog`; each of the three enumeration sites filtered; a harmony's disagreement between `gamut: .srgb` and the unclamped default asserted explicitly; three named mutations (deriving the table from `if case .color`, dropping the `spelling` change, restricting rather than hiding the mix picker) each required to fail a specific test; the P3-display sample is a manual check. **M23:** `recentLimit` honoured and truncating when lowered; a UI test that a recent appears after a submit and restores the authored spelling on click. **M24:** the header swatch hittable, the popover revealing `pickerPlane`, dragging changing `colorInput` – waited on hittability, not existence. **M25:** every exportable format round-trips the active color when chosen from the menu (or gamut-maps where `cannotRepresentOutOfGamut`); the control queried as a `menuButton`. **M26:** shape detection for every shape and ambiguous inputs, the `primary`/`primar` segment-wise extraction case, the export round trip at both cardinalities, a malformed value skipped without losing its neighbours, the fourth `savePalette` overload's pasted text surviving a re-parse, and the sheet's controls queried through `app.sheets`.
 - **M3/M4 (UI):** run the app and verify interactively. Spot-check conversions against a browser's DevTools color picker, which implements the same spec – a fast, honest end-to-end sanity check.
 
 The scheme is shared and works from the command line:

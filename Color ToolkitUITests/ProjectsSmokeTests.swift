@@ -122,6 +122,58 @@ final class ProjectsSmokeTests: XCTestCase {
     capture("projects-exported-palette")
   }
 
+  /// M20, end to end: a palette and a loose color, exported together as one document.
+  ///
+  /// The unit tests in `GroupedExportTests` and `StagedProjectTests` prove the renderer
+  /// and the store side; what only a running app can show is that the panel's own
+  /// button actually builds the groups from a real project and reaches the export
+  /// panel, the same handoff `testASavedRampExportsUnderItsOwnName` proves for a single
+  /// staged palette.
+  func testExportProjectCombinesEveryPaletteAndLooseColor() {
+    setField("#3b82f6")
+    click(radioButton: "Projects", "the tool switcher")
+    createProject()
+
+    typeInto("saveName", "brand")
+    select(menuItem: "Ramp", fromMenu: "saveSet", "the save-set menu")
+    XCTAssertTrue(
+      app.otherElements["palette-0-swatch-10"].waitForExistence(timeout: 15),
+      "Expected eleven saved ramp stops. Tree was:\n\(app.debugDescription)",
+    )
+
+    // A loose color, saved with no name — its group is named after its own text, the
+    // same fallback the tile beneath it already shows.
+    saveColors(["#ff0000"])
+
+    clickButton("projectExport", "the export-project button")
+
+    // The Source picker's sixth segment, actually reached rather than assumed — a
+    // segment that gets swept into an overflow menu the way an eighth *tool* is known
+    // to (see CLAUDE.md) would still leave `store.exportSource == .project` and a
+    // correct document; only this checks the control itself renders as a usable
+    // segment.
+    let projectSegment = app.radioButtons["Project"]
+    XCTAssertTrue(
+      projectSegment.waitForExistence(timeout: 15),
+      "No \"Project\" segment in the Source picker. Tree was:\n\(app.debugDescription)",
+    )
+    XCTAssertTrue(
+      waitUntilHittable(projectSegment),
+      "The \"Project\" segment never became hittable. Tree was:\n\(app.debugDescription)",
+    )
+
+    let document = readout("exportDocument")
+    XCTAssertTrue(
+      document.contains("--brand-500:"),
+      "The palette's own name should reach the document, got:\n\(document)",
+    )
+    XCTAssertTrue(
+      document.contains("--ff0000:"),
+      "The loose color should export as its own single-entry group, got:\n\(document)",
+    )
+    capture("projects-exported-project")
+  }
+
   /// Deleting a project takes its contents with it, and the panel returns to the state
   /// it started in. The cascade is asserted against a context in ``ProjectStoreTests``;
   /// what this adds is that the view stops showing what was deleted.

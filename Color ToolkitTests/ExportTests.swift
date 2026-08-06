@@ -499,7 +499,7 @@ struct ExportShapeTests {
     for shape in ExportShape.allCases {
       var options = ExportOptions.default
       options.shape = shape
-      #expect(options.render([]).isEmpty, "\(shape) rendered a wrapper around nothing")
+      #expect(options.render([PaletteEntry]()).isEmpty, "\(shape) rendered a wrapper around nothing")
     }
   }
 }
@@ -610,6 +610,366 @@ struct ExportIdentifierTests {
       )
     }
     #expect(awkward.cssString(as: .keyword) == nil)
+  }
+}
+
+/// M20's grouped renderer — a document written from more than one named set of colors
+/// at once, the shape a whole-project export needs.
+///
+/// ``ExportShapeTests`` above is the oracle for what one group looks like; these pin
+/// what changes and what does not once there are two. The one-group case is not
+/// re-pinned here — every exact string in ``ExportShapeTests`` already is that check,
+/// since ``ExportOptions/render(_:formatting:)`` over a single list is now a one-line
+/// call into the grouped renderer below it. A header-condition mutation that always (or
+/// never) wrote the `/* From "…" */` comment would fail those tests, not these.
+@Suite("Grouped export")
+struct GroupedExportTests {
+  static let blue = ColorValue.srgb8(0x3B, 0x82, 0xF6)
+  static let red = ColorValue.srgb8(0xEF, 0x44, 0x44)
+
+  /// The whole document, pinned exactly — the blank line and the header comment between
+  /// groups are the syntax a hand-written string can get subtly wrong, which is what an
+  /// exact string is for.
+  @Test("Two groups get a header comment and a blank line between them")
+  func twoGroupsGetHeaders() {
+    var options = ExportOptions.default
+    options.shape = .customProperties
+    options.format = .hex
+
+    let groups = [
+      PaletteGroup(name: "primary", entries: [PaletteEntry(key: "500", color: Self.blue)]),
+      PaletteGroup(name: "secondary", entries: [PaletteEntry(key: "500", color: Self.red)]),
+    ]
+
+    #expect(options.render(groups) == """
+    :root {
+      /* From "primary" */
+      --primary-500: #3b82f6;
+
+      /* From "secondary" */
+      --secondary-500: #ef4444;
+    }
+    """)
+  }
+
+  /// `declaration` is a separate implementation from the other three CSS shapes' shared
+  /// `groupedPropertyLines` — its own header condition, its own join — so the header
+  /// mutation that fails ``twoGroupsGetHeaders`` above does not touch this one at all.
+  /// Pinned on its own for that reason.
+  @Test("Two groups get headers in the declaration shape too")
+  func declarationGroupsGetHeaders() {
+    var options = ExportOptions.default
+    options.shape = .declaration
+    options.format = .hex
+
+    let groups = [
+      PaletteGroup(name: "primary", entries: [PaletteEntry(key: "500", color: Self.blue)]),
+      PaletteGroup(name: "secondary", entries: [PaletteEntry(key: "500", color: Self.red)]),
+    ]
+
+    #expect(options.render(groups) == """
+    /* From "primary" */
+    color: #3b82f6; /* 500 */
+
+    /* From "secondary" */
+    color: #ef4444; /* 500 */
+    """)
+  }
+
+  /// `tailwindTheme` *does* share `groupedPropertyLines` with `customProperties`, but its
+  /// own pre-M20 test (`tailwindThemeBlock`) only checks `.contains`/`.hasPrefix`/
+  /// `.hasSuffix` — none of which would notice an extra header comment appearing (or a
+  /// real one going missing), so that test cannot stand in for this one. The Tailwind
+  /// namespace prefix has to reach *every* group, not just the first.
+  @Test("Two groups get headers in the @theme shape, with the color- prefix on each")
+  func tailwindThemeGroupsGetHeaders() {
+    var options = ExportOptions.default
+    options.shape = .tailwindTheme
+    options.format = .hex
+
+    let groups = [
+      PaletteGroup(name: "primary", entries: [PaletteEntry(key: "500", color: Self.blue)]),
+      PaletteGroup(name: "secondary", entries: [PaletteEntry(key: "500", color: Self.red)]),
+    ]
+
+    #expect(options.render(groups) == """
+    @theme {
+      /* From "primary" */
+      --color-primary-500: #3b82f6;
+
+      /* From "secondary" */
+      --color-secondary-500: #ef4444;
+    }
+    """)
+  }
+
+  /// The single-group case for `tailwindTheme`, pinned exactly rather than left to the
+  /// pre-existing `.contains`/`.hasPrefix`/`.hasSuffix` check in `tailwindThemeBlock`.
+  /// That check cannot tell an unwanted header apart from none at all, and a two-group
+  /// test cannot either — with two groups a header belongs regardless of whether the
+  /// condition guarding it is `groups.count > 1` or simply `true`. Only an exact match
+  /// on the *one*-group case proves the header is conditional rather than unconditional.
+  ///
+  /// Mutation: force `groupedPropertyLines` to always write the header, and this fails
+  /// where ``tailwindThemeGroupsGetHeaders`` above does not.
+  @Test("A single group gets no header in the @theme shape")
+  func tailwindThemeSingleGroupHasNoHeader() {
+    var options = ExportOptions.default
+    options.shape = .tailwindTheme
+    options.format = .hex
+
+    #expect(options.render(ExportShapeTests.palette) == """
+    @theme {
+      --color-brand-500: #3b82f6;
+      --color-brand-600: #ef4444;
+    }
+    """)
+  }
+
+  /// Both cardinalities per group — ``json`` and ``tailwindConfig`` fork on lone-color
+  /// versus scale, and that fork applies group by group, not document-wide. A palette
+  /// export mixes both in one document: a single saved color sits beside a ramp.
+  @Test("JSON nests a lone-color group as a string and a scale as an object")
+  func jsonGroupsForkPerGroup() {
+    var options = ExportOptions.default
+    options.shape = .json
+    options.format = .hex
+
+    let groups = [
+      PaletteGroup(name: "primary", entries: [PaletteEntry(color: Self.blue)]),
+      PaletteGroup(name: "secondary", entries: [
+        PaletteEntry(key: "500", color: Self.blue),
+        PaletteEntry(key: "600", color: Self.red),
+      ]),
+    ]
+
+    #expect(options.render(groups) == """
+    {
+      "primary": "#3b82f6",
+      "secondary": {
+        "500": "#3b82f6",
+        "600": "#ef4444"
+      }
+    }
+    """)
+  }
+
+  /// Same fork, the Tailwind v3 shape — a bare string for the lone-color group, nested
+  /// under `theme.extend.colors` alongside a scale for the other.
+  @Test("Tailwind config nests a lone-color group as a string and a scale as an object")
+  func tailwindConfigGroupsForkPerGroup() {
+    var options = ExportOptions.default
+    options.shape = .tailwindConfig
+    options.format = .hex
+
+    let groups = [
+      PaletteGroup(name: "primary", entries: [PaletteEntry(color: Self.blue)]),
+      PaletteGroup(name: "secondary", entries: [
+        PaletteEntry(key: "500", color: Self.blue),
+        PaletteEntry(key: "600", color: Self.red),
+      ]),
+    ]
+
+    #expect(options.render(groups) == """
+    /** @type {import('tailwindcss').Config} */
+    module.exports = {
+      theme: {
+        extend: {
+          colors: {
+            primary: '#3b82f6',
+            secondary: {
+              500: '#3b82f6',
+              600: '#ef4444',
+            },
+          },
+        },
+      },
+    }
+    """)
+  }
+
+  /// Every color a document names has to survive being read back — the ``Export/``
+  /// oracle rule applied to more than one group at once, since nothing about the parser
+  /// knows groups exist.
+  @Test("Every color in a multi-group document survives the parser")
+  func multiGroupDocumentRoundTrips() throws {
+    var options = ExportOptions.default
+    options.shape = .customProperties
+    // Hex, and both colors already on the 8-bit grid — so the round trip is exact,
+    // not merely close. `options.format` defaults to `oklch()`, which is a real
+    // conversion round trip and would need a tolerance instead of `==`.
+    options.format = .hex
+
+    let groups = [
+      PaletteGroup(name: "primary", entries: [PaletteEntry(key: "500", color: Self.blue)]),
+      PaletteGroup(name: "secondary", entries: [PaletteEntry(key: "500", color: Self.red)]),
+    ]
+
+    let rendered = options.render(groups, formatting: .lossless)
+    let values = ExportRoundTripTests.propertyValues(in: rendered)
+    #expect(values.count == 2, "Expected one value per group:\n\(rendered)")
+
+    let parsed = try values.map { value in
+      try #require(try CSSColorParser.parse(value).color, "\(value) does not parse")
+    }
+    #expect(parsed.map { $0.converted(to: .srgb) } == [Self.blue, Self.red].map { $0.converted(to: .srgb) })
+  }
+
+  /// **Two group names that sanitize to the same identifier must not collapse into one
+  /// property set.** `brand` and `brand!` are distinct as typed and identical once
+  /// `!` is stripped, which is exactly why uniquing has to run over the *sanitized*
+  /// name rather than the raw one — the same reasoning `DesignTokenImport.keyed` and
+  /// `ProjectLibrary.paletteKeys` already follow.
+  ///
+  /// Mutation: unique against the raw name instead, and this fails — `brand` and
+  /// `brand!` would both sanitize to `brand`, colliding anyway, but the *test* would no
+  /// longer be exercising the sanitized-uniquing path if the names it used did not
+  /// collide only after sanitizing.
+  @Test("Colliding group names still produce two distinct properties")
+  func collidingGroupNamesStaySeparate() {
+    var options = ExportOptions.default
+    options.shape = .customProperties
+    options.format = .hex
+
+    let groups = [
+      PaletteGroup(name: "brand", entries: [PaletteEntry(key: "500", color: Self.blue)]),
+      PaletteGroup(name: "brand!", entries: [PaletteEntry(key: "500", color: Self.red)]),
+    ]
+
+    let rendered = options.render(groups)
+    #expect(rendered.contains("--brand-500: #3b82f6;"))
+    #expect(rendered.contains("--brand-2-500: #ef4444;"), "The second group did not get a suffix:\n\(rendered)")
+
+    // Neither color is lost, and the properties really are two distinct names —
+    // the failure mode collapses them into one and drops the second color.
+    let names = ExportRoundTripTests.propertyValues(in: rendered)
+    #expect(names.count == 2, "One group's properties overwrote the other's:\n\(rendered)")
+  }
+
+  /// Three colliding names in a row need the loop, not just the first suffix —
+  /// `-2` is already taken by the second `brand`, so the third has to keep counting.
+  @Test("A third collision skips past an already-taken suffix")
+  func thirdCollisionSkipsTakenSuffix() {
+    var options = ExportOptions.default
+    options.shape = .customProperties
+    options.format = .hex
+
+    let groups = [
+      PaletteGroup(name: "brand", entries: [PaletteEntry(color: Self.blue)]),
+      PaletteGroup(name: "brand-2", entries: [PaletteEntry(color: Self.red)]),
+      PaletteGroup(name: "brand", entries: [PaletteEntry(color: Self.blue)]),
+    ]
+
+    let rendered = options.render(groups)
+    #expect(rendered.contains("--brand:"))
+    #expect(rendered.contains("--brand-2:"))
+    #expect(rendered.contains("--brand-3:"), "The loop stopped at an already-taken suffix:\n\(rendered)")
+  }
+
+  /// **Every group appears in both of `p3WithFallback`'s blocks, not just the
+  /// fallback.** The per-entry version of this rule is pinned in ``ExportShapeTests``;
+  /// this is the per-*group* version M20 adds, and it fails the same way an override
+  /// that only covered the base would — silently, with a `@media` block that looks
+  /// complete and is not.
+  @Test("p3WithFallback writes every group in both blocks")
+  func p3WithFallbackCoversEveryGroup() {
+    var options = ExportOptions.default
+    options.shape = .p3WithFallback
+
+    let blue = Self.blue.cssStringOrHex(as: ExportOptions.wideFormat)
+    let red = Self.red.cssStringOrHex(as: ExportOptions.wideFormat)
+
+    let groups = [
+      PaletteGroup(name: "primary", entries: [PaletteEntry(color: Self.blue)]),
+      PaletteGroup(name: "secondary", entries: [PaletteEntry(color: Self.red)]),
+    ]
+
+    #expect(options.render(groups) == """
+    :root {
+      /* From "primary" */
+      --primary: #3b82f6;
+
+      /* From "secondary" */
+      --secondary: #ef4444;
+    }
+
+    @media (color-gamut: p3) {
+      :root {
+        /* From "primary" */
+        --primary: \(blue);
+
+        /* From "secondary" */
+        --secondary: \(red);
+      }
+    }
+    """)
+  }
+
+  /// An empty group is filtered out entirely rather than emitting a header with nothing
+  /// under it — the same "no wrapper around nothing" rule ``emptyPaletteIsEmpty`` pins
+  /// for the single-group case, extended to a group that happens to have no entries.
+  @Test("An empty group among non-empty ones leaves no trace")
+  func emptyGroupIsDropped() {
+    var options = ExportOptions.default
+    options.shape = .customProperties
+    options.format = .hex
+
+    let groups = [
+      PaletteGroup(name: "primary", entries: [PaletteEntry(color: Self.blue)]),
+      PaletteGroup(name: "empty", entries: []),
+    ]
+
+    let rendered = options.render(groups)
+    #expect(!rendered.contains("empty"), "An empty group left a header behind:\n\(rendered)")
+    // With the empty group dropped, only one group remains — so no header at all,
+    // matching the single-group case exactly.
+    #expect(rendered == """
+    :root {
+      --primary: #3b82f6;
+    }
+    """)
+  }
+
+  /// Every group vanishing at once is the same "no wrapper around nothing" case as an
+  /// empty palette.
+  @Test("A document with no groups at all is empty, not an empty wrapper")
+  func noGroupsRendersNothing() {
+    for shape in ExportShape.allCases {
+      var options = ExportOptions.default
+      options.shape = shape
+      #expect(options.render([PaletteGroup]()).isEmpty, "\(shape) rendered a wrapper around nothing")
+    }
+  }
+
+  /// **`ExportOptions.name` reaches the filename and not the document, once there is
+  /// more than one group.** Every family in a grouped render comes from the group's own
+  /// name, never from `options.name` — so `ExportPanel`'s Name field, still shown
+  /// because `shape.usesName` does not know about groups, is live and genuinely does
+  /// something (`suggestedFilename`) without touching a single character of the
+  /// preview. Recorded as accepted behavior in PLAN.md rather than left implicit: this
+  /// is exactly the shape of thing `usesFormat`'s doc comment warns a control can look
+  /// like it worked without doing anything — the difference here is that it *does* do
+  /// something, just not to the part being previewed.
+  @Test("The Name field changes the suggested filename but not a grouped document")
+  func nameDoesNotReachAGroupedDocument() {
+    var options = ExportOptions.default
+    options.shape = .customProperties
+    options.format = .hex
+    options.name = "brand"
+
+    let groups = [PaletteGroup(name: "primary", entries: [PaletteEntry(color: Self.blue)])]
+    let withBrand = options.render(groups)
+
+    options.name = "something else entirely"
+    let withSomethingElse = options.render(groups)
+
+    #expect(withBrand == withSomethingElse, "Changing `name` moved a grouped document")
+    #expect(withBrand.contains("--primary:"), "The group's own name should be what appears")
+    #expect(!withBrand.contains("brand"), "options.name should not reach the document at all")
+
+    // …but the filename does follow it, which is the one place `name` still matters
+    // once a project is staged.
+    #expect(options.suggestedFilename == "something-else-entirely.css")
   }
 }
 

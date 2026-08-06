@@ -17,7 +17,9 @@ CLI over `ColorCore` in its own tool target — and **M8b is done too**, so an e
 saved to a file as well as copied. Swift 6, SwiftUI, no third-party runtime dependencies.
 **M19 is done too**: a `Settings` scene and `Preferences`, the app's first persistence
 outside SwiftData — see the invariant below on where loading and saving live.
-**M20–M26 are planned and not yet built**; see PLAN.md.
+**M20 is done too**: a grouped export renderer, so a whole project — every saved palette
+plus every loose color — writes as one document instead of one palette at a time.
+**M21–M26 are planned and not yet built**; see PLAN.md.
 
 **[PLAN.md](PLAN.md) is the source of truth** for milestone status, what is deferred
 and why, and the reasoning behind every decision recorded below. This file is the
@@ -39,9 +41,9 @@ change without a mistake masquerading as an app regression:
 xcodebuild -project "Color Toolkit.xcodeproj" -target colorkit -destination 'platform=macOS' build && ./build/Release/colorkit --help
 ```
 
-Full test suite (~9 minutes, nearly all of it UI tests — the 416 + 59 Swift Testing
-tests finish in about a second, the 31 XCUITests take seven minutes and up). **There are
-two Swift Testing bundles now**: `Color ToolkitTests` (416 tests, 47 suites) and
+Full test suite (~9 minutes, nearly all of it UI tests — the 443 + 59 Swift Testing
+tests finish in about a second, the 32 XCUITests take seven minutes and up). **There are
+two Swift Testing bundles now**: `Color ToolkitTests` (443 tests, 50 suites) and
 `ColorToolkitCLITests` (59 tests, 10 suites), and both are in the scheme:
 
 ```bash
@@ -624,6 +626,32 @@ Layered so the numeric core stays independently testable and UI-free:
   identifier — and then the rule above fires and a color vanishes from the export. The
   `-2` suffix loop in `DesignTokenImport.keyed` is the same one `ProjectLibrary`'s
   hand-picked overload uses, for the same reason.
+- **`ExportOptions.render(_ entries:)` is the one-group special case of
+  `render(_ groups: [PaletteGroup])`, not a second renderer.** M20's whole-project export
+  is one generalization: every shape branches on itself first, then walks groups through
+  `groupedPropertyLines`/`resolvedGroups`, so `p3WithFallback`'s two blocks and
+  `customProperties`'s one cannot come to name a group's properties differently. A
+  single-group document must stay byte-identical to before M20 — proved by leaving the
+  pre-M20 `ExportShapeTests` unchanged rather than re-asserting the claim as a new test,
+  since a wrapper that calls the general case is trivially equal to itself.
+- **A `PaletteGroup`'s name is uniqued the same way a palette key is — sanitized, `-2`/`-3`
+  suffixed — and that uniquing is group-versus-group only.** A palette named `brand` with
+  a `500` entry and a loose color literally named `brand 500` both resolve to
+  `--brand-500`; the entry's own key was never in scope for this rule, and widening it
+  would be a different feature than the one M20 asked for. Two `render` overloads
+  differing only in `[PaletteEntry]` vs. `[PaletteGroup]` also means a bare `render([])`
+  is ambiguous — Swift has no context to pick an element type for an empty literal — so an
+  empty-palette call site needs an explicit `[PaletteEntry]()`.
+- **`ColorStore.stagedProject` and `stagedPalette` are two staging slots, not one.** A
+  project export needs every group's own name, so `exportDocument` reaches
+  `stagedProject` directly through the grouped `render` when the source is `.project`;
+  `entries(for: .project)` only *flattens* it, for callers with no notion of a group at
+  all — the mapped-count badge, the swatch strip. Reaching `exportDocument` through the
+  flattened list instead would collapse every group under one family name and silently
+  produce the wrong document. Both `.saved` and `.project` are handled **above**
+  `entries(for:)`'s `guard let color else { return [] }` — neither reads the input field,
+  and a staged project must survive the field being cleared exactly as a staged palette
+  already does.
 - **The design token importer performs no arithmetic on a component and must not start.**
   The format's ranges are CSS Color 4's own *number* forms and this app stores number
   forms, so the mapping is the identity for all fourteen spaces. Reaching for

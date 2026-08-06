@@ -34,6 +34,22 @@ nonisolated struct PaletteEntry: Sendable, Hashable, Identifiable {
   }
 }
 
+/// A named set of entries — one palette, or one loose color, inside a document that
+/// writes more than one.
+///
+/// Rendering a single ``PaletteEntry`` array is the one-group special case of rendering
+/// these: a project export writes one property set per saved palette (plus one per
+/// loose color, as a group of one) rather than flattening everything under the single
+/// family name ``ExportOptions/name`` supplies. See M20 in PLAN.md.
+nonisolated struct PaletteGroup: Sendable, Hashable, Identifiable {
+  let name: String
+  let entries: [PaletteEntry]
+
+  var id: String {
+    name
+  }
+}
+
 /// A CSS declaration with a color-valued slot in it.
 ///
 /// These are *syntax*, which is why they live in ColorCore alongside the serializer

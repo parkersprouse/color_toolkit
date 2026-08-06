@@ -214,19 +214,39 @@ nonisolated struct ExportOptions: Sendable, Equatable {
     return isIdentifier ? key : "'\(key)'"
   }
 
-  /// The whole document.
+  /// The whole document, from one unnamed set of colors.
+  ///
+  /// The one-line special case of the general, multi-group renderer below: a single
+  /// list under the family ``name`` already supplies is exactly one ``PaletteGroup``.
   ///
   /// - Parameter formatting: how each color is spelled — precision, hex casing, gamut
   ///   policy. The app-wide setting, passed through rather than duplicated here.
   func render(_ entries: [PaletteEntry], formatting: CSSFormatOptions = .default) -> String {
-    guard !entries.isEmpty else { return "" }
+    render([PaletteGroup(name: name, entries: entries)], formatting: formatting)
+  }
+
+  /// The whole document, from more than one named set of colors.
+  ///
+  /// **The general renderer, not a second one.** A project export writes each saved
+  /// palette (and each loose color, as a group of one) under its own name, so the
+  /// document needs a family per group rather than the single ``name`` the one-group
+  /// overload above supplies. Every shape branches on *shape first, then walks groups*
+  /// — which is also what keeps a property named in exactly one place, so
+  /// ``p3WithFallback``'s two blocks cannot come to disagree about what a group is
+  /// called.
+  ///
+  /// - Parameter formatting: how each color is spelled — precision, hex casing, gamut
+  ///   policy. The app-wide setting, passed through rather than duplicated here.
+  func render(_ groups: [PaletteGroup], formatting: CSSFormatOptions = .default) -> String {
+    let resolved = resolvedGroups(groups.filter { !$0.entries.isEmpty })
+    guard !resolved.isEmpty else { return "" }
     switch shape {
-    case .declaration: return declarations(entries, formatting: formatting)
-    case .customProperties: return customProperties(entries, formatting: formatting)
-    case .json: return json(entries, formatting: formatting)
-    case .tailwindTheme: return tailwindTheme(entries, formatting: formatting)
-    case .tailwindConfig: return tailwindConfig(entries, formatting: formatting)
-    case .p3WithFallback: return p3WithFallback(entries, formatting: formatting)
+    case .declaration: return declarations(resolved, formatting: formatting)
+    case .customProperties: return customProperties(resolved, formatting: formatting)
+    case .json: return json(resolved, formatting: formatting)
+    case .tailwindTheme: return tailwindTheme(resolved, formatting: formatting)
+    case .tailwindConfig: return tailwindConfig(resolved, formatting: formatting)
+    case .p3WithFallback: return p3WithFallback(resolved, formatting: formatting)
     }
   }
 
@@ -264,11 +284,46 @@ nonisolated struct ExportOptions: Sendable, Equatable {
     Self.cssIdentifier(name, fallback: Self.defaultName)
   }
 
+  /// One group, resolved to the identifier it will actually be written under.
+  ///
+  /// Sanitized and uniqued against every other group in the same document — two
+  /// palettes named `brand`, or `brand` and `Brand!`, collapse into one set of
+  /// properties otherwise and a color vanishes with nothing in the document to say so.
+  /// Same `-2`/`-3` suffix loop as ``DesignTokenImport/keyed(_:)`` and
+  /// ``ProjectLibrary/paletteKeys(for:)``, run over the *sanitized* name for the reason
+  /// they are: uniqueness has to survive sanitization, not merely precede it.
+  ///
+  /// **Uniquing is group-versus-group only.** A palette named `brand` with a `500` entry
+  /// and a loose color named `brand 500` both resolve to `--brand-500` — the entry's own
+  /// key is never consulted here, exactly as it never was for the single-group renderer.
+  /// Widening this to catch that would be a different feature from the one M20 asked
+  /// for; recorded rather than fixed.
+  private struct ResolvedGroup {
+    let identifier: String
+    let entries: [PaletteEntry]
+  }
+
+  private func resolvedGroups(_ groups: [PaletteGroup]) -> [ResolvedGroup] {
+    var used: Set<String> = []
+    return groups.map { group in
+      var groupIdentifier = Self.cssIdentifier(group.name, fallback: Self.defaultName)
+      if used.contains(groupIdentifier) {
+        var suffix = 2
+        while used.contains("\(groupIdentifier)-\(suffix)") {
+          suffix += 1
+        }
+        groupIdentifier = "\(groupIdentifier)-\(suffix)"
+      }
+      used.insert(groupIdentifier)
+      return ResolvedGroup(identifier: groupIdentifier, entries: group.entries)
+    }
+  }
+
   /// `--brand-500`, or `--brand` for a palette of one.
-  private func propertyName(_ entry: PaletteEntry, prefix: String = "") -> String {
+  private func propertyName(_ entry: PaletteEntry, family: String, prefix: String = "") -> String {
     let key = Self.cssIdentifier(entry.key, fallback: "")
-    let family = prefix + identifier
-    return key.isEmpty ? "--\(family)" : "--\(family)-\(key)"
+    let fullFamily = prefix + family
+    return key.isEmpty ? "--\(fullFamily)" : "--\(fullFamily)-\(key)"
   }
 
   // MARK: - Shapes
@@ -279,41 +334,60 @@ nonisolated struct ExportOptions: Sendable, Equatable {
   /// its key in a trailing comment, because eleven `background-color` declarations are
   /// indistinguishable otherwise — and they are meant to be split across the eleven
   /// rules you paste them into, not to stand as a block.
+  ///
+  /// A second group gets a header comment and a blank line before it; a lone group gets
+  /// neither, which is what keeps a single-group document byte-identical to before M20.
   private func declarations(
-    _ entries: [PaletteEntry],
+    _ groups: [ResolvedGroup],
     formatting: CSSFormatOptions,
   ) -> String {
-    entries.map { entry in
-      let line = template.declaration(for: value(for: entry.color, formatting: formatting))
-      // Sanitized even though it is only a comment: a key containing `*/` would
-      // close it early and turn the rest of the line into stray CSS.
-      let key = Self.cssIdentifier(entry.key, fallback: "")
-      guard !key.isEmpty else { return line }
-      return "\(line) /* \(key) */"
+    groups.map { group in
+      let lines = group.entries.map { entry -> String in
+        let line = template.declaration(for: value(for: entry.color, formatting: formatting))
+        // Sanitized even though it is only a comment: a key containing `*/` would
+        // close it early and turn the rest of the line into stray CSS.
+        let key = Self.cssIdentifier(entry.key, fallback: "")
+        return key.isEmpty ? line : "\(line) /* \(key) */"
+      }
+      guard groups.count > 1 else { return lines.joined(separator: "\n") }
+      return (["/* From \"\(group.identifier)\" */"] + lines).joined(separator: "\n")
     }
-    .joined(separator: "\n")
+    .joined(separator: "\n\n")
   }
 
-  /// `  --brand-500: <value>;` for each entry, indented one level.
+  /// `  --brand-500: <value>;` for each entry, indented one level — every group in turn,
+  /// with a `/* From "…" */` header ahead of each once there is more than one to tell
+  /// apart.
   ///
-  /// Shared by ``customProperties`` and both halves of ``p3WithFallback`` so the two
-  /// blocks of that shape cannot come to name different properties — an override that
-  /// misses its base is a `@media` block with no effect, and it looks perfectly fine.
-  private func propertyLines(
-    _ entries: [PaletteEntry],
+  /// Shared by ``customProperties``, ``tailwindTheme`` and both halves of
+  /// ``p3WithFallback`` so none of them can come to name a group's properties
+  /// differently from the others — an override that misses its base is a `@media` block
+  /// with no effect, and it looks perfectly fine.
+  private func groupedPropertyLines(
+    _ groups: [ResolvedGroup],
     as format: CSSOutputFormat,
+    prefix: String = "",
     formatting: CSSFormatOptions,
   ) -> [String] {
-    entries.map { entry in
-      "  \(propertyName(entry)): \(value(for: entry.color, as: format, formatting: formatting));"
+    var lines: [String] = []
+    for (index, group) in groups.enumerated() {
+      if groups.count > 1 {
+        if index > 0 { lines.append("") }
+        lines.append("  /* From \"\(group.identifier)\" */")
+      }
+      lines.append(contentsOf: group.entries.map { entry in
+        "  \(propertyName(entry, family: group.identifier, prefix: prefix)): "
+          + "\(value(for: entry.color, as: format, formatting: formatting));"
+      })
     }
+    return lines
   }
 
   private func customProperties(
-    _ entries: [PaletteEntry],
+    _ groups: [ResolvedGroup],
     formatting: CSSFormatOptions,
   ) -> String {
-    let body = propertyLines(entries, as: format, formatting: formatting)
+    let body = groupedPropertyLines(groups, as: format, formatting: formatting)
     return ([":root {"] + body + ["}"]).joined(separator: "\n")
   }
 
@@ -325,18 +399,20 @@ nonisolated struct ExportOptions: Sendable, Equatable {
   /// make the media block's *contents* depend on the palette's contents, so editing one
   /// color to a wider one would silently change which properties exist in the document.
   /// A stylesheet whose property set moves under you is worse than a few redundant
-  /// lines, and the redundant ones are exactly equal to the values they override.
+  /// lines, and the redundant ones are exactly equal to the values they override. The
+  /// same rule now holds per group as well as per entry — every group appears in both
+  /// blocks, never just the fallback.
   ///
   /// The formatting argument is passed through untouched. Hex maps regardless of policy
   /// because it `cannotRepresentOutOfGamut`; the P3 block follows whatever the app-wide
   /// gamut policy is, exactly as choosing `color(display-p3 …)` in any other shape does.
   private func p3WithFallback(
-    _ entries: [PaletteEntry],
+    _ groups: [ResolvedGroup],
     formatting: CSSFormatOptions,
   ) -> String {
-    let fallback = propertyLines(entries, as: Self.fallbackFormat, formatting: formatting)
-    let wide = propertyLines(entries, as: Self.wideFormat, formatting: formatting)
-      .map { "  " + $0 }
+    let fallback = groupedPropertyLines(groups, as: Self.fallbackFormat, formatting: formatting)
+    let wide = groupedPropertyLines(groups, as: Self.wideFormat, formatting: formatting)
+      .map { $0.isEmpty ? $0 : "  " + $0 }
     return ([":root {"] + fallback + ["}", "", "@media (color-gamut: p3) {", "  :root {"]
       + wide + ["  }", "}"]).joined(separator: "\n")
   }
@@ -346,24 +422,22 @@ nonisolated struct ExportOptions: Sendable, Equatable {
   /// The namespace prefix is Tailwind's, not ours: a property called `--color-brand-500`
   /// is what generates `bg-brand-500`, and one called `--brand-500` generates nothing.
   private func tailwindTheme(
-    _ entries: [PaletteEntry],
+    _ groups: [ResolvedGroup],
     formatting: CSSFormatOptions,
   ) -> String {
-    let body = entries.map { entry in
-      "  \(propertyName(entry, prefix: "color-")): \(value(for: entry.color, formatting: formatting));"
-    }
+    let body = groupedPropertyLines(groups, as: format, prefix: "color-", formatting: formatting)
     return (["@theme {"] + body + ["}"]).joined(separator: "\n")
   }
 
   /// Tailwind v3, whose config is a JavaScript module.
   ///
   /// Emitted under `theme.extend` rather than `theme`, which is the difference between
-  /// adding a color and replacing the entire default palette with this one.
+  /// adding a color and replacing the entire default palette with this one. Every group
+  /// gets its own top-level key inside `colors`, in order.
   private func tailwindConfig(
-    _ entries: [PaletteEntry],
+    _ groups: [ResolvedGroup],
     formatting: CSSFormatOptions,
   ) -> String {
-    let family = Self.javaScriptKey(identifier)
     var lines = [
       "/** @type {import('tailwindcss').Config} */",
       "module.exports = {",
@@ -372,17 +446,21 @@ nonisolated struct ExportOptions: Sendable, Equatable {
       "      colors: {",
     ]
 
-    // A palette of one is a color, not a scale: Tailwind accepts a bare string there
-    // and writing `{ '': … }` instead would produce a key nothing can reference.
-    if let single = soleEntry(entries) {
-      lines.append("        \(family): '\(value(for: single.color, formatting: formatting))',")
-    } else {
-      lines.append("        \(family): {")
-      for entry in entries {
-        let key = Self.javaScriptKey(Self.cssIdentifier(entry.key, fallback: "_"))
-        lines.append("          \(key): '\(value(for: entry.color, formatting: formatting))',")
+    for group in groups {
+      let family = Self.javaScriptKey(group.identifier)
+      // A palette of one is a color, not a scale: Tailwind accepts a bare string
+      // there and writing `{ '': … }` instead would produce a key nothing can
+      // reference.
+      if let single = soleEntry(group.entries) {
+        lines.append("        \(family): '\(value(for: single.color, formatting: formatting))',")
+      } else {
+        lines.append("        \(family): {")
+        for entry in group.entries {
+          let key = Self.javaScriptKey(Self.cssIdentifier(entry.key, fallback: "_"))
+          lines.append("          \(key): '\(value(for: entry.color, formatting: formatting))',")
+        }
+        lines.append("        },")
       }
-      lines.append("        },")
     }
 
     lines.append(contentsOf: ["      },", "    },", "  },", "}"])
@@ -398,21 +476,27 @@ nonisolated struct ExportOptions: Sendable, Equatable {
   /// that survives being read by something that is not this app.
   ///
   /// The shape mirrors Tailwind's: a lone color is a string, a scale is an object of
-  /// them. Values need no escaping because CSS color syntax has no `"` or `\` in it —
-  /// hex digits, function names, numbers and separators are the whole alphabet.
-  private func json(_ entries: [PaletteEntry], formatting: CSSFormatOptions) -> String {
-    let family = identifier
-    if let single = soleEntry(entries) {
-      return "{\n  \"\(family)\": \"\(value(for: single.color, formatting: formatting))\"\n}"
-    }
-    let body = entries.map { entry in
-      // Sanitized rather than escaped: the keys this app generates need neither, and
-      // a sanitizer that runs everywhere beats an escaper that runs in one place.
-      let key = Self.cssIdentifier(entry.key, fallback: "_")
-      return "    \"\(key)\": \"\(value(for: entry.color, formatting: formatting))\""
+  /// them, and every group gets its own top-level key. Values need no escaping because
+  /// CSS color syntax has no `"` or `\` in it — hex digits, function names, numbers and
+  /// separators are the whole alphabet.
+  private func json(_ groups: [ResolvedGroup], formatting: CSSFormatOptions) -> String {
+    let body = groups.map { group -> String in
+      let family = group.identifier
+      if let single = soleEntry(group.entries) {
+        return "  \"\(family)\": \"\(value(for: single.color, formatting: formatting))\""
+      }
+      let entryLines = group.entries.map { entry in
+        // Sanitized rather than escaped: the keys this app generates need neither,
+        // and a sanitizer that runs everywhere beats an escaper that runs in one
+        // place.
+        let key = Self.cssIdentifier(entry.key, fallback: "_")
+        return "    \"\(key)\": \"\(value(for: entry.color, formatting: formatting))\""
+      }
+      .joined(separator: ",\n")
+      return "  \"\(family)\": {\n\(entryLines)\n  }"
     }
     .joined(separator: ",\n")
-    return "{\n  \"\(family)\": {\n\(body)\n  }\n}"
+    return "{\n\(body)\n}"
   }
 
   /// The one entry, when this palette is a single unkeyed color.

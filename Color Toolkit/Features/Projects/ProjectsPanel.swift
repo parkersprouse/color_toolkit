@@ -190,6 +190,13 @@ struct ProjectsPanel: View {
           Button("Delete", role: .destructive) { confirmingProjectDeletion = true }
             .accessibilityIdentifier("projectsDelete")
             .disabled(selectedProject == nil)
+
+          // The whole-project counterpart to each palette row's own Export button
+          // below — M20. Disabled rather than hidden when there is nothing in the
+          // project yet, matching every other save/export control here.
+          Button("Export Project") { exportProject() }
+            .accessibilityIdentifier("projectExport")
+            .disabled(selectedProject.map { $0.colors.isEmpty && $0.palettes.isEmpty } ?? true)
         }
       }
 
@@ -599,6 +606,36 @@ struct ProjectsPanel: View {
     }
   }
 
+  // MARK: - Exporting the whole project
+
+  /// Stages every palette and loose color in `project` as named groups and switches to
+  /// the export panel. See M20 in PLAN.md.
+  private func exportProject() {
+    guard let project = selectedProject else { return }
+    store.stage(project: Self.exportGroups(for: project), named: project.name)
+  }
+
+  /// Palettes first, then one single-entry group per loose color — a ramp is the thing
+  /// you came for and a loose color is a note beside it.
+  ///
+  /// Each loose color's entry carries an **empty key**, the same rule
+  /// ``PaletteEntry`` documents for a palette of one: it is what turns a project color
+  /// named `text color` into a one-entry group that renders `--text-color` rather than
+  /// a suffix nothing would reference. The group is named after the color's label —
+  /// its own name if it has one, its authored text otherwise — matching how the tile
+  /// below labels itself.
+  private static func exportGroups(for project: Project) -> [PaletteGroup] {
+    let palettes = project.orderedPalettes.map {
+      PaletteGroup(name: $0.name, entries: $0.paletteEntries)
+    }
+    let colors = project.orderedColors.compactMap { saved -> PaletteGroup? in
+      guard let color = saved.colorValue else { return nil }
+      let label = saved.name.isEmpty ? saved.text : saved.name
+      return PaletteGroup(name: label, entries: [PaletteEntry(color: color)])
+    }
+    return palettes + colors
+  }
+
   // MARK: - Importing
 
   /// Reads a W3C design token file and saves its colors as a palette.
@@ -728,15 +765,16 @@ struct ProjectsPanel: View {
 nonisolated extension ExportSource {
   /// What a palette saved from this source is recorded as.
   ///
-  /// ``ExportSource/color`` and ``ExportSource/saved`` have no honest answer — one is not
-  /// a set and the other already came from a palette whose kind is known — so they fall
-  /// to ``PaletteKind/custom`` rather than inventing provenance.
+  /// ``ExportSource/color``, ``ExportSource/saved`` and ``ExportSource/project`` have no
+  /// honest answer — one is not a set, and the other two already came from palettes
+  /// whose kinds are known — so they fall to ``PaletteKind/custom`` rather than
+  /// inventing provenance.
   var paletteKind: PaletteKind {
     switch self {
     case .harmony: .harmony
     case .ramp: .ramp
     case .recents: .recents
-    case .color, .saved: .custom
+    case .color, .saved, .project: .custom
     }
   }
 }

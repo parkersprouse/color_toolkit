@@ -23,11 +23,11 @@ struct ExportPanel: View {
   var body: some View {
     ScrollView {
       VStack(alignment: .leading, spacing: 18) {
-        // A staged palette is exportable with an empty field — it is a set that was
-        // saved earlier, not something derived from what is being edited. Guarding on
-        // the color alone would hide the Source picker itself, leaving no way to reach
-        // the palette that is sitting right there.
-        if store.color == nil, store.stagedPalette.isEmpty {
+        // A staged palette or project is exportable with an empty field — it is a set
+        // that was saved earlier, not something derived from what is being edited.
+        // Guarding on the color alone would hide the Source picker itself, leaving no
+        // way to reach the palette (or project) that is sitting right there.
+        if store.color == nil, store.stagedPalette.isEmpty, store.stagedProject.isEmpty {
           ContentUnavailableView(
             "No color yet",
             systemImage: "square.and.arrow.up",

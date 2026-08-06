@@ -286,6 +286,14 @@ final class ColorStore {
   /// second code path through the export layer.
   private(set) var stagedPalette: [PaletteEntry] = []
 
+  /// A whole project handed to the export panel, as named groups.
+  ///
+  /// Parallel to ``stagedPalette``, and separate from it rather than folded in: a
+  /// project export is more than one named set at once, which is what M20's grouped
+  /// renderer exists for. `ProjectsPanel`'s Export Project button builds these from
+  /// `project.orderedPalettes` and `project.orderedColors` — see ``stage(project:named:)``.
+  private(set) var stagedProject: [PaletteGroup] = []
+
   // MARK: - Screen sampling
 
   /// True for a moment after a sample lands, so the menu bar can acknowledge a
@@ -397,8 +405,17 @@ final class ColorStore {
   /// Generated in ColorCore and merely *displayed* here, which is what lets the panel be
   /// a preview and a copy button with no string-building of its own — and what lets the
   /// tests assert the output without ever touching the real pasteboard.
+  ///
+  /// A project routes through the grouped renderer rather than through ``exportEntries``:
+  /// that property flattens ``stagedProject`` into one list for callers that only need
+  /// colors (the badge, the swatch strip), and flattening loses the per-palette family
+  /// names the grouped document is the whole point of keeping.
   var exportDocument: String {
-    exportOptions.render(exportEntries, formatting: formatOptions)
+    if exportSource == .project {
+      exportOptions.render(stagedProject, formatting: formatOptions)
+    } else {
+      exportOptions.render(exportEntries, formatting: formatOptions)
+    }
   }
 
   /// How many entries the chosen format cannot express without moving them.
@@ -428,10 +445,17 @@ final class ColorStore {
   /// is something else entirely. One function, so a saved ramp and an exported ramp
   /// cannot be keyed differently.
   func entries(for source: ExportSource) -> [PaletteEntry] {
-    // Independent of the input field, because a staged palette is a set that was saved
-    // earlier — it does not stop existing because the field was cleared.
+    // Independent of the input field, because a staged palette (or a staged project) is
+    // a set that was saved earlier — it does not stop existing because the field was
+    // cleared. `.project` flattens ``stagedProject`` for callers that only want colors
+    // — the badge count, the swatch strip — never for the document itself, which needs
+    // the per-group names and reaches ``stagedProject`` directly through
+    // ``exportDocument``.
     if source == .saved {
       return stagedPalette
+    }
+    if source == .project {
+      return stagedProject.flatMap(\.entries)
     }
     guard let color else { return [] }
     switch source {
@@ -454,6 +478,8 @@ final class ColorStore {
       }
     case .saved:
       return stagedPalette
+    case .project:
+      return stagedProject.flatMap(\.entries)
     }
   }
 
@@ -466,6 +492,22 @@ final class ColorStore {
   func stage(_ palette: [PaletteEntry], named name: String) {
     stagedPalette = palette
     exportSource = .saved
+    exportOptions.name = name
+    tool = .export
+  }
+
+  /// Hands a whole project's palettes and loose colors to the export panel and switches
+  /// to it, as ``PaletteGroup``s rather than a single flat list.
+  ///
+  /// Parallel to ``stage(_:named:)`` above — same four changes at once — but for M20's
+  /// grouped renderer: a project export writes one property set per palette (plus one
+  /// per loose color) rather than flattening everything under one family name. The
+  /// `name` here becomes the project's own name, which is what ``ExportOptions/name``
+  /// still governs even in the grouped case — the suggested filename, not any property
+  /// inside the document, since every group there is named for itself.
+  func stage(project groups: [PaletteGroup], named name: String) {
+    stagedProject = groups
+    exportSource = .project
     exportOptions.name = name
     tool = .export
   }

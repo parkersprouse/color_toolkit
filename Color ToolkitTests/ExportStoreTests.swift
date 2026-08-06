@@ -227,8 +227,79 @@ struct StagedPaletteTests {
     case .harmony: #expect(source.paletteKind == .harmony)
     case .ramp: #expect(source.paletteKind == .ramp)
     case .recents: #expect(source.paletteKind == .recents)
-    case .color, .saved: #expect(source.paletteKind == .custom)
+    case .color, .saved, .project: #expect(source.paletteKind == .custom)
     }
+  }
+}
+
+/// The M20 sibling of ``StagedPaletteTests``: a whole project, staged as groups rather
+/// than a single flat list.
+///
+/// - Note: ``ExportSourceTests/noColorExportsNothing(source:)`` already runs over
+///   ``ExportSource/project`` by way of `ExportSource.allCases`, but it asserts nothing
+///   meaningful about it — nothing is ever staged there, so it only proves an *unused*
+///   `.project` source is empty. The coverage for what staging actually does is here.
+@MainActor
+@Suite("Staged projects")
+struct StagedProjectTests {
+  /// Staging a project is the same four changes ``stagingCarriesTheName`` pins for a
+  /// single palette, plus the one M20 adds: the document comes from the grouped
+  /// renderer, so a second group's family name shows up in it too.
+  @Test("Staging a project carries its name and every group's")
+  func stagingCarriesEveryGroupsName() {
+    let store = ColorStore(initialInput: "#3b82f6")
+    let groups = [
+      PaletteGroup(name: "primary", entries: [
+        PaletteEntry(key: "500", color: .srgb8(0x3B, 0x82, 0xF6)),
+      ]),
+      PaletteGroup(name: "secondary", entries: [
+        PaletteEntry(key: "500", color: .srgb8(0xEF, 0x44, 0x44)),
+      ]),
+    ]
+
+    store.stage(project: groups, named: "my-project")
+
+    #expect(store.exportSource == .project)
+    #expect(store.exportOptions.name == "my-project")
+    #expect(store.tool == .export)
+    #expect(store.exportDocument.contains("--primary-500:"))
+    #expect(store.exportDocument.contains("--secondary-500:"))
+  }
+
+  /// A staged project does not read the input field, matching
+  /// ``StagedPaletteTests/stagedPaletteSurvivesAnEmptyField()`` — a project export is a
+  /// set assembled earlier, and `ExportPanel`'s own guard checks exactly this property
+  /// to decide whether the Source picker itself is worth showing.
+  @Test("A staged project outlives the field it was not derived from")
+  func stagedProjectSurvivesAnEmptyField() {
+    let store = ColorStore(initialInput: "#3b82f6")
+    store.stage(
+      project: [PaletteGroup(name: "brand", entries: [PaletteEntry(color: .srgb8(0x3B, 0x82, 0xF6))])],
+      named: "brand",
+    )
+
+    store.inputText = ""
+
+    #expect(store.color == nil)
+    #expect(store.exportEntries.count == 1, "The flattened entries should survive too")
+    #expect(!store.exportDocument.isEmpty)
+  }
+
+  /// ``ColorStore/exportEntries`` flattens every group into one list for callers that
+  /// only want colors — the mapped-count badge, the swatch strip — which have no notion
+  /// of a group at all.
+  @Test("The flattened entries cover every group, in order")
+  func exportEntriesFlattenEveryGroup() {
+    let store = ColorStore(initialInput: "#3b82f6")
+    let groups = [
+      PaletteGroup(name: "primary", entries: [PaletteEntry(key: "500", color: .srgb8(0x3B, 0x82, 0xF6))]),
+      PaletteGroup(name: "secondary", entries: [PaletteEntry(key: "600", color: .srgb8(0xEF, 0x44, 0x44))]),
+    ]
+
+    store.stage(project: groups, named: "brand")
+
+    #expect(store.exportEntries.map(\.key) == ["500", "600"])
+    #expect(store.exportEntries.map(\.color) == [.srgb8(0x3B, 0x82, 0xF6), .srgb8(0xEF, 0x44, 0x44)])
   }
 }
 

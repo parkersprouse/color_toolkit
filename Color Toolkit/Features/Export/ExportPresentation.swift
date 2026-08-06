@@ -22,6 +22,11 @@ nonisolated enum ExportSource: String, CaseIterable, Identifiable, Sendable {
   case ramp
   case recents
   case saved
+  /// A whole project's palettes and loose colors, staged by `ProjectsPanel`'s Export
+  /// Project button as ``PaletteGroup``s rather than a single flat list — see M20 in
+  /// PLAN.md. Otherwise parallel to ``saved``: it does not read the input field either,
+  /// since a project export is a set assembled earlier.
+  case project
 
   // MARK: Internal
 
@@ -40,6 +45,7 @@ nonisolated enum ExportSource: String, CaseIterable, Identifiable, Sendable {
     case .ramp: "Ramp"
     case .recents: "Recents"
     case .saved: "Saved"
+    case .project: "Project"
     }
   }
 
@@ -57,6 +63,8 @@ nonisolated enum ExportSource: String, CaseIterable, Identifiable, Sendable {
       "Nothing to export yet — recents fill up as you copy and sample colors."
     case .saved:
       "No palette staged. Open Projects and choose Export on a saved palette."
+    case .project:
+      "No project staged. Open Projects and choose Export Project."
     }
   }
 }
