@@ -12,8 +12,9 @@ on SwiftData with reordering and hand-picked palettes, CSS Color 4 §13.2's
 missing-component carry-forward, a scoped `calc()`, CSS Color 5 relative color syntax
 (`rgb(from …)`), `color-mix()` with premultiplied alpha and the four hue arcs, and W3C
 design token import.
-M0–M17 are built. **M18 is planned and not started** — a CLI over `ColorCore`. Swift 6,
-SwiftUI, no third-party runtime dependencies.
+M0–M18 are built, so the numbered plan is complete — M18 is `colorkit`, a nine-command
+CLI over `ColorCore` in its own tool target. Swift 6, SwiftUI, no third-party runtime
+dependencies.
 
 **[PLAN.md](PLAN.md) is the source of truth** for milestone status, what is deferred
 and why, and the reasoning behind every decision recorded below. This file is the
@@ -22,14 +23,23 @@ has the argument; read it before making a design call.
 
 ## Commands
 
-Build:
+Build (the scheme builds the app **and** `colorkit`):
 
 ```bash
 xcodebuild -project "Color Toolkit.xcodeproj" -scheme "Color Toolkit" -destination 'platform=macOS' build
 ```
 
-Full test suite (~9 minutes, nearly all of it UI tests — the 405 Swift Testing tests
-finish in about a second, the 30 XCUITests take seven minutes and up):
+To build or run just the CLI — much faster, and the right way to check a project-file
+change without a mistake masquerading as an app regression:
+
+```bash
+xcodebuild -project "Color Toolkit.xcodeproj" -target colorkit -destination 'platform=macOS' build && ./build/Release/colorkit --help
+```
+
+Full test suite (~9 minutes, nearly all of it UI tests — the 405 + 59 Swift Testing
+tests finish in about a second, the 30 XCUITests take seven minutes and up). **There are
+two Swift Testing bundles now**: `Color ToolkitTests` (405 tests, 46 suites) and
+`ColorToolkitCLITests` (59 tests, 10 suites), and both are in the scheme:
 
 ```bash
 xcodebuild -project "Color Toolkit.xcodeproj" -scheme "Color Toolkit" -destination 'platform=macOS' test
@@ -74,6 +84,11 @@ xcrun xcresulttool get test-results test-details --test-id "ProjectStoreTests/im
 
 That prints `Expectation failed: (parsed.deltaEOK(…) → 4.59e-05) < (1e-9 → 1e-09)` —
 the actual numbers, which is usually the whole question.
+
+**Two Swift Testing bundles means `-only-testing:` needs the right target prefix.** The
+CLI's tests are `ColorToolkitCLITests/...` — no space, no quoting needed — and the app's
+are `"Color ToolkitTests/..."`. `-only-testing:ColorToolkitCLITests` alone runs the whole
+CLI suite in about a second and is the fast loop while working on it.
 
 **The two identifiers are spelled differently and neither accepts the other's form.**
 `-only-testing:` takes the **target prefix** (`Color ToolkitTests/ProjectStoreTests/foo()`);
@@ -208,6 +223,15 @@ Layered so the numeric core stays independently testable and UI-free:
   `Transform/` (relative adjustment, the S-curve,
   harmonies, shade ramps, the contrast solver — all in OKLCH), and `Export/`
   (declaration templates and six document shapes), and `Import/` (W3C design tokens).
+- **`ColorToolkitCLI/` and `ColorToolkitCLIMain/`** — the `colorkit` tool (M18), also at
+  the **repo root**. Two root groups for one executable: the first holds the logic and is
+  compiled by the tool *and* by `ColorToolkitCLITests`, the second holds `main.swift`
+  alone and is compiled by the tool only, because top-level code is legal only in an
+  executable module. That split exists so no synchronized-group membership exception has
+  to be maintained. The tool target also lists `ColorCore`, so `internal` still works, and
+  it does **not** set `SWIFT_DEFAULT_ACTOR_ISOLATION` — that is on the app target, so a
+  fresh target correctly defaults to `nonisolated` and ColorCore's explicit `nonisolated`
+  annotations are simply redundant there.
 - **`Features/Shell/ColorStore.swift`** — `@MainActor @Observable`, one instance
   injected into both scenes (menu bar + window). Holds a *pair* of `ColorField`s
   (foreground + background) and which `Tool` the window is showing.
@@ -241,6 +265,44 @@ Layered so the numeric core stays independently testable and UI-free:
   `Color Toolkit/`; a file dropped in either compiles. Editing the project file is for
   adding a *target*, or a build setting with nowhere else to live — never for adding
   files.
+- **One synchronized root group can be listed by any number of targets, and `ColorCore/`
+  is listed by three** — the app, `colorkit`, and `ColorToolkitCLITests`. That is what
+  M10's move bought. It also means ColorCore compiles into three separate modules, which
+  is why a *fourth* target wanting the CLI's types has to list `ColorToolkitCLI/` too
+  rather than importing anything: there is no CLI module to import.
+- **`ColorToolkitCLITests` cannot be folded into `Color ToolkitTests`, and the reason is
+  not tidiness.** The CLI's sources reach ColorCore through their own module, so
+  compiling them into a target that reaches ColorCore through
+  `@testable import Color_Toolkit` does not build — and adding `ColorCore/` to that
+  target as well would *shadow* the import rather than merely duplicate it, breaking
+  every existing test. Testing the built binary from `Color ToolkitTests` is worse: the
+  test host is the sandboxed app, so a sandbox denial would be indistinguishable from a
+  real failure.
+- **The CLI writes results to stdout and everything else to stderr, with three exit
+  codes** — 0, 1 for a command that ran and failed, 2 for a command line that was wrong.
+  A failing run puts *nothing* on stdout; a parse warning goes to stderr and leaves the
+  exit code 0. This is a contract with whatever shell script calls it, and it is what
+  makes `$(colorkit convert red --format hex)` safe. Four tests pin it and two mutations
+  cover it.
+- **`ExportShape`'s raw values are not CLI identifiers, so `Names.shapes` is a table.**
+  They exist for `Identifiable` and are not uniform — three carry an explicit hyphenated
+  string, three fall back to their case names, and one of those, `customProperties`, is
+  camelCase. `Harmony`, `ExportTemplate`,
+  `ColorVisionDeficiency` and `ColorSpace` stay *derived* from their raw values, which
+  genuinely are the CSS identifiers — the same call `ColorGrammar.interpolationSpace(named:)`
+  makes. A test requires every shape name to round-trip and to be lowercase.
+- **The CLI refuses an option the chosen shape would ignore rather than dropping it.**
+  `--format` with `--shape p3-with-fallback`, `--name` without a shape that `usesName`,
+  `--spread` on a harmony that is not analogous. The panel hides those controls; a CLI
+  has nothing to hide, and a flag that changed nothing looks like it worked.
+- **`solve` reads its own printed answer back, and that is not belt-and-braces.**
+  `ContrastSolver` keeps its bracket's passing end, so the answer sits a hair above the
+  target — exactly the margin four decimals can round away. Measured: the printed value
+  meets AA at precision 5, 7, 8 and 10 and misses it at 4 and 6, so it is rounding luck
+  and **no default precision fixes it**. Biasing the rounding was rejected for the same
+  reason it is for ramp stops. So the command checks the text with the same predicate a
+  caller would and says on stderr when it fell short. Do not "simplify" this away — the
+  test asserts a disjunction, not that the printed value always passes.
 - **The token import is the app's only file read, and two things make it work.**
   `ENABLE_USER_SELECTED_FILES = readonly` — a build setting, in *both* the Debug and
   Release blocks, with no `.entitlements` file anywhere — is what grants a URL the user
@@ -705,6 +767,18 @@ the accessibility-tree conventions before writing UI tests.
   tests: driving that panel from outside needs assistive access, which `osascript` does
   not have here, and `screencapture` is likewise blocked — so an agent cannot verify this
   one either, and should say so rather than infer it from a green suite.
+- **The CLI has no `mix` command on purpose, and a test holds the argument up.** The
+  parser already accepts `color-mix(…)` and `rgb(from …)` as *input* to `convert`, so a
+  subcommand would be a second door into one room. `theParserIsTheMixCommand` fails if
+  that stops being true, so the reasoning stops holding out loud rather than quietly.
+- **A CLI test that reads "everything after the first space" as the value is wrong for
+  five of the eight output shapes.** JSON and both Tailwind shapes quote and comma their
+  values, `declaration` follows each with a `/* key */`, and `solve` puts a ratio in a
+  third column — so that reader hands back a value with punctuation attached, which
+  reads exactly like a broken serializer. `printedColors` matches structurally instead:
+  a `#` run, or a **color function** name immediately followed by a balanced paren
+  group. The "color function" qualifier is load-bearing — `tailwind-config` opens with
+  `/** @type {import('tailwindcss').Config} */` and `import(…)` satisfies everything else.
 - A palette swatch is `app.otherElements[…]`; a saved color is `app.buttons[…]`. Both
   publish their label, but they are different element kinds and the wrong query never
   matches. A palette swatch's label is its **key**, not its CSS.

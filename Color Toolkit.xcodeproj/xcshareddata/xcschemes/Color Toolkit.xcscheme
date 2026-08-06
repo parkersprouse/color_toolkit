@@ -20,6 +20,20 @@
                ReferencedContainer = "container:Color Toolkit.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "YES"
+            buildForProfiling = "YES"
+            buildForArchiving = "YES"
+            buildForAnalyzing = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "2CB1800530125A0000F6925E"
+               BuildableName = "colorkit"
+               BlueprintName = "colorkit"
+               ReferencedContainer = "container:Color Toolkit.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
       </BuildActionEntries>
    </BuildAction>
    <TestAction
@@ -45,6 +59,16 @@
                BlueprintIdentifier = "2C6D6B5C3012599D00F6925E"
                BuildableName = "Color ToolkitUITests.xctest"
                BlueprintName = "Color ToolkitUITests"
+               ReferencedContainer = "container:Color Toolkit.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
+         <TestableReference
+            skipped = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "2CB1801430125A0000F6925E"
+               BuildableName = "ColorToolkitCLITests.xctest"
+               BlueprintName = "ColorToolkitCLITests"
                ReferencedContainer = "container:Color Toolkit.xcodeproj">
             </BuildableReference>
          </TestableReference>

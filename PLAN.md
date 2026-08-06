@@ -1,7 +1,8 @@
 # Color Toolkit — Implementation Plan
 
-> **Status (2026-08-05): M0–M16 and M5b (CVD) complete.** The suite is **374 Swift
-> Testing functions across 45 suites plus 29
+> **Status (2026-08-05): M0–M18 and M5b (CVD) complete — the numbered plan is done.**
+> The suite is **405 Swift Testing functions across 46 suites in `Color ToolkitTests`,
+> 59 more across 10 suites in `ColorToolkitCLITests`, plus 30
 > XCUITests**, read off a run rather than counted by hand. ColorCore is validated against
 > **colorjs.io 0.7.0** (pinned exact) — 6,384 conversions, 1,368 gamut mappings, 108
 > contrast pairs and **1,760 mix vectors** — plus independent definitional anchors, and
@@ -71,9 +72,9 @@
 > spine, is done**: `ComponentRole` and carry-forward exist, so every "depends on M12" is
 > discharged — M14 was the first milestone to consume it, which is what turned that claim
 > into a tested one, and M15 is the one it was written for. **M13 and M14 closed the
-> plan's last dependency chain**, and M15 waited on nothing. **M16 and M17 are done; M18
-> is all that remains of the numbered plan.** What remains beyond that is **M8b** (saving
-> an export to a file) and the shorter deferred list at the end.
+> plan's last dependency chain**, and M15 waited on nothing. **M16, M17 and M18 are all
+> done, so the numbered plan is finished.** What remains is **M8b** (saving an export to
+> a file) and the shorter deferred list at the end.
 >
 > **M17's own plan note was wrong about one thing, and reading the spec is what caught it.**
 > It said to reuse `ComponentGrammar.fullScale` as the token format's range table. The Color
@@ -442,6 +443,9 @@ Color Toolkit/                    ← repo root
 │   ├── Transform/                lightness/sat/hue, harmonies, ramps
 │   ├── Export/                   declaration templates + document shapes
 │   └── Import/                   W3C design token decoding (M17)
+├── ColorToolkitCLI/              ← the CLI's logic, in the tool *and* its test bundle
+├── ColorToolkitCLIMain/          ← `main.swift` alone, in the tool only (M18)
+├── ColorToolkitCLITests/         ← ColorCore + the CLI + tests, its own module
 ├── Color Toolkit/                ← the app target's own group
 │   ├── Services/                 eyedropper, global hotkey, clipboard
 │   ├── Persistence/              SwiftData @Models + Codable bridge
@@ -452,7 +456,8 @@ Color Toolkit/                    ← repo root
 └── Tools/                        Node + Python generators (not in any target)
 ```
 
-Both `ColorCore/` and `Color Toolkit/` are `PBXFileSystemSynchronizedRootGroup`s listed by the app target, so a `.swift` file dropped in either compiles with no project edit. The sources still build **into the app module**, which is why everything in `ColorCore` stays `internal` and the tests reach it with `@testable import`. M18's CLI target lists only the first group.
+Both `ColorCore/` and `Color Toolkit/` are `PBXFileSystemSynchronizedRootGroup`s listed by the app target, so a `.swift` file dropped in either compiles with no project edit. The sources still build **into the app module**, which is why everything in `ColorCore` stays `internal` and the tests reach it with `@testable import`. The CLI target lists `ColorCore` too — a synchronized root group can be
+listed by any number of targets, which is what M10 bought and what M18 spent.
 
 The boundary runs in one direction only: **ColorCore knows facts, the UI layer owns editorial copy.** `CSSOutputFormat.catalog` lives in core; the section names ("Web", "Perceptual") and the per-format labels live in `Features/`. A core test that reaches into the UI for a display string is the smell that the layering has slipped — and in M3 it also broke a commit's ability to build standalone.
 
@@ -1555,18 +1560,78 @@ lossy, so a name that leaves through export does not return through import uncha
 Composite token types that *contain* colors — `shadow`, `border`, `gradient` — are counted
 as other types rather than descended into; that is a second feature, not this one.
 
-### M18 — CLI front-end
+### ✅ M18 — CLI front-end
 
 Last, so it exposes a finished `ColorCore` rather than being revised by every milestone
-above. M10 did the hard part; this adds a `com.apple.product-type.tool` target listing only
-the `ColorCore` root group, so `internal` still works. It must **not** inherit
-`SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` — that is set per-target on the app, so a fresh
-target correctly defaults to `nonisolated`.
+above — and the plan's three predictions about the target all held. A
+`com.apple.product-type.tool` target lists the `ColorCore` root group alongside the CLI's
+own, so `internal` still works; `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` is set
+per-target on the app and a fresh target correctly defaults to `nonisolated`; and every
+ColorCore file imports `Foundation` and nothing else, so nothing had to move. `ParsedInput`
+is reimplemented as `ColorArgument.parse` — and the difference is more than isolation.
+`ParsedInput` keeps the last color that *did* parse so the panel does not blank out halfway
+through typing `oklch(`; a CLI gets one shot at one string, so that third state has no
+meaning here and is deliberately absent.
 
-Every ColorCore file imports `Foundation` and nothing else, which is what makes this cheap.
-`ParsedInput` is not part of it — that wrapper lives in `ColorStore.swift`, which is
-`@MainActor` and AppKit-bound, so the CLI reimplements that thin orchestration. A
-Raycast/Alfred wrapper is then a shell call rather than code.
+**`colorkit` is nine commands, and one of them is missing on purpose.** `convert`,
+`contrast`, `solve`, `adjust`, `harmony`, `ramp`, `cvd`, `export`, `tokens` — everything the
+app's panels do with color except the two things that are not color: the eyedropper is
+`NSColorSampler` and saved projects are SwiftData, so neither is in `ColorCore` and neither
+could come. **There is no `mix` command**, because `CSSColorParser` already accepts
+`color-mix(in oklch, red, blue)` and `rgb(from red r g b)` as *input* — a subcommand would
+be a second door into a room that already has one, and it would have to reimplement the
+grammar to build its arguments back into the string the parser wants. A test pins that,
+so the argument stops holding out loud rather than quietly.
+
+**Two root groups for one executable, and the second is what avoids an exclusion list.**
+`ColorToolkitCLI/` holds the logic and is compiled by the tool *and* by its test bundle;
+`ColorToolkitCLIMain/` holds `main.swift` alone and is compiled by the tool only, because
+top-level code is legal only in an executable module. The alternative was a
+`PBXFileSystemSynchronizedBuildFileExceptionSet` naming one file — a list to keep in step
+with the file system, which is precisely what M10 moved `ColorCore` to a root group to
+avoid. A folder costs nothing and cannot drift.
+
+**A third target compiles `ColorCore` a third time, and the two cheaper options are both
+wrong.** The CLI cannot be tested from `Color ToolkitTests`: its sources reach ColorCore
+through their own module, so compiling them into a target that reaches ColorCore through
+`@testable import Color_Toolkit` does not build — and listing `ColorCore` in that target as
+well would *shadow* the import rather than merely duplicate it. Black-boxing the built
+binary from the test host is worse: the host is the sandboxed app, so a sandbox denial
+would be indistinguishable from a real failure. `ColorToolkitCLITests` therefore lists
+`ColorCore`, the CLI and its own sources and imports nothing.
+
+**Three rules the CLI adds, each an answer to a question the GUI answers by drawing.**
+
+- **Results to stdout, everything else to stderr, and three exit codes** — 0, 1 for a
+  command that ran and failed, 2 for a command line that was wrong. That split is what
+  makes `$(colorkit convert red --format hex)` safe and what makes "a Raycast wrapper is a
+  shell call rather than code" true. A failing run puts *nothing* on stdout; a parse
+  warning goes to stderr and leaves the exit code alone.
+- **An option the chosen shape would ignore is an error, not a no-op.** The export panel
+  *hides* the Format picker when `ExportShape.usesFormat` is false, because
+  `p3WithFallback` fixes both its formats. A CLI has no control to hide, so the equivalent
+  honesty is refusing `--format` there — a flag that changed nothing would look like it
+  had worked. Same for `--name` and `--template` against `usesName`/`usesTemplate`, and for
+  `--spread` on a harmony that is not analogous.
+- **`ExportShape`'s raw values are not CLI identifiers.** They exist for `Identifiable`
+  and are not uniform: three carry an explicit hyphenated string, three fall back to their
+  case names, and one of those — `customProperties`, sitting beside `tailwind-theme` — is
+  camelCase. So shapes get a hand-written name table like
+  `ContrastRequirement` does, while `Harmony`, `ExportTemplate`, `ColorVisionDeficiency` and
+  `ColorSpace` stay derived — their raw values *are* the CSS identifiers, which is the same
+  test `ColorGrammar.interpolationSpace(named:)` passes. A test requires every shape name
+  to round-trip and to contain no uppercase, so the distinction fails loudly.
+
+**The one thing the CLI found that the app had not had to face: a solved color and its
+printed spelling can disagree.** `ContrastSolver` keeps its bracket's passing end, so the
+answer sits a hair *above* the target — which is exactly the margin four decimals can round
+away. Measured on one input, the printed value meets AA at precision 5, 7, 8 and 10 and
+misses it at 4 and 6, so this is rounding luck and **no default precision fixes it**.
+Biasing the rounding was rejected for the reason CLAUDE.md already gives about ramp stops:
+it would make this command's output disagree with every other one. So `solve` reads its own
+printed value back and says on stderr when the text no longer clears the bar, naming
+`--precision` as the fix. The claim the CLI can actually keep is a disjunction — the printed
+value meets the target, *or* stderr says it does not — and that is what the test asserts.
 
 ---
 
@@ -1591,6 +1656,7 @@ Per milestone:
 - **M16:** the same oracle M8 has — this app's own parser — applied to *both* blocks at once, since `propertyValues(in:)` already trims before matching `--…;` and so returns the media block's lines unchanged. The discriminating input is a color **outside sRGB and inside P3**: asserting only that every value parses would pass a document that wrote the same rounded hex twice, so the test requires the fallback to come back inside sRGB *and* the override to come back as the color that went in. The syntax — the braces, the query, the blank line between blocks — is pinned with an exact string, while the P3 *values* in it are computed from the serializer rather than transcribed, because those conversions are oracle-validated in the fixture suite and re-typing them would only test whether they were copied correctly. **Four mutations, all four killed, and each failure set is tight**: a per-entry conditional media block fails four tests, a fallback honoring `options.format` fails three, desynchronized property names fail three, and the badge measured against the P3 block instead of the fallback fails exactly one — the store test written for that decision. One existing test had to change and the reason is worth keeping: `formattingReachesEveryShape` is parameterized over `allCases` and asserts a precision-sensitive string, so it now asks each shape for the format it *actually writes* — and for this shape that has to be the **wide** one, because **hex is precision-invariant**. Pointing it at the fallback would have left the test unable to fail, and its own `lossless != coarse` blindness guard could not have caught that, since the guard is computed from whatever format the test picks. That in turn left the *fallback's* `formatting` pass-through unpinned — hardcoding `.default` there would have survived the whole file — so a second test asserts it through hex casing, the cheapest setting hex does observe. **The last test added is the one that found a shipped defect**, and it found it by failing first: `p3OverrideIsNotAnExactnessPromise` was written against `.lossless` and reported the override *un*mapped, because that constant is `.preserve`. The override is not hex — it is not `cannotRepresentOutOfGamut` — so it has no fixed answer at all and follows the **app-wide gamut policy**, which is `.map` in the panel. Both policies are now asserted, because it is the dependence rather than either instance that makes an exactness claim unsafe.
 - **M17:** [DesignTokenImportTests](Color%20ToolkitTests/DesignTokenImportTests.swift) for the decoder and [ProjectStoreTests](Color%20ToolkitTests/ProjectStoreTests.swift) for the path through a container. **A fifth distinct no-oracle reason, and the simplest one yet**: colorjs.io parses CSS, and a design token's `$value` is a JSON object rather than a CSS string, so there is nothing to ask it. The Color module's own documented shapes are the fixtures, written inline rather than in fixture files — the generated vector sets earn their own files by being thousands of numbers, where these are five lines of JSON apiece and only read as the spec examples they are when they sit beside the assertion. **Ten mutations, all ten killed, and every failure set is tight**: uniquing on the raw path instead of the sanitized key fails one test, ignoring a resolved reference's type one, letting `hex` rescue broken components one, sorting names as text two (both the ordering claims), dropping the `none` mask one, dropping the alpha clamp one, spelling imports `oklch()` one, keying on a token's leaf name instead of its whole path three (every claim about keys), and ignoring a token's own `$type` one — that last mutation being the one that *found* a gap, since nothing had pinned the first arm of the precedence chain until it was written. The cycle-detection mutation is the odd one out and worth its own sentence: removing the visited set fails the suite **without reporting a single test**, because the unbounded recursion takes the test process down with it. That is the shape of the bug the visited set prevents, and it is why the rule is not an optimization. Two claims are asserted by discrimination rather than by equality alone — an sRGB `[1, 0, 0]` is checked against the `1/255` it would be under `rgb()`'s scale, and the `hex` fallback is checked with a *known* space and broken components, where a fallback that fired would look perfectly plausible. One test deliberately does *not* isolate a rule: `awholeFileImports` takes an alias, two color spaces, a description and a dimension token in one document, because the per-rule tests are diagnostic precisely by testing one thing at a time and a real token file is never one thing. It asserts the three counts together, since those are what the panel reports and "imported 4, ignored 1" is only true if all three are — and it is in the failure set of the reference-type mutation, so it discriminates rather than decorates.
 - **M17, the part no test reaches — and it passed.** This is the app's only file read, so it is the only place a **sandbox** denial can happen, and every test above loads its JSON from a string in the test bundle: that exercises the decoder and nothing about the sandbox. Same shape as M4's loupe and global chord — links a test cannot touch, wanting a named manual check instead. The check is *choose a token file in `~/Downloads` through the Import button and confirm a palette appears*, and it was run on the built app: four swatches under an `Imported` badge, with the summary reading `Imported 4 colors from color-toolkit-m17-check.tokens.json. Ignored 1 token of other types.` So the powerbox URL reads under `ENABLE_USER_SELECTED_FILES = readonly` with the security-scoped claim, which was the open question. **The screenshot happens to discriminate three separate rules, which is why it is worth more than a pass**: the second and fourth swatches are the *same blue*, so `semantic.primary` — a token with no `$type` of its own — resolved through its alias to `brand.500` and took both its value and its type, the rule a filter-then-resolve design drops silently; the order is `50, 500, 900, primary`, so numeric sorting held on real data where alphabetical would have filed `500` ahead of `50`; and the navy is the `display-p3` token, so the wide-gamut path rendered as well as the sRGB ones. XCUITest cannot drive `NSOpenPanel`, exactly as it cannot start a dragging session, so [ProjectsSmokeTests](Color%20ToolkitUITests/ProjectsSmokeTests.swift) stops at asserting the control reached the panel and is hittable — a test that clicked it would fail whether the feature worked or not. The panel's error copy is built for this: the open-panel dismissal, the read, the decode, "readable file with nothing importable in it", and the save are five outcomes with five different sentences, because a denial reported as "no color tokens in that file" would be undiagnosable.
+- **M18:** [ColorToolkitCLITests](ColorToolkitCLITests/CommandTests.swift), and **the oracle is this app's own parser** — the same standard `Export/` is held to and for the same reason: the CLI's output is text a machine will read back. So the discriminating assertion is that a printed value survives `CSSColorParser`, applied to all six document shapes at both cardinalities and to every listing; exact strings are kept for *syntax* (exit codes, which stream a message lands on, `:root {`) and are wrong for anything editorial. Three claims are asserted as totality over an `allCases` rather than by example, because each is a table that a change in ColorCore can silently outgrow: every catalog format has a CLI name and the name inverts, every export shape has one that is lowercase and round-trips, and every command in the `--help` listing dispatches to something. **Twelve mutations, all twelve killed, and every failure set is tight** — collapsing the usage and failure exit codes fails one test, routing diagnostics to stdout five, accepting an unknown option as a positional one, accepting an inert `--format` one, uniquing export keys on the raw path instead of the sanitized key one, ignoring `mappedCountFormat` one, dropping `solve`'s read-back check two, canonicalizing the token listing's spelling one, short-circuiting `--help` before argument scanning one, deriving shape names from raw values three, dropping the listing's mapped note three, and dropping the `convert` table's mapped marker one. **The value extractor took two attempts and the first one is the lesson**: reading "everything after the first space" agreed with three output shapes and silently handed the other five a value with punctuation attached, which reads exactly like a broken serializer — so it now matches structurally, on a `#` run or a *color* function name followed by a balanced paren group. That last qualifier is not decoration: `tailwind-config` opens with `/** @type {import('tailwindcss').Config} */`, and `import(…)` satisfies every part of the shape rule but the name. **Three findings came out of the suite failing first.** The ramp's in-gamut assertion has to read the value at full precision, because a stop on the boundary rounds outward at four decimals and the test would otherwise be measuring the serializer; the mapped-note test had to move from `ramp` to `harmony`, because every ramp stop is already in gamut and asking a ramp for a mapped value tests nothing; and `solve`'s guarantee turned out not to survive serialization at all, which is the milestone note above.
 - **M3/M4 (UI):** run the app and verify interactively. Spot-check conversions against a browser's DevTools color picker, which implements the same spec — a fast, honest end-to-end sanity check.
 
 The scheme is shared and works from the command line:

@@ -27,6 +27,8 @@
 		2C6D6B443012599C00F6925E /* Color Toolkit.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Color Toolkit.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		2C6D6B533012599D00F6925E /* Color ToolkitTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Color ToolkitTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		2C6D6B5D3012599D00F6925E /* Color ToolkitUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Color ToolkitUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		2CB1800030125A0000F6925E /* colorkit */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = colorkit; sourceTree = BUILT_PRODUCTS_DIR; };
+		2CB1801030125A0000F6925E /* ColorToolkitCLITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ColorToolkitCLITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -48,6 +50,21 @@
 		2CA1C0DE3012599C00F6925E /* ColorCore */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = ColorCore;
+			sourceTree = "<group>";
+		};
+		2CB1800130125A0000F6925E /* ColorToolkitCLI */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = ColorToolkitCLI;
+			sourceTree = "<group>";
+		};
+		2CB1800230125A0000F6925E /* ColorToolkitCLIMain */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = ColorToolkitCLIMain;
+			sourceTree = "<group>";
+		};
+		2CB1801130125A0000F6925E /* ColorToolkitCLITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = ColorToolkitCLITests;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -74,6 +91,20 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		2CB1800430125A0000F6925E /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		2CB1801330125A0000F6925E /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -82,6 +113,9 @@
 			children = (
 				2CA1C0DE3012599C00F6925E /* ColorCore */,
 				2C6D6B463012599C00F6925E /* Color Toolkit */,
+				2CB1800130125A0000F6925E /* ColorToolkitCLI */,
+				2CB1800230125A0000F6925E /* ColorToolkitCLIMain */,
+				2CB1801130125A0000F6925E /* ColorToolkitCLITests */,
 				2C6D6B563012599D00F6925E /* Color ToolkitTests */,
 				2C6D6B603012599D00F6925E /* Color ToolkitUITests */,
 				2C6D6B453012599C00F6925E /* Products */,
@@ -94,6 +128,8 @@
 				2C6D6B443012599C00F6925E /* Color Toolkit.app */,
 				2C6D6B533012599D00F6925E /* Color ToolkitTests.xctest */,
 				2C6D6B5D3012599D00F6925E /* Color ToolkitUITests.xctest */,
+				2CB1800030125A0000F6925E /* colorkit */,
+				2CB1801030125A0000F6925E /* ColorToolkitCLITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -170,6 +206,52 @@
 			productReference = 2C6D6B5D3012599D00F6925E /* Color ToolkitUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
+		2CB1800530125A0000F6925E /* colorkit */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 2CB1800830125A0000F6925E /* Build configuration list for PBXNativeTarget "colorkit" */;
+			buildPhases = (
+				2CB1800330125A0000F6925E /* Sources */,
+				2CB1800430125A0000F6925E /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				2CA1C0DE3012599C00F6925E /* ColorCore */,
+				2CB1800130125A0000F6925E /* ColorToolkitCLI */,
+				2CB1800230125A0000F6925E /* ColorToolkitCLIMain */,
+			);
+			name = colorkit;
+			packageProductDependencies = (
+			);
+			productName = colorkit;
+			productReference = 2CB1800030125A0000F6925E /* colorkit */;
+			productType = "com.apple.product-type.tool";
+		};
+		2CB1801430125A0000F6925E /* ColorToolkitCLITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 2CB1801730125A0000F6925E /* Build configuration list for PBXNativeTarget "ColorToolkitCLITests" */;
+			buildPhases = (
+				2CB1801230125A0000F6925E /* Sources */,
+				2CB1801330125A0000F6925E /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				2CA1C0DE3012599C00F6925E /* ColorCore */,
+				2CB1800130125A0000F6925E /* ColorToolkitCLI */,
+				2CB1801130125A0000F6925E /* ColorToolkitCLITests */,
+			);
+			name = ColorToolkitCLITests;
+			packageProductDependencies = (
+			);
+			productName = ColorToolkitCLITests;
+			productReference = 2CB1801030125A0000F6925E /* ColorToolkitCLITests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -191,6 +273,12 @@
 						CreatedOnToolsVersion = 26.6;
 						TestTargetID = 2C6D6B433012599C00F6925E;
 					};
+					2CB1800530125A0000F6925E = {
+						CreatedOnToolsVersion = 26.6;
+					};
+					2CB1801430125A0000F6925E = {
+						CreatedOnToolsVersion = 26.6;
+					};
 				};
 			};
 			buildConfigurationList = 2C6D6B3F3012599C00F6925E /* Build configuration list for PBXProject "Color Toolkit" */;
@@ -210,6 +298,8 @@
 				2C6D6B433012599C00F6925E /* Color Toolkit */,
 				2C6D6B523012599D00F6925E /* Color ToolkitTests */,
 				2C6D6B5C3012599D00F6925E /* Color ToolkitUITests */,
+				2CB1800530125A0000F6925E /* colorkit */,
+				2CB1801430125A0000F6925E /* ColorToolkitCLITests */,
 			);
 		};
 /* End PBXProject section */
@@ -254,6 +344,20 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		2C6D6B593012599D00F6925E /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		2CB1800330125A0000F6925E /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		2CB1801230125A0000F6925E /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -556,6 +660,74 @@
 			};
 			name = Release;
 		};
+		2CB1800630125A0000F6925E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = 6H4PL5UQ2R;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		2CB1800730125A0000F6925E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = 6H4PL5UQ2R;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		2CB1801530125A0000F6925E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = 6H4PL5UQ2R;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "me.parkersprouse.ColorToolkitCLITests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		2CB1801630125A0000F6925E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = 6H4PL5UQ2R;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "me.parkersprouse.ColorToolkitCLITests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -591,6 +763,24 @@
 			buildConfigurations = (
 				2C6D6B6E3012599D00F6925E /* Debug */,
 				2C6D6B6F3012599D00F6925E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		2CB1800830125A0000F6925E /* Build configuration list for PBXNativeTarget "colorkit" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				2CB1800630125A0000F6925E /* Debug */,
+				2CB1800730125A0000F6925E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		2CB1801730125A0000F6925E /* Build configuration list for PBXNativeTarget "ColorToolkitCLITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				2CB1801530125A0000F6925E /* Debug */,
+				2CB1801630125A0000F6925E /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
