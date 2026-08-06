@@ -261,6 +261,43 @@ final class ColorStore {
   /// number at 12, only supplies the default.
   var recentLimit = 12
 
+  /// Which project the Projects panel is showing.
+  ///
+  /// A `UUID` rather than SwiftData's own `PersistentIdentifier`, and that is the point:
+  /// this type holds app state and knows nothing about persistence, exactly as ColorCore
+  /// knows nothing about either. ``ProjectLibrary/project(uuid:)`` does the lookup. It is
+  /// also the reason ``ExportStoreTests`` still needs no `ModelContainer`.
+  ///
+  /// On the store rather than in the panel for the reason ``pickerMode`` gives — leaving
+  /// a tool tears its panel down, and which project you are working in is a preference
+  /// that should survive the trip.
+  var selectedProjectID: UUID?
+
+  private(set) var recents: [RecentColor] = []
+
+  // MARK: - Staged palette
+
+  /// A saved palette handed to the export panel, as plain values.
+  ///
+  /// The whole reason the Projects tool can feed Export without SwiftData reaching this
+  /// far: ``Palette/paletteEntries`` converts at the boundary and what arrives here is
+  /// the same `[PaletteEntry]` a harmony or a ramp produces. Downstream, nothing can tell
+  /// the difference — which is what makes ``ExportSource/saved`` one line rather than a
+  /// second code path through the export layer.
+  private(set) var stagedPalette: [PaletteEntry] = []
+
+  // MARK: - Screen sampling
+
+  /// True for a moment after a sample lands, so the menu bar can acknowledge a
+  /// capture the user made while looking at some other app entirely.
+  private(set) var justCaptured = false
+
+  // MARK: - Global shortcut
+
+  /// Whether the system accepted the sampling hot key. Shown in the menu bar panel,
+  /// because a shortcut advertised but not registered is worse than none offered.
+  private(set) var globalShortcutIsActive = false
+
   /// The subset of the properties above (and ``formatOptions``, ``pickerMode``,
   /// ``cvdDeficiency``) that persists across a launch. See ``Preferences`` for which
   /// fields are missing and why.
@@ -303,43 +340,6 @@ final class ColorStore {
       exportOptions.format = newValue.exportFormat
     }
   }
-
-  /// Which project the Projects panel is showing.
-  ///
-  /// A `UUID` rather than SwiftData's own `PersistentIdentifier`, and that is the point:
-  /// this type holds app state and knows nothing about persistence, exactly as ColorCore
-  /// knows nothing about either. ``ProjectLibrary/project(uuid:)`` does the lookup. It is
-  /// also the reason ``ExportStoreTests`` still needs no `ModelContainer`.
-  ///
-  /// On the store rather than in the panel for the reason ``pickerMode`` gives — leaving
-  /// a tool tears its panel down, and which project you are working in is a preference
-  /// that should survive the trip.
-  var selectedProjectID: UUID?
-
-  private(set) var recents: [RecentColor] = []
-
-  // MARK: - Staged palette
-
-  /// A saved palette handed to the export panel, as plain values.
-  ///
-  /// The whole reason the Projects tool can feed Export without SwiftData reaching this
-  /// far: ``Palette/paletteEntries`` converts at the boundary and what arrives here is
-  /// the same `[PaletteEntry]` a harmony or a ramp produces. Downstream, nothing can tell
-  /// the difference — which is what makes ``ExportSource/saved`` one line rather than a
-  /// second code path through the export layer.
-  private(set) var stagedPalette: [PaletteEntry] = []
-
-  // MARK: - Screen sampling
-
-  /// True for a moment after a sample lands, so the menu bar can acknowledge a
-  /// capture the user made while looking at some other app entirely.
-  private(set) var justCaptured = false
-
-  // MARK: - Global shortcut
-
-  /// Whether the system accepted the sampling hot key. Shown in the menu bar panel,
-  /// because a shortcut advertised but not registered is worse than none offered.
-  private(set) var globalShortcutIsActive = false
 
   // MARK: - Editing
 

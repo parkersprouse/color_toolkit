@@ -15,31 +15,7 @@ import Testing
 ///   XCUITest. Each suite is removed in a `defer` so runs do not accumulate state.
 @Suite("Preferences")
 struct PreferencesTests {
-  /// Every field changed from its default, so a mistakenly-omitted `CodingKeys` entry
-  /// — or one that maps the wrong property — has something to disagree about. `.color`
-  /// is deliberately not the chosen ``CSSOutputFormat``: that is the default, and
-  /// `.color(.displayP3)` is what exercises `CSSOutputFormat`'s associated-value
-  /// encoding path rather than one of its plain cases.
-  private static let nonDefault = Preferences(
-    formatOptions: CSSFormatOptions(
-      precision: 6,
-      legacy: true,
-      rgbAsPercentage: true,
-      collapseHex: true,
-      uppercaseHex: true,
-      alpha: .always,
-      gamut: .preserve,
-      noneForPowerlessComponents: true,
-    ),
-    webFriendly: true,
-    showsRecents: false,
-    recentLimit: 25,
-    pickerMode: .oklch,
-    cvdDeficiency: .protanomaly,
-    exportShape: .tailwindConfig,
-    exportTemplate: .border,
-    exportFormat: .color(.displayP3),
-  )
+  // MARK: Internal
 
   @Test("Every field survives an encode/decode round trip")
   func roundTrips() throws {
@@ -173,4 +149,32 @@ struct PreferencesTests {
       #expect(fired, "reading `preferences` did not observe a change to \(name)")
     }
   }
+
+  // MARK: Private
+
+  /// Every field changed from its default, so a mistakenly-omitted `CodingKeys` entry
+  /// — or one that maps the wrong property — has something to disagree about. `.color`
+  /// is deliberately not the chosen ``CSSOutputFormat``: that is the default, and
+  /// `.color(.displayP3)` is what exercises `CSSOutputFormat`'s associated-value
+  /// encoding path rather than one of its plain cases.
+  private static let nonDefault = Preferences(
+    formatOptions: CSSFormatOptions(
+      precision: 6,
+      legacy: true,
+      rgbAsPercentage: true,
+      collapseHex: true,
+      uppercaseHex: true,
+      alpha: .always,
+      gamut: .preserve,
+      noneForPowerlessComponents: true,
+    ),
+    webFriendly: true,
+    showsRecents: false,
+    recentLimit: 25,
+    pickerMode: .oklch,
+    cvdDeficiency: .protanomaly,
+    exportShape: .tailwindConfig,
+    exportTemplate: .border,
+    exportFormat: .color(.displayP3),
+  )
 }
