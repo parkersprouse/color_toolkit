@@ -981,10 +981,12 @@ values inside those files re-parse without a single rejection, which is a good d
 than "a file lands": the bytes are right too. The `readwrite` entitlement therefore works
 in the shipping app and not only in `codesign` output.
 
-**What those saves do *not* confirm is the proposed filename**, because Parker named the
-files himself — `greyscale.d50.css` is not what `suggestedFilename` would offer, which is
-`greyscale.css`. That half needs no panel and is unit tested in `ExportFileNamingTests`.
-Worth stating rather than letting 34 files imply more than they show.
+**The proposed filename is confirmed too.** The `.d50`/`.a98` infixes in the file names are
+Parker's, added after the fact to tell the sixteen exports apart — the panel itself opened
+proposing `greyscale.css`, which is exactly `cssIdentifier(name) + "." + shape.fileExtension`
+for a palette saved as `greyscale`. So `suggestedFilename`, `ExportShape.fileExtension` and
+`ExportDocument.contentType` are all confirmed on the running app as well as in
+`ExportFileNamingTests`, and **nothing in M8b is left standing on a unit test alone.**
 
 ### ✅ M9 — Projects (SwiftData)
 
