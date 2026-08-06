@@ -931,6 +931,35 @@ wandering between 320 and 350 across eleven colors that have no hue at all.
   sharpest surviving case — adjacent 8-bit channels at the darkest end, delta 780× the
   threshold, hue 210° and saturation 50% intact.
 
+**A 32-file sweep afterwards found nothing else.** Parker exported a greyscale ramp and a
+purple ramp as custom properties in all sixteen formats — 352 values — and they were
+checked three ways: mutual consistency (every format against the `oklch()` spelling of the
+same stop), against colorjs.io (feed it the app's `srgb` spelling, ask for every other
+space), and re-parsed through the app's own parser. All 352 re-parse. Worst perceptual
+disagreement is **6.1e-4 deltaEOK, about 1/33 of a JND**, and the ranking is itself the
+proof that what remains is display rounding rather than error: `xyz-d65`, `xyz-d50` and
+`srgb-linear` are worst *because four decimals on a value like `0.0055` is two significant
+figures*, and `hex` is the only outlier above that at 2.2e-3, which is 8-bit quantization
+at the darkest greys. Three things that look wrong in that set and are not:
+
+- **CIE LCH hue is not constant across a constant-OKLCH-hue ramp, and dips at the dark
+  end** — `primary` runs 307.68 → 314.73 and then drops to 311.66 at `-950`. colorjs.io
+  produces the identical 311.66. It is genuine Lab-versus-OKLab hue-line divergence,
+  largest where lightness is lowest and the stop has been clamped.
+- **`color(a98-rgb …)` shows a green of `0.0025` where sRGB shows `0`.** a98's transfer
+  function is near-vertical at zero, so a linear green of ~2.5e-5 encodes to 0.0025. Ask
+  colorjs.io with the *rounded* sRGB string and it answers 0.0000; ask with the truer
+  `rgb()` string and it answers 0.0031. Ours sits between them.
+- **`rgb(244.95 244.95 244.95)` is not an integer**, and CSS Color 4 permits `<number>`
+  channels. Worth knowing it surprises people; it is not wrong.
+
+The sweep also confirmed something that is *not* a bug and *is* a gap: **the wide-gamut
+exports do not reach past sRGB.** `ShadeRamp.gamut` defaults to `.srgb` and has no UI
+control — it exists in the core and is reachable from the CLI's `--gamut`, and nothing in
+the app binds it — so exporting a ramp as `color(display-p3 …)` re-spells sRGB colors
+rather than widening them, and four `primary` stops sit exactly on the sRGB boundary where
+the clamp fired. See the deferred list.
+
 The general lesson is one this file keeps relearning in new clothes: **two functions
 solving the same problem, where only one got the guard.** It is the same shape as the two
 sRGB linearizations and the three `savePalette` overloads — and the reason the fix was to
@@ -1845,6 +1874,12 @@ package; and `calc()` is scoped to flat arithmetic over numbers, percentages and
 
 What remains genuinely deferred:
 
+- **A UI control for `ShadeRamp.gamut`.** It defaults to `.srgb`, the CLI exposes it as
+  `--gamut`, and nothing in the app binds it — so a ramp exported as
+  `color(display-p3 …)` is sRGB colors re-spelled, never widened. Found by the 32-file
+  export sweep after M8b. Small, but it wants a decision rather than a control: widening a
+  ramp changes what "the same ramp" means across exports, and M22's web-friendly mode
+  pushes in the opposite direction. Worth settling alongside M22.
 - **Full `calc()`**: arbitrary nesting, parenthesized sub-expressions, `min()`/`max()`/
   `clamp()`. M13 deliberately stops short and now says so in its own errors rather than
   failing with a raw tokenizer complaint — `calc((1 + 2) * 3)` and `calc(1 + calc(2))`
