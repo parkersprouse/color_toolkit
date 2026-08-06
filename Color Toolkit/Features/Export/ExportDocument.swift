@@ -29,7 +29,7 @@ nonisolated struct ExportDocument: FileDocument {
   ///
   /// Throwing rather than returning an empty document, so that a future change making the
   /// type readable fails loudly instead of silently opening every file as blank.
-  init(configuration: ReadConfiguration) throws {
+  init(configuration _: ReadConfiguration) throws {
     throw CocoaError(.fileReadUnsupportedScheme)
   }
 
@@ -54,7 +54,7 @@ nonisolated struct ExportDocument: FileDocument {
 
   let text: String
 
-  func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+  func fileWrapper(configuration _: WriteConfiguration) throws -> FileWrapper {
     FileWrapper(regularFileWithContents: Data(text.utf8))
   }
 }
