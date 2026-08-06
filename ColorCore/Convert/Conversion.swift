@@ -14,6 +14,20 @@ import Foundation
 nonisolated enum Conversion {
   // MARK: Internal
 
+  // MARK: - Thresholds
+
+  /// How far apart two sRGB channels must be before the color has a hue worth reporting.
+  ///
+  /// The sibling of ``ColorSpace/polarEpsilon`` and derived the same way — the channel's
+  /// reference range (0–1) over 100000 — so the RGB-based polar forms and the Lab-based
+  /// ones agree about what counts as grey.
+  ///
+  /// It has margin at both ends by eleven orders of magnitude: the float dust it exists to
+  /// reject is around `1e-16`, and the smallest difference it suppresses is `1e-5` of a
+  /// channel, which is 1/400th of an 8-bit step and carries a saturation that rounds to
+  /// `0%` at any precision this app offers.
+  static let achromaticChannelEpsilon = 1.0 / 100_000.0
+
   // MARK: - Entry point
 
   static func convert(
@@ -192,18 +206,6 @@ nonisolated enum Conversion {
   //
   // These operate on *gamma-encoded* sRGB, not linear light — a quirk of their
   // 1970s origins that CSS preserved.
-
-  /// How far apart two sRGB channels must be before the color has a hue worth reporting.
-  ///
-  /// The sibling of ``ColorSpace/polarEpsilon`` and derived the same way — the channel's
-  /// reference range (0–1) over 100000 — so the RGB-based polar forms and the Lab-based
-  /// ones agree about what counts as grey.
-  ///
-  /// It has margin at both ends by eleven orders of magnitude: the float dust it exists to
-  /// reject is around `1e-16`, and the smallest difference it suppresses is `1e-5` of a
-  /// channel, which is 1/400th of an 8-bit step and carries a saturation that rounds to
-  /// `0%` at any precision this app offers.
-  static let achromaticChannelEpsilon = 1.0 / 100_000.0
 
   /// The hue shared by HSL and HSV, in degrees.
   ///
