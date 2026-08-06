@@ -264,4 +264,78 @@ struct ColorCoreTests {
     let blue = ColorValue.srgb8(0, 0, 255)
     #expect(red.deltaEOK(to: nearRed) < red.deltaEOK(to: blue))
   }
+
+  // MARK: - Achromatic hues
+
+  /// A grey that arrives through a conversion has hue `0`, not numerical dust.
+  ///
+  /// **This is a regression test with a shipped artifact behind it.** A greyscale ramp
+  /// exported as `hsl()` read `hsl(336 0% 96.06%)`, `hsl(350 0% 87.86%)`,
+  /// `hsl(345 0% 79.79%)` — the hue wandering across eleven colors that have no hue.
+  /// `srgbToHSL` and `srgbToHSV` guarded on `delta != 0`, an *exact* test, so a grey whose
+  /// channels differ in the last ULP took the chromatic branch and computed its hue as a
+  /// ratio of two pieces of noise.
+  ///
+  /// **The competing hypothesis is not "slightly off" but "any angle at all"**, which is
+  /// why this asserts exact equality rather than a tolerance. The unfixed code returned
+  /// 336° for the first stop here; there is no tolerance that separates 336 from 0 without
+  /// also admitting every other wrong answer.
+  ///
+  /// `lch()` and `oklch()` were always right — ``rectangularToPolar`` has had the epsilon
+  /// guard from the start — so they are included to pin the agreement rather than because
+  /// they were broken.
+  @Test(
+    "A converted grey has no hue in any polar space",
+    arguments: [0.97, 0.9068, 0.8436, 0.7804, 0.654, 0.3696, 0.18],
+  )
+  func convertedGreysHaveNoHue(lightness: Double) throws {
+    let grey = ColorValue(space: .oklch, lightness, 0, 0)
+
+    for space in [ColorSpace.hsl, .hwb, .lch, .oklch] {
+      let hueIndex = try #require(space.hueIndex, "\(space) should have a hue component")
+      let hue = grey.converted(to: space).components[hueIndex]
+      #expect(
+        hue == 0,
+        "\(space) fabricated a hue of \(hue) for a neutral grey at lightness \(lightness)",
+      )
+    }
+  }
+
+  /// The epsilon rejects dust without swallowing a hue that is real.
+  ///
+  /// The other half of the claim, and the one that stops the fix from being a blunt
+  /// "greys are hueless" rule that also flattens near-greys. `#010203` is the sharpest
+  /// case in the 8-bit grid: adjacent channel values at the darkest end, a saturation of
+  /// 50%, and a genuine hue of 210°. Its channel delta is `2/255 ≈ 7.8e-3`, which is 780×
+  /// the threshold — so the margin is not close.
+  @Test("A real hue survives, however faint")
+  func faintHuesAreNotFlattened() {
+    let darkNearGrey = ColorValue.srgb8(0x01, 0x02, 0x03).converted(to: .hsl)
+    #expect(abs(darkNearGrey.components[0] - 210) < 1e-9)
+    #expect(darkNearGrey.components[1] > 49)
+
+    // And one just above the threshold, constructed rather than found: a delta of 1e-4 is
+    // ten times `achromaticChannelEpsilon` and must still report its hue.
+    let barelyBlue = ColorValue(space: .srgb, 0.5, 0.5, 0.5001).converted(to: .hsl)
+    #expect(barelyBlue.components[0] == 240)
+  }
+
+  /// The threshold sits far from anything either side could care about.
+  ///
+  /// Stated as a discrimination rather than a magic number: the dust it rejects is around
+  /// `1e-16`, and the smallest real difference the 8-bit grid can express is `1/255`. The
+  /// epsilon must sit between them with room to spare, and it is derived the same way
+  /// ``ColorSpace/polarEpsilon`` is — the channel's reference range over 100000 — so the
+  /// RGB-based polar forms and the Lab-based ones agree about what grey means.
+  @Test("The achromatic threshold has margin at both ends")
+  func thresholdIsWellPlaced() {
+    let epsilon = Conversion.achromaticChannelEpsilon
+    #expect(epsilon == 1.0 / 100_000.0)
+
+    // Eleven orders of magnitude above float dust.
+    #expect(epsilon > 1e-12)
+    // And two below the smallest step the 8-bit grid can express, so no authored color
+    // can land under it.
+    #expect(epsilon < (1.0 / 255.0) / 100)
+  }
 }

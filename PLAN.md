@@ -900,6 +900,42 @@ derivable that way and also catches `UTType(filenameExtension:)` silently fallin
 `.plainText` for everything. Two mutations, both killed by precise failure sets afterwards;
 the second is killed by five tests where it previously escaped two.
 
+**M8b's first real export found a conversion bug that had been shipping since M1.** Parker
+saved a greyscale ramp in two formats and handed the files over; the `oklch()` one was
+clean and the `hsl()` one read `--Greyscale-50: hsl(336 0% 96.06%)`,
+`--Greyscale-100: hsl(350 0% 87.86%)`, `--Greyscale-200: hsl(345 0% 79.79%)` — a hue
+wandering between 320 and 350 across eleven colors that have no hue at all.
+
+- **Cause.** `srgbToHSL` and `srgbToHSV` guarded the hue with `delta != 0`, an *exact*
+  comparison, where `rectangularToPolar` had used an epsilon since M1 and says why in its
+  own comment: "rather than fabricating whatever `atan2` returns for numerical dust". A
+  grey arriving in sRGB *through a conversion* has channels equal to ten decimal places and
+  differing in the last ULP, so `delta` is ~1e-16 and the hue is a ratio of two pieces of
+  noise. `lch()` and `oklch()` were always right; only the RGB-based polar forms were not.
+- **Why nothing caught it.** A grey *typed* in sRGB has bit-identical channels, so
+  `delta` is exactly `0` and the old guard worked. Every hand-written grey in the suite was
+  of that kind, and colorjs.io agrees with us on the *color* — the rendered pixel is
+  identical, since a browser ignores hue at zero saturation. It was only ever wrong in the
+  text, which is exactly the thing an export feature puts in front of you.
+- **Fix.** One `hueFromRGB` shared by HSL and HSV — the two had the same six lines and the
+  same missing guard, which is how they drifted from the polar path — with the guard at
+  `achromaticChannelEpsilon`, `1/100000` of a channel, derived the same way
+  `ColorSpace.polarEpsilon` is. Saturation keeps the exact test on purpose: a near-grey has
+  a real if minute saturation, and keeping it is what holds the round trip.
+- **Proof.** The regression test converts from `oklch()` rather than typing a grey, and
+  asserts the hue is **exactly** `0` rather than within a tolerance — the competing
+  hypothesis is not "slightly off" but "any angle", and no tolerance separates 336 from 0
+  without admitting every other wrong answer. Against the unfixed guard it fails 14 times
+  across seven lightnesses with the fabricated hues named; the two tests asserting that
+  faint *real* hues survive keep passing, so the failure set is precise. `#010203` is the
+  sharpest surviving case — adjacent 8-bit channels at the darkest end, delta 780× the
+  threshold, hue 210° and saturation 50% intact.
+
+The general lesson is one this file keeps relearning in new clothes: **two functions
+solving the same problem, where only one got the guard.** It is the same shape as the two
+sRGB linearizations and the three `savePalette` overloads — and the reason the fix was to
+merge the duplicated six lines rather than to patch the guard into both.
+
 **The write itself is a recorded manual check, and no test will ever cover it.**
 `.fileExporter` presents `NSSavePanel`, a separate process XCUITest cannot drive — the same
 wall `fileImporter` hit in M17, and not one better test code can climb: driving that panel

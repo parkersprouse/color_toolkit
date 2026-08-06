@@ -193,28 +193,67 @@ nonisolated enum Conversion {
   // These operate on *gamma-encoded* sRGB, not linear light — a quirk of their
   // 1970s origins that CSS preserved.
 
+  /// How far apart two sRGB channels must be before the color has a hue worth reporting.
+  ///
+  /// The sibling of ``ColorSpace/polarEpsilon`` and derived the same way — the channel's
+  /// reference range (0–1) over 100000 — so the RGB-based polar forms and the Lab-based
+  /// ones agree about what counts as grey.
+  ///
+  /// It has margin at both ends by eleven orders of magnitude: the float dust it exists to
+  /// reject is around `1e-16`, and the smallest difference it suppresses is `1e-5` of a
+  /// channel, which is 1/400th of an 8-bit step and carries a saturation that rounds to
+  /// `0%` at any precision this app offers.
+  static let achromaticChannelEpsilon = 1.0 / 100_000.0
+
+  /// The hue shared by HSL and HSV, in degrees.
+  ///
+  /// **One implementation because the two had the same six lines and the same missing
+  /// guard.** Both used to compute a hue whenever `delta != 0` — an *exact* comparison —
+  /// where ``rectangularToPolar`` has always used an epsilon and says why: a hue derived
+  /// from numerical dust is a real number that means nothing.
+  ///
+  /// The exact test is not merely imprecise, it is wrong in a way you can read. A neutral
+  /// grey reaching sRGB *through a conversion* has channels that differ in the last ULP
+  /// rather than not at all, so `delta` is around `1e-16` and the hue becomes a ratio of
+  /// two pieces of noise — any angle at all. That is how an exported greyscale ramp came
+  /// to read `hsl(336 0% 96.06%)`, `hsl(350 0% 87.86%)`, `hsl(345 0% 79.79%)`, with the
+  /// hue wandering across a set of colors that have no hue. It rendered correctly, because
+  /// a browser ignores hue at zero saturation; it was the *text* that was wrong, and the
+  /// text is what gets pasted into somebody's stylesheet.
+  ///
+  /// A grey typed directly in sRGB was always fine — its channels are bit-identical, so
+  /// `delta` is exactly `0`. Only converted greys were affected, which is what kept this
+  /// out of every hand-written test.
+  static func hueFromRGB(_ rgb: SIMD3<Double>, maxC: Double, delta: Double) -> Double {
+    guard delta > achromaticChannelEpsilon else { return 0 }
+    let hue: Double = if maxC == rgb.x {
+      (rgb.y - rgb.z) / delta + (rgb.y < rgb.z ? 6 : 0)
+    } else if maxC == rgb.y {
+      (rgb.z - rgb.x) / delta + 2
+    } else {
+      (rgb.x - rgb.y) / delta + 4
+    }
+    return hue * 60
+  }
+
   static func srgbToHSL(_ rgb: SIMD3<Double>) -> SIMD3<Double> {
     let maxC = max(rgb.x, rgb.y, rgb.z)
     let minC = min(rgb.x, rgb.y, rgb.z)
     let lightness = (minC + maxC) / 2
     let delta = maxC - minC
 
-    var hue = 0.0
+    var hue = hueFromRGB(rgb, maxC: maxC, delta: delta)
     var saturation = 0.0
 
+    // Saturation keeps the exact `delta != 0` test on purpose, where the hue does not.
+    // A near-grey has a real, if minute, saturation and zeroing it would lose the only
+    // information distinguishing it from a grey — where its *hue* was never information
+    // in the first place. Keeping it is also what holds the round trip: reconstructing
+    // from hue 0 and the true saturation lands within `achromaticChannelEpsilon`.
     if delta != 0 {
       saturation = (lightness == 0 || lightness == 1)
         ? 0
         : (maxC - lightness) / min(lightness, 1 - lightness)
-
-      if maxC == rgb.x {
-        hue = (rgb.y - rgb.z) / delta + (rgb.y < rgb.z ? 6 : 0)
-      } else if maxC == rgb.y {
-        hue = (rgb.z - rgb.x) / delta + 2
-      } else {
-        hue = (rgb.x - rgb.y) / delta + 4
-      }
-      hue *= 60
     }
 
     // Very out-of-gamut colors can produce negative saturation; rotating the hue
@@ -253,19 +292,11 @@ nonisolated enum Conversion {
     let minC = min(rgb.x, rgb.y, rgb.z)
     let delta = maxC - minC
 
-    var hue = 0.0
+    // Shared with `srgbToHSL`, which is what stops the two drifting apart again — see
+    // `hueFromRGB`. HWB rides on this too: `hsvToHWB` passes the hue straight through.
+    var hue = hueFromRGB(rgb, maxC: maxC, delta: delta)
     var saturation = 0.0
 
-    if delta != 0 {
-      if maxC == rgb.x {
-        hue = (rgb.y - rgb.z) / delta + (rgb.y < rgb.z ? 6 : 0)
-      } else if maxC == rgb.y {
-        hue = (rgb.z - rgb.x) / delta + 2
-      } else {
-        hue = (rgb.x - rgb.y) / delta + 4
-      }
-      hue *= 60
-    }
     if maxC != 0 {
       saturation = delta / maxC
     }

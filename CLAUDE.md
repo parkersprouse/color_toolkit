@@ -37,9 +37,9 @@ change without a mistake masquerading as an app regression:
 xcodebuild -project "Color Toolkit.xcodeproj" -target colorkit -destination 'platform=macOS' build && ./build/Release/colorkit --help
 ```
 
-Full test suite (~9 minutes, nearly all of it UI tests — the 413 + 59 Swift Testing
+Full test suite (~9 minutes, nearly all of it UI tests — the 416 + 59 Swift Testing
 tests finish in about a second, the 31 XCUITests take seven minutes and up). **There are
-two Swift Testing bundles now**: `Color ToolkitTests` (413 tests, 47 suites) and
+two Swift Testing bundles now**: `Color ToolkitTests` (416 tests, 47 suites) and
 `ColorToolkitCLITests` (59 tests, 10 suites), and both are in the scheme:
 
 ```bash
@@ -498,6 +498,21 @@ Layered so the numeric core stays independently testable and UI-free:
   core test reaching into the UI for a display string is a smell.
 - Precision is relative to each component's scale, not a flat decimal count — see
   `CSSFormatOptions.decimals(forFullScale:)`.
+- **Every RGB→polar conversion guards its hue with an epsilon, never with `!= 0`.**
+  `Conversion.hueFromRGB` is the one implementation for HSL and HSV (and so for HWB, whose
+  hue comes straight through `hsvToHWB`), and it returns `0` below
+  `achromaticChannelEpsilon` — `1/100000` of a channel, derived exactly the way
+  `ColorSpace.polarEpsilon` is, so the RGB-based polar forms and the Lab-based ones agree
+  about what grey means. **The exact test is not merely imprecise, it is wrong in a way
+  you can read**: a neutral grey that reaches sRGB *through a conversion* has channels
+  differing in the last ULP rather than not at all, so `delta` is ~1e-16 and the hue
+  becomes a ratio of two pieces of noise — any angle at all. That shipped, and an exported
+  greyscale ramp read `hsl(336 0% 96.06%)`, `hsl(350 0% 87.86%)`, `hsl(345 0% 79.79%)`,
+  hue wandering across eleven colors that have no hue. A grey *typed* in sRGB was always
+  fine, because its channels are bit-identical — which is why no hand-written test caught
+  it and why the regression test converts from `oklch()`. **Saturation deliberately keeps
+  the exact `delta != 0` test**: a near-grey has a real if minute saturation, and that is
+  what holds the round trip once the hue is zeroed.
 - **Two sRGB linearizations exist and must never be merged.** `TransferFunctions`
   uses **0.04045** (sRGB, what every conversion is validated against);
   `wcagRelativeLuminance` uses **0.03928** (WCAG's text). They look like the same
