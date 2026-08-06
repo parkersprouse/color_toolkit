@@ -974,6 +974,18 @@ extension, the content type, the document text) and `testTheSaveControlIsThereTo
 stops at the control being present, enabled and hittable. **An agent cannot verify the
 write and should say so rather than infer it from a green suite.**
 
+***The check is done, and it was not one save but thirty-four.*** Every `.css` file in both
+batches Parker supplied — the first pair, then the sixteen-format sweep of both ramps — was
+produced by the `Save…` action. So the write is confirmed across 34 saves, and the 352
+values inside those files re-parse without a single rejection, which is a good deal more
+than "a file lands": the bytes are right too. The `readwrite` entitlement therefore works
+in the shipping app and not only in `codesign` output.
+
+**What those saves do *not* confirm is the proposed filename**, because Parker named the
+files himself — `greyscale.d50.css` is not what `suggestedFilename` would offer, which is
+`greyscale.css`. That half needs no panel and is unit tested in `ExportFileNamingTests`.
+Worth stating rather than letting 34 files imply more than they show.
+
 ### ✅ M9 — Projects (SwiftData)
 
 Built as planned: three `@Model` classes holding space ID plus raw components rather than

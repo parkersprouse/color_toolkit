@@ -316,11 +316,16 @@ Layered so the numeric core stays independently testable and UI-free:
     which is correct whether or not a powerbox URL turns out to need the claim.
   - **Writing** (`ExportPanel`, `.fileExporter` + `ExportDocument`) needs no such claim:
     `FileDocument` hands the system a `FileWrapper` and the system does the write.
-  - **Neither is testable and both are recorded manual checks.** `NSOpenPanel` and
-    `NSSavePanel` are separate processes XCUITest cannot drive, and driving them from
-    outside needs assistive access that `osascript` does not have here. So an agent
-    cannot verify either one and should say so rather than infer it from a green suite.
-    See the M8b and M17 entries in PLAN.md.
+  - **Neither is testable and both are recorded manual checks — and both have now been
+    run.** `NSOpenPanel` and `NSSavePanel` are separate processes XCUITest cannot drive,
+    and driving them from outside needs assistive access that `osascript` does not have
+    here. So an agent cannot verify either one and should say so rather than infer it from
+    a green suite. M17's read passed on the built app; M8b's write passed across 34 saves,
+    whose 352 exported values all re-parse. See the M8b and M17 entries in PLAN.md.
+  - **A file the user hands you may itself be the manual check.** M8b's write was
+    confirmed twice over by export files sent for review, and was still asked for a third
+    time. If a `.css` in the repo's own export shapes arrives, ask where it came from
+    before requesting a check that has already happened.
 - **`ExportShape.fileExtension` is in ColorCore; the `UTType` is in the UI layer and is
   derived from it.** The extension is a fact about the shape — what `tailwindConfig`
   writes *is* a JavaScript module — and it is transcribed, because four of the six shapes
