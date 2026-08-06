@@ -59,6 +59,24 @@ nonisolated enum ExportShape: String, CaseIterable, Sendable, Hashable, Identifi
   var usesFormat: Bool {
     self != .p3WithFallback
   }
+
+  /// The file extension a saved document of this shape should carry.
+  ///
+  /// A fact about the shape rather than editorial copy, which is why it lives here beside
+  /// the three capability flags: what `tailwindConfig` writes *is* a JavaScript module and
+  /// what `json` writes *is* JSON, regardless of what any panel calls them. The `UTType`
+  /// mapping stays in the UI layer, where AppKit's vocabulary belongs.
+  ///
+  /// Four of the six answer `css`, including ``p3WithFallback`` — a `@media` block is
+  /// still a stylesheet — so this is not derivable from anything already here and is
+  /// transcribed the way ``usesTemplate`` and its siblings are.
+  var fileExtension: String {
+    switch self {
+    case .declaration, .customProperties, .tailwindTheme, .p3WithFallback: "css"
+    case .json: "json"
+    case .tailwindConfig: "js"
+    }
+  }
 }
 
 nonisolated extension CSSOutputFormat {
@@ -143,6 +161,17 @@ nonisolated struct ExportOptions: Sendable, Equatable {
   /// not for the ones outside P3. See `ExportShape.mappedNote(count:format:)`.
   var mappedCountFormat: CSSOutputFormat {
     shape.usesFormat ? format : Self.fallbackFormat
+  }
+
+  /// What a save panel should propose calling this document.
+  ///
+  /// Built from the *sanitized* ``identifier`` rather than from ``name``, so the file is
+  /// named the same thing the properties inside it are — `my brand!` writes `--my-brand`
+  /// and saves as `my-brand.css`. It also means a name that sanitizes to nothing falls
+  /// back to ``defaultName`` here exactly as it does in the document, rather than
+  /// proposing an empty filename.
+  var suggestedFilename: String {
+    "\(identifier).\(shape.fileExtension)"
   }
 
   /// `text` reduced to something usable as a CSS identifier and a JavaScript key.

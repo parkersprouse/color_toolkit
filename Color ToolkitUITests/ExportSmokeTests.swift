@@ -66,6 +66,46 @@ final class ExportSmokeTests: XCTestCase {
     XCTAssertTrue(copy.isEnabled, "The copy button is disabled with a document to copy")
   }
 
+  /// The Save control is there to be used — and that is as far as a test can go.
+  ///
+  /// **Nothing here clicks it.** `.fileExporter` presents `NSSavePanel`, which is a
+  /// separate process XCUITest cannot reach, so a test that clicked would hang on a panel
+  /// it can neither fill in nor dismiss and would fail whether the feature worked or not.
+  /// That is the same rule ``ProjectsSmokeTests`` follows for `fileImporter`, and it is
+  /// not a gap that better test code would close: driving that panel from outside needs
+  /// assistive access, which `osascript` does not have here.
+  ///
+  /// So the split is deliberate. The filename and content type are decided *before* the
+  /// panel opens and are pinned by `ExportFileNamingTests`; the write itself is a recorded
+  /// manual check in PLAN.md. What is left for a running app to show is that the button
+  /// exists, is enabled with a document to save, and is actually reachable — which is
+  /// exactly what a binding that compiled and did nothing would still pass, so the
+  /// hittability assertion is the one carrying weight here.
+  func testTheSaveControlIsThereToBeUsed() {
+    setField("#3b82f6")
+    click(radioButton: "Export", "the tool switcher")
+
+    let save = app.buttons["exportSave"]
+    XCTAssertTrue(
+      save.waitForExistence(timeout: 15),
+      "No save button. Tree:\n\(app.debugDescription)",
+    )
+    XCTAssertTrue(save.isEnabled, "The save button is disabled with a document to save")
+    XCTAssertTrue(
+      waitUntilHittable(save),
+      "The save button never became hittable. Tree:\n\(app.debugDescription)",
+    )
+
+    // Saving has not been attempted, so the failure label must not be on screen. It is
+    // the only thing that would tell us the panel had reported a problem it never had —
+    // the mistake M9 shipped once already, with a banner announcing a failure that had
+    // not happened.
+    XCTAssertFalse(
+      app.staticTexts["exportSaveError"].exists,
+      "A save error is showing before anything was saved. Tree:\n\(app.debugDescription)",
+    )
+  }
+
   /// Switching the source rewrites the document from a different set of colors.
   ///
   /// The ramp is eleven stops and Tailwind's scale is eleven keys, so both ends of that

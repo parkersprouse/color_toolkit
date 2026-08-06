@@ -73,8 +73,13 @@
 > discharged — M14 was the first milestone to consume it, which is what turned that claim
 > into a tested one, and M15 is the one it was written for. **M13 and M14 closed the
 > plan's last dependency chain**, and M15 waited on nothing. **M16, M17 and M18 are all
-> done, so the numbered plan is finished.** What remains is **M8b** (saving an export to
-> a file) and the shorter deferred list at the end.
+> done, so the numbered plan is finished.** **M8b is done too**, so the deferred list no
+> longer holds anything from the original plan — saving an export to a file cost one build
+> setting, a `FileDocument` and a button, and its mutation run caught a tautological test
+> that had been passing the exact bug it was written for. **M19–M26 are the next series**,
+> planned together: a settings scene with the app's first persistence, whole-project
+> export, interactive swatches everywhere, a web-friendly mode, a recents row, a popover
+> picker, a re-spell menu, and import from the shapes the app already exports.
 >
 > **M17's own plan note was wrong about one thing, and reading the spec is what caught it.**
 > It said to reuse `ComponentGrammar.fullScale` as the token format's range table. The Color
@@ -845,18 +850,64 @@ layer boundary is a claim nothing checks.
 *Done, and reviewed on the running app from its own screenshots — see the status note
 above for the colorjs.io cross-check of an exported ramp stop.*
 
-### M8b — Deferred from export
+### ✅ M8b — Saving an export to a file
 
-Saving to a file rather than the clipboard. It needs a sandbox entitlement plus an
-`NSSavePanel` wrapper in `Services/`, and clipboard-only is the coherent scope for a
-panel whose output is meant to be pasted into a stylesheet you already have open.
+Built, and smaller than its long deferral suggested. A `Save…` button beside `Copy`, a
+`FileDocument` over the string ColorCore already generates, and one build setting.
 
-**Still the one deferred piece, and M9 did not bring it any closer** — the note here used
-to say it was worth revisiting alongside M9 "where a saved project is a file anyway",
-which turned out to be wrong on the facts. A SwiftData project is a store *inside the app
-container*, written with no entitlement and never shown to the user as a file, so it
-shares nothing with `NSSavePanel` but the word "save". This remains its own small
-milestone, standing on its own reasons.
+**`.fileExporter`, not the `NSSavePanel` wrapper this section used to plan for.**
+`Services/` wraps AppKit only where SwiftUI has no equivalent — the pasteboard, the
+sampler, Carbon hot keys — and a save panel is not one of those. `ExportDocument` is a
+`FileDocument` over a `String` and nothing else, so the file, the preview and the
+clipboard are one string with three destinations rather than three renderings that can
+disagree. It is `nonisolated`, like all plain data here, or the conformance does not
+compile under the app's default actor isolation.
+
+**`ENABLE_USER_SELECTED_FILES` went `readonly` → `readwrite`, in both the Debug and
+Release blocks.** Same shape as M17's read grant and the same trap: the type is only
+consulted at runtime, so a Release-only omission is invisible from a Debug build. Verified
+in the built binary — `codesign -d --entitlements -` now reports
+`com.apple.security.files.user-selected.read-write`. Still no `.entitlements` file
+anywhere; the build setting is the whole mechanism.
+
+Decisions worth recording:
+
+- **`ExportShape.fileExtension` is a fact about the shape, so it lives in ColorCore** beside
+  the three capability flags. What `tailwindConfig` writes *is* a JavaScript module
+  whatever a panel calls it. Four of the six answer `css`, including `p3WithFallback` — a
+  `@media` block is still a stylesheet — so it is transcribed, not derived. The `UTType`
+  mapping stays in the UI layer, where AppKit's vocabulary belongs, and is derived from
+  that one table so a shape cannot propose `brand.css` and tag the file as JSON.
+- **The proposed filename comes from the sanitized `identifier`, not from `name`.** So the
+  file is called the same thing the properties inside it are: `My Brand!` writes
+  `--My-Brand` and saves as `My-Brand.css`, and an emptied name proposes `brand.css`
+  rather than `.css`. One function decides both, which is the same fix the
+  `defaultName` constant was for.
+- **`readableContentTypes` is empty on purpose.** Reading a stylesheet back is M26's job
+  and goes through the pasteboard, not a document type. Declaring it readable would put
+  this app in Finder's "Open With" for every `.css` on the disk.
+- **A cancelled save is not a failure.** `.failure` means the write was attempted and lost,
+  and only that raises the inline label — the M9 lesson about a banner announcing a failure
+  that had not happened. A successful save calls `remember()`, since saving a value to disk
+  is at least as strong a signal of intent as copying it.
+
+**The mutation run found a tautology, which is the whole reason it is worth doing.** The
+first version of "every shape's content type is writable" compared `writableContentTypes`
+against `contentType` — but the list is *derived* from `contentType`, so the claim was true
+by construction and survived a mutation collapsing all six shapes onto `css`, which is
+exactly the bug it existed to catch. Replaced with a distinctness assertion, which is not
+derivable that way and also catches `UTType(filenameExtension:)` silently falling back to
+`.plainText` for everything. Two mutations, both killed by precise failure sets afterwards;
+the second is killed by five tests where it previously escaped two.
+
+**The write itself is a recorded manual check, and no test will ever cover it.**
+`.fileExporter` presents `NSSavePanel`, a separate process XCUITest cannot drive — the same
+wall `fileImporter` hit in M17, and not one better test code can climb: driving that panel
+from outside needs assistive access, which `osascript` does not have here. So
+`ExportFileNamingTests` pins everything decided *before* the panel opens (the filename, the
+extension, the content type, the document text) and `testTheSaveControlIsThereToBeUsed`
+stops at the control being present, enabled and hittable. **An agent cannot verify the
+write and should say so rather than infer it from a green suite.**
 
 ### ✅ M9 — Projects (SwiftData)
 
@@ -1758,8 +1809,6 @@ package; and `calc()` is scoped to flat arithmetic over numbers, percentages and
 
 What remains genuinely deferred:
 
-- **Saving to a file** rather than the clipboard — still M8b above, still standing on its
-  own reasons.
 - **Full `calc()`**: arbitrary nesting, parenthesized sub-expressions, `min()`/`max()`/
   `clamp()`. M13 deliberately stops short and now says so in its own errors rather than
   failing with a raw tokenizer complaint — `calc((1 + 2) * 3)` and `calc(1 + calc(2))`

@@ -42,6 +42,17 @@ struct ExportPanel: View {
       }
       .padding(16)
     }
+    // On the whole panel rather than on the button, so the exporter survives the layout
+    // changing under it — a shape switch rebuilds the preview subtree, and a presentation
+    // modifier torn down mid-panel takes the open save panel with it.
+    .fileExporter(
+      isPresented: $isSaving,
+      document: ExportDocument(text: store.exportDocument),
+      contentType: store.exportOptions.shape.contentType,
+      defaultFilename: store.exportOptions.suggestedFilename,
+    ) { result in
+      save(result)
+    }
   }
 
   // MARK: Private
@@ -50,6 +61,9 @@ struct ExportPanel: View {
 
   @State private var justCopied = false
   @State private var resetTask: Task<Void, Never>?
+
+  @State private var isSaving = false
+  @State private var saveError: String?
 
   // MARK: - Controls
 
@@ -170,9 +184,24 @@ struct ExportPanel: View {
           .font(.caption)
           .foregroundStyle(.tertiary)
         Spacer()
+        // Copy keeps the position it has always had. Saving is the occasional action —
+        // this panel's output is usually pasted into a stylesheet already open.
         Button(justCopied ? "Copied" : "Copy") { copy() }
           .disabled(document.isEmpty)
           .accessibilityIdentifier("exportCopy")
+        Button("Save…") { isSaving = true }
+          .disabled(document.isEmpty)
+          .accessibilityIdentifier("exportSave")
+      }
+
+      if let saveError {
+        // Shown rather than thrown away, and shown here rather than in an alert: the
+        // panel already reports the mapped-count warning inline a few points below, and
+        // a modal for a failed write would be the only modal in the app.
+        Label(saveError, systemImage: "exclamationmark.triangle.fill")
+          .font(.callout)
+          .foregroundStyle(.red)
+          .accessibilityIdentifier("exportSaveError")
       }
 
       if entries.isEmpty {
@@ -243,6 +272,26 @@ struct ExportPanel: View {
         }
       }
       .padding(.vertical, 2)
+    }
+  }
+
+  /// What `.fileExporter` came back with.
+  ///
+  /// The write itself is done by the time this runs — `FileDocument` hands the system a
+  /// `FileWrapper` and the system writes it, which is what makes this the one export path
+  /// with no string-building anywhere near it.
+  ///
+  /// Success files the color under recents for the reason ``ColorStore/copyExport()``
+  /// does: reaching for a value is the clearest signal you intend to use it, and saving
+  /// one to disk is a stronger signal than copying it. A cancellation is not a failure and
+  /// must not raise anything — `.failure` here means the write was attempted and lost.
+  private func save(_ result: Result<URL, Error>) {
+    switch result {
+    case .success:
+      saveError = nil
+      store.remember()
+    case let .failure(error):
+      saveError = "Could not save: \(error.localizedDescription)"
     }
   }
 

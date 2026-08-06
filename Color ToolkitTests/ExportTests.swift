@@ -6,6 +6,7 @@
 @testable import Color_Toolkit
 import Foundation
 import Testing
+import UniformTypeIdentifiers
 
 /// Proof for the export layer, which has an oracle nothing else in `Transform/` had:
 /// **this app's own parser**.
@@ -609,6 +610,168 @@ struct ExportIdentifierTests {
       )
     }
     #expect(awkward.cssString(as: .keyword) == nil)
+  }
+}
+
+/// What a saved export is called and what type it claims to be.
+///
+/// The write itself is unreachable from here — `.fileExporter` presents `NSSavePanel`,
+/// which is a separate process XCUITest cannot drive and `osascript` cannot reach without
+/// assistive access. So everything decidable *before* the panel opens is pinned here, and
+/// the write is a recorded manual check in PLAN.md. That split is deliberate: it is the
+/// same one `fileImporter` forced on M17, and the alternative is a green suite implying
+/// coverage that does not exist.
+@Suite("Export file naming")
+struct ExportFileNamingTests {
+  /// Transcribed, so asserted case by case rather than against a rule. Four of the six
+  /// answer `css`, which is the part a derivation would get wrong: `p3WithFallback`
+  /// writes a `@media` block and is still a stylesheet.
+  @Test(
+    "Each shape names its own file type",
+    arguments: [
+      (ExportShape.declaration, "css"),
+      (.customProperties, "css"),
+      (.tailwindTheme, "css"),
+      (.p3WithFallback, "css"),
+      (.json, "json"),
+      (.tailwindConfig, "js"),
+    ],
+  )
+  func fileExtensionPerShape(shape: ExportShape, expected: String) {
+    #expect(shape.fileExtension == expected)
+  }
+
+  /// A leading dot or a capital would both produce a filename the system treats as
+  /// something else — `brand..css`, or a type lookup that misses.
+  @Test("Every extension is a bare lowercase suffix")
+  func extensionsAreWellFormed() {
+    for shape in ExportShape.allCases {
+      let suffix = shape.fileExtension
+      #expect(!suffix.isEmpty, "\(shape) has no extension")
+      #expect(!suffix.contains("."), "\(shape) carries its own dot: \(suffix)")
+      #expect(suffix == suffix.lowercased(), "\(shape) is not lowercase: \(suffix)")
+    }
+  }
+
+  /// **The claim worth having**: the file is named the same thing the properties inside
+  /// it are named. Both go through ``ExportOptions/cssIdentifier(_:fallback:)``, so a
+  /// typed `My Brand!` writes `--My-Brand` and saves as `My-Brand.css`.
+  ///
+  /// This is what fails if ``ExportOptions/suggestedFilename`` is ever built from the raw
+  /// `name` instead — the document and the file would disagree, and a filename containing
+  /// a space or a `!` is the sort of thing nobody notices until a build script chokes.
+  @Test("The filename matches the family name in the document")
+  func filenameMatchesTheDocument() {
+    var options = ExportOptions.default
+    options.shape = .customProperties
+    options.format = .hex
+    options.name = "My Brand!"
+
+    let document = options.render([PaletteEntry(color: ExportShapeTests.blue)])
+    #expect(document.contains("--My-Brand:"))
+    #expect(options.suggestedFilename == "My-Brand.css")
+  }
+
+  /// An emptied name proposes the placeholder, not an empty filename — the same fallback
+  /// the document itself uses, for the same reason ``emptyNameUsesTheDefault`` gives.
+  @Test("An emptied name still proposes a filename")
+  func emptyNameStillNamesTheFile() {
+    var options = ExportOptions.default
+    options.name = ""
+    options.shape = .json
+
+    #expect(options.suggestedFilename == "\(ExportOptions.defaultName).json")
+    #expect(!options.suggestedFilename.hasPrefix("."))
+  }
+
+  /// Switching shape re-types the file, since the extension is the shape's and not the
+  /// name's. A stale `.css` on a Tailwind config is the failure this catches.
+  @Test("The proposed extension follows the shape")
+  func extensionFollowsTheShape() {
+    var options = ExportOptions.default
+    options.name = "brand"
+
+    options.shape = .customProperties
+    #expect(options.suggestedFilename == "brand.css")
+    options.shape = .tailwindConfig
+    #expect(options.suggestedFilename == "brand.js")
+    options.shape = .json
+    #expect(options.suggestedFilename == "brand.json")
+  }
+
+  /// The three extensions resolve to three *different* content types.
+  ///
+  /// **This assertion replaced a tautology, and the mutation run is what exposed it.** The
+  /// first version asked whether every shape's `contentType` appeared in
+  /// `writableContentTypes` — but that list is derived from `contentType`, so the claim was
+  /// true by construction. It passed a mutation that collapsed all six shapes onto `css`,
+  /// which is precisely the bug it was supposed to catch.
+  ///
+  /// Distinctness is not derivable that way. It fails if the extension table collapses,
+  /// and it also fails if `UTType(filenameExtension:)` stops resolving and every shape
+  /// falls back to `.plainText` — which would tag a Tailwind config as plain text in the
+  /// save panel while the filename still said `.js`.
+  @Test("The shapes resolve to distinct content types")
+  func contentTypesAreDistinct() {
+    let types = Set(ExportShape.allCases.map(\.contentType))
+    #expect(
+      types.count == 3,
+      "Expected css, json and js to be three types, got \(types.count): \(types)",
+    )
+    #expect(ExportShape.json.contentType != ExportShape.tailwindConfig.contentType)
+    #expect(ExportShape.json.contentType != ExportShape.customProperties.contentType)
+
+    // Text-based, or a save panel would refuse the string this document hands it. True of
+    // the `.plainText` fallback too, so this survives a system that has no CSS type.
+    for shape in ExportShape.allCases {
+      #expect(
+        shape.contentType.conforms(to: .text),
+        "\(shape) claims a non-text type: \(shape.contentType)",
+      )
+    }
+  }
+
+  /// Every shape's type must be one the exporter will accept, or saving that shape fails
+  /// at the panel with nothing in the UI to explain it.
+  ///
+  /// Deliberately paired with ``contentTypesAreDistinct`` rather than standing alone: this
+  /// one checks the *derivation held* (a future hardcoded list that missed a type would
+  /// fail here), and that one checks the derivation is producing something meaningful.
+  /// Either without the other passes a mutation the pair catches.
+  @Test("Every shape's content type is writable")
+  func everyShapeIsWritable() {
+    for shape in ExportShape.allCases {
+      #expect(
+        ExportDocument.writableContentTypes.contains(shape.contentType),
+        "\(shape) claims a type the exporter will not write: \(shape.contentType)",
+      )
+    }
+    // Deduped, so four css shapes contribute one entry rather than four.
+    #expect(ExportDocument.writableContentTypes.count == 3)
+
+    // Write-only on purpose: reading a stylesheet back is not this type's job, and
+    // declaring it readable puts the app in Finder's "Open With" for every .css there is.
+    #expect(ExportDocument.readableContentTypes.isEmpty)
+  }
+
+  /// The document carries exactly the text it was handed, unmodified.
+  ///
+  /// **`fileWrapper(configuration:)` itself is not reachable from a test**:
+  /// `FileDocumentWriteConfiguration` has no public initializer, so there is no way to
+  /// call it. What is assertable is the half that could actually be wrong — that the
+  /// document stores the export text verbatim rather than re-deriving or trimming it. The
+  /// one line the wrapper adds is `Data(text.utf8)`, and a UTF-8 encoding that lost
+  /// characters would fail the round trip below anyway.
+  @Test("The document is the export text, unmodified")
+  func documentCarriesItsText() {
+    var options = ExportOptions.default
+    options.shape = .customProperties
+    options.format = .hex
+    let text = options.render([PaletteEntry(key: "500", color: ExportShapeTests.blue)])
+
+    let document = ExportDocument(text: text)
+    #expect(document.text == text)
+    #expect(String(decoding: Data(document.text.utf8), as: UTF8.self) == text)
   }
 }
 

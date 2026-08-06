@@ -13,8 +13,9 @@ missing-component carry-forward, a scoped `calc()`, CSS Color 5 relative color s
 (`rgb(from …)`), `color-mix()` with premultiplied alpha and the four hue arcs, and W3C
 design token import.
 M0–M18 are built, so the numbered plan is complete — M18 is `colorkit`, a nine-command
-CLI over `ColorCore` in its own tool target. Swift 6, SwiftUI, no third-party runtime
-dependencies.
+CLI over `ColorCore` in its own tool target — and **M8b is done too**, so an export can be
+saved to a file as well as copied. Swift 6, SwiftUI, no third-party runtime dependencies.
+**M19–M26 are planned and not yet built**; see PLAN.md.
 
 **[PLAN.md](PLAN.md) is the source of truth** for milestone status, what is deferred
 and why, and the reasoning behind every decision recorded below. This file is the
@@ -36,9 +37,9 @@ change without a mistake masquerading as an app regression:
 xcodebuild -project "Color Toolkit.xcodeproj" -target colorkit -destination 'platform=macOS' build && ./build/Release/colorkit --help
 ```
 
-Full test suite (~9 minutes, nearly all of it UI tests — the 405 + 59 Swift Testing
-tests finish in about a second, the 30 XCUITests take seven minutes and up). **There are
-two Swift Testing bundles now**: `Color ToolkitTests` (405 tests, 46 suites) and
+Full test suite (~9 minutes, nearly all of it UI tests — the 413 + 59 Swift Testing
+tests finish in about a second, the 31 XCUITests take seven minutes and up). **There are
+two Swift Testing bundles now**: `Color ToolkitTests` (413 tests, 47 suites) and
 `ColorToolkitCLITests` (59 tests, 10 suites), and both are in the scheme:
 
 ```bash
@@ -303,15 +304,38 @@ Layered so the numeric core stays independently testable and UI-free:
   reason it is for ramp stops. So the command checks the text with the same predicate a
   caller would and says on stderr when it fell short. Do not "simplify" this away — the
   test asserts a disjunction, not that the printed value always passes.
-- **The token import is the app's only file read, and two things make it work.**
-  `ENABLE_USER_SELECTED_FILES = readonly` — a build setting, in *both* the Debug and
-  Release blocks, with no `.entitlements` file anywhere — is what grants a URL the user
-  chose in an open panel; `ProjectsPanel` then claims it with
-  `startAccessingSecurityScopedResource()` and stops on the way out only `if scoped`,
-  which is correct whether or not a powerbox URL turns out to need the claim. Verified in
-  the built binary with `codesign -d --entitlements -` and then end to end on the running
-  app. There is nothing else in the app that reads a file, so a regression here has
-  exactly one symptom and no test will catch it — see the M17 entries in PLAN.md.
+- **The app touches the file system in exactly two places, and one build setting grants
+  both.** `ENABLE_USER_SELECTED_FILES = readwrite` — in *both* the Debug and Release
+  blocks, with no `.entitlements` file anywhere — covers the token import's read *and*
+  M8b's export write. It is only consulted at runtime, so a Release-only omission is
+  invisible from a Debug build; verify in the built binary with
+  `codesign -d --entitlements -`, which should report
+  `com.apple.security.files.user-selected.read-write`.
+  - **Reading** (`ProjectsPanel`, token import) additionally claims the URL with
+    `startAccessingSecurityScopedResource()` and stops on the way out only `if scoped`,
+    which is correct whether or not a powerbox URL turns out to need the claim.
+  - **Writing** (`ExportPanel`, `.fileExporter` + `ExportDocument`) needs no such claim:
+    `FileDocument` hands the system a `FileWrapper` and the system does the write.
+  - **Neither is testable and both are recorded manual checks.** `NSOpenPanel` and
+    `NSSavePanel` are separate processes XCUITest cannot drive, and driving them from
+    outside needs assistive access that `osascript` does not have here. So an agent
+    cannot verify either one and should say so rather than infer it from a green suite.
+    See the M8b and M17 entries in PLAN.md.
+- **`ExportShape.fileExtension` is in ColorCore; the `UTType` is in the UI layer and is
+  derived from it.** The extension is a fact about the shape — what `tailwindConfig`
+  writes *is* a JavaScript module — and it is transcribed, because four of the six shapes
+  answer `css` (including `p3WithFallback`, whose `@media` block is still a stylesheet).
+  `ExportDocument.writableContentTypes` derives from the same table, so a shape cannot
+  propose `brand.css` while tagging the file as JSON. The proposed filename comes from
+  `ExportOptions.identifier`, the *sanitized* name, so the file is called what the
+  properties inside it are called.
+- **Beware a test whose two sides derive from one source.** M8b's first
+  "every shape's content type is writable" compared `writableContentTypes` against
+  `contentType` — but the former is built from the latter, so the claim was true by
+  construction and survived a mutation collapsing every shape onto `css`, which is exactly
+  the bug it was written for. The fix was a *distinctness* assertion, which no derivation
+  can satisfy for free. When a mutation survives, ask whether the assertion can fail at
+  all before concluding the rule is safe.
 - **`Info.plist` sits at the repo root, and that is the only place it can.** The app is
   otherwise `GENERATE_INFOPLIST_FILE = YES`, so every scalar stays an `INFOPLIST_KEY_*`
   build setting; the file exists solely for `UTExportedTypeDeclarations`, which is an
