@@ -77,9 +77,10 @@
 > longer holds anything from the original plan — saving an export to a file cost one build
 > setting, a `FileDocument` and a button, and its mutation run caught a tautological test
 > that had been passing the exact bug it was written for. **M19–M26 are the next series**,
-> planned together: a settings scene with the app's first persistence, whole-project
-> export, interactive swatches everywhere, a web-friendly mode, a recents row, a popover
-> picker, a re-spell menu, and import from the shapes the app already exports.
+> planned together and fully detailed under *Planned: M19–M26* in Milestones below: a
+> settings scene with the app's first persistence, whole-project export, interactive
+> swatches everywhere, a web-friendly mode, a recents row, a popover picker, a re-spell
+> menu, and import from the shapes the app already exports.
 >
 > **M17's own plan note was wrong about one thing, and reading the spec is what caught it.**
 > It said to reuse `ComponentGrammar.fullScale` as the token format's range table. The Color
@@ -509,7 +510,7 @@ Matrices are **generated** by [generate-constants.mjs](Tools/generate-constants.
 
 ## Milestones
 
-Sequenced so the app becomes genuinely useful at M4, then grows. Each milestone is independently shippable.
+Sequenced so the app becomes genuinely useful at M4, then grows. Each milestone is independently shippable. **✅** marks a milestone that is built and tested; **⬜** marks one that is planned in full below but not yet started.
 
 ### ✅ M0 — Project hygiene
 
@@ -1765,6 +1766,602 @@ value meets the target, *or* stderr says it does not — and that is what the te
 
 ---
 
+## Planned: M19–M26 — round out the toolkit
+
+The numbered plan (M0–M18) is complete and M8b closed the last deferred item, so the
+next series is eight new milestones rather than more of the old list. They close the
+app's biggest remaining workflow gaps:
+
+- **Export is one-directional.** The app writes six document shapes and reads only W3C
+  design tokens. Pasting a stylesheet's `:root` block back in is not possible.
+- **Export is one-palette-at-a-time.** A project with eight saved sets takes eight trips
+  through Projects → Export → configure → Copy. `ExportOptions.render` takes a single
+  `[PaletteEntry]` and one family name, so no shape in the core can carry a whole project.
+- **Colors are inert.** `ColorSwatch` (`DesignSystem/ColorSwatch.swift`) carries no
+  gesture; of fifteen call sites only three are clickable.
+- **Nothing persists and there is no settings home.** No `Settings` scene, no
+  `@AppStorage`, no `UserDefaults` — `formatOptions`, `pickerMode` and the rest die at
+  quit.
+- **The header is read-only.** The active swatch and the notation text under it
+  (`ColorInputField.status`) are not interactive, so changing or re-spelling the active
+  color always means leaving where you are.
+- **Recents exist but are hidden.** `ColorStore.recents` is populated and capped at 12,
+  and the only surface is the menu-bar panel — the main window never shows them.
+
+Four decisions were settled with Parker before planning, each overriding a more obvious
+reading, and are not to be re-litigated when implementing:
+
+1. **"Web-friendly" means sRGB-safe**, not "browser-supported" — every format in the
+   catalog is in fact supported by current browsers, so the honest filter is about gamut
+   and exoticism. `color(srgb …)` is hidden too, despite being in-gamut, because the
+   `color()` family is not a hand-written style.
+2. **A tool that cannot stay in sRGB is hidden, not half-restricted.** `color-mix()` is
+   the only one that qualifies — see M22.
+3. **The importer's "format" control chooses the storage spelling**, not an input hint.
+   The parser already reads all 17 formats from each value's own syntax; default is
+   preserve-as-pasted.
+4. **A real `Settings` scene with `@AppStorage`-backed persistence**, migrating the
+   existing output options into it — nothing in the app persists today.
+
+Ordered by dependency, executed top to bottom:
+
+| # | Milestone | Depends on |
+|---|---|---|
+| M19 | Settings scene + persisted preferences | — |
+| M20 | Grouped export (whole-project export) | — |
+| M21 | Interactive swatches | — |
+| M22 | Web-friendly mode | M19 |
+| M23 | Recents row + picker commit-on-release | M19, M21 |
+| M24 | Popover picker on the header swatch | M21 (M22 for the plane's gamut) |
+| M25 | Click the notation to re-spell the color | M22 (for filtering) |
+| M26 | Import from the export shapes | M19, M20 |
+
+Each milestone is its own commit (or small stack), each of which must build and test
+standalone — verify in a throwaway worktree before stacking the next, per this file's
+commit discipline below. Formatting is always a separate follow-up commit, per CLAUDE.md.
+
+### ⬜ M19 — Settings scene and persisted preferences
+
+The foundation M22 and M23 both need, and the first persistence the app has outside
+SwiftData.
+
+**Where preferences live does not change.** `ColorStore` already documents itself as the
+home for "preferences about how you like to work" (`pickerMode`, `cvdDeficiency`,
+`harmony`, `mixSpace`, `exportOptions`). Two new ones join them:
+
+```swift
+var webFriendly = false      // M22
+var showsRecents = true      // M23
+```
+
+and `recentLimit` moves from `private static let recentLimit = 12`
+(`ColorStore.swift:543`) to a settable instance property.
+
+**One new seam, not a second store.** `Color Toolkit/Services/Preferences.swift`:
+
+- `struct Preferences: Codable, Equatable, Sendable` with **explicit `CodingKeys`**,
+  holding the deliberate persisted subset — `formatOptions`, `webFriendly`,
+  `showsRecents`, `recentLimit`, `pickerMode`, `cvdDeficiency`, `exportOptions.shape`,
+  `exportOptions.template`, `exportOptions.format`. Explicit keys because `Codable`
+  derives its keys from property names and a future rename would break decoding with a
+  green build — the same hazard `.swiftformat`'s empty `--acronyms` exists to prevent.
+  *Not* persisted: `inputText`, `backgroundText`, `exportOptions.name`, `recents`,
+  `selectedProjectID`, `stagedPalette` — session state, not preferences, and a toolkit
+  that reopens on last week's half-typed color is worse than one that reopens clean.
+- `enum PreferenceStore` — one `UserDefaults` key, JSON-encoded, with `load()` and
+  `save(_:)`. A decode failure returns defaults silently; a corrupt preference file is
+  not worth a banner the way a corrupt project store is.
+- **`UITestEphemeralPreferences` launch argument**, exactly parallel to
+  `PersistenceStack.inMemoryLaunchArgument`. Without it XCUITest inherits the developer's
+  settings and a run's result depends on who ran it. **This costs three launch strings,
+  not one** — `["-NSTreatUnknownArgumentsAsOpen", "NO", "UITestEphemeralPreferences"]` —
+  for the reason CLAUDE.md records: a bare argument goes to AppKit as a file to open and
+  the app launches with a menu bar and no window. Every existing UI test's launch
+  arguments array gains the new string.
+
+**`CSSFormatOptions` becomes `Codable`** in `ColorCore/Format/CSSFormatter.swift`: add
+`Codable` to it and to `GamutPolicy` and `AlphaPolicy`, giving both enums `String` raw
+values. Compiler-checked, and it keeps one source of truth rather than a mirrored copy
+that can drift.
+
+**The scene.** `Settings { SettingsView().environment(store) }` in
+`Color_ToolkitApp.swift` — the environment must be applied explicitly, as it is for the
+other two scenes. New `Color Toolkit/Features/Settings/SettingsView.swift` with three
+sections: General (web-friendly, recents row, recents count), Output (the existing seven
+controls from `OutputOptionsMenu`), and a Reset button.
+
+**`OutputOptionsMenu` stays** (`ContentView.swift:95`). It is a second surface onto the
+same values, which is the precedent the export panel's Precision picker already set and
+documented — not a second setting.
+
+**Testing.** `Preferences` round-trips through encode/decode with every field changed
+from its default (a field omitted from `CodingKeys` fails this). A test that decoding
+garbage yields defaults. `ColorStore` applies a loaded `Preferences` and re-emits an
+equal one. **Confirm the mutation:** drop one `CodingKeys` entry and the round-trip test
+must fail — a `Codable` conformance that silently ignores a field is exactly the failure
+this is guarding. **Manual check, recorded for when this ships:** quit and relaunch,
+confirm preferences survive; and confirm a UI-test launch does *not* inherit them —
+the same class of check M8b's file write and M17's file read are, and just as
+unreachable by XCUITest.
+
+### ⬜ M20 — Grouped export: write a whole project at once
+
+**The core change is one generalization, not a second renderer.** Today
+`ExportOptions.render(_ entries: [PaletteEntry], formatting:)`
+(`ColorCore/Export/ColorExport.swift:192`) takes one list and one family name from
+`options.name`. A project needs many lists, each with its own name.
+
+Add to `ColorCore/Export/ExportTemplate.swift`, beside `PaletteEntry`:
+
+```swift
+nonisolated struct PaletteGroup: Sendable, Hashable, Identifiable {
+  let name: String
+  let entries: [PaletteEntry]
+  var id: String { name }
+}
+```
+
+Then `render(_ groups: [PaletteGroup], formatting:)` becomes the general renderer, and
+the existing signature becomes one line:
+
+```swift
+func render(_ entries: [PaletteEntry], formatting: CSSFormatOptions = .default) -> String {
+  render([PaletteGroup(name: name, entries: entries)], formatting: formatting)
+}
+```
+
+Single-group output must be **byte-identical** to today's. That is the discriminating
+test, and `ExportTests.swift` (665 lines) already pins enough output to catch a drift.
+
+Four things this design has to get right:
+
+- **`propertyName` already handles the loose-color case.** An entry with an empty key
+  yields `--<family>` rather than `--<family>-<key>`, so a project color named
+  `text color` becomes a one-entry group and comes out `--text-color` — exactly the
+  requested shape, with no new rule. `soleEntry` gives the same result in JSON
+  (`"text-color": "#e0e0e0"`) and in the Tailwind config.
+- **Group names must be uniqued, against the sanitized name.** Two palettes both called
+  `brand`, or `brand` and `Brand!`, collapse into one set of properties and colors vanish
+  silently — the identical hazard `DesignTokenImport.keyed` (`DesignTokens.swift:463`)
+  and `ProjectLibrary.paletteKeys` (`ProjectLibrary.swift:299`) already handle. Use the
+  same `-2`/`-3` suffix loop, run over `cssIdentifier(name)`, never over the raw name.
+- **`p3WithFallback` is not "render each group and concatenate".** It needs every group
+  in the hex block and then every group again inside the media query. The renderer
+  branches per shape *first*, then walks groups — which is also what keeps
+  `propertyLines` the one place a property is named, so the two blocks still cannot
+  disagree.
+- **Group comments belong only to the CSS shapes.** `/* From a ramp named "primary" */`
+  goes in `declaration`, `customProperties`, `tailwindTheme` and `p3WithFallback`. JSON
+  and the Tailwind config already name each group by nesting it, and neither has a
+  comment syntax to carry it. The comment text must go through `cssIdentifier` for the
+  reason `declarations` already sanitizes its key comment: a name containing `*/` closes
+  the comment early and turns the rest of the file into stray CSS.
+
+**App wiring.** A new `ExportSource.project` case in
+`Features/Export/ExportPresentation.swift:19`, with its own `title` and `emptyMessage`;
+`ColorStore.stagedProject: [PaletteGroup]` beside `stagedPalette`, and
+`stage(project:named:)` beside `stage(_:named:)`. `entries(for:)` keeps returning
+`[PaletteEntry]` for the other five sources; `exportDocument` picks the grouped renderer
+when the source is `.project`.
+
+**Projects panel.** An `Export Project` button in `header` (`ProjectsPanel.swift:169`),
+next to New/Delete. It builds groups from `project.orderedPalettes` (each
+`palette.paletteEntries` under `palette.name`) followed by one single-entry group per
+`project.orderedColors` — palettes first, because a ramp is the thing you came for and a
+loose color is a note beside it.
+
+**Testing.** `ExportStoreTests` has two parameterized suites over `ExportSource.allCases`
+(`:91`, `:224`) that pick the new case up automatically — check they still pass and that
+they are actually asserting something about it. New tests: single-group output is
+identical to the ungrouped call; a two-group document parses back through
+`CSSColorParser` with every color surviving (the `Export/` oracle rule — this app's own
+parser); colliding group names produce distinct properties; `p3WithFallback` emits every
+group in both blocks. Check **both cardinalities** for `json` and `tailwindConfig`, which
+fork on lone-color versus scale — a single-entry test has passed a broken multi-entry
+branch here before.
+
+### ⬜ M21 — Every swatch is a live handle
+
+`ColorSwatch` (`DesignSystem/ColorSwatch.swift`) stays exactly what it is: a dumb
+rectangle with no gesture and no accessibility of its own. Add a sibling in the same
+file:
+
+```swift
+struct SwatchButton: View   // ColorSwatch wrapped in a Button, plus a11y and a menu
+```
+
+- Two initializers, because there are two kinds of color on screen and merging them
+  destroys a spelling — the same doctrine as the three `savePalette` overloads. One takes
+  a `ColorValue` and adopts it via `store.adopt(_:preferring:)` (a derived color: a
+  harmony member, a CVD simulation, a mix). The other takes a color **and its authored
+  text** and assigns that text directly (a recent, a saved color) so a stored
+  `rebeccapurple` does not come back `#663399`.
+- `.accessibilityLabel` carrying the CSS string, and an `.accessibilityIdentifier` the
+  caller supplies. A colored rectangle says nothing to VoiceOver *or* to XCUITest, and a
+  panel that emitted one color three times would otherwise pass.
+- A context menu: **Use as color** (the default tap), **Use as background** (writes
+  `store.backgroundText` — the contrast panel needs this and a click alone cannot express
+  it), **Copy**.
+- Calls `store.remember()`, matching `TransformPanel.apply(_:)` (`:717`).
+
+**The accessibility trap this must not walk into:** a SwiftUI `Button` is one
+accessibility element, so anything layered over it disappears from the tree *and* makes
+the Button's identifier match twice — which is what broke unrelated tests when
+`ProjectsPanel`'s selection badge was an overlay (see the note at
+`ProjectsPanel.swift:358`). `SwatchButton` therefore documents that decorative chrome
+goes **inside** the label and interactive siblings go in a `ZStack`, never in
+`.overlay` — the same rule M21 restates that CLAUDE.md already carries generally.
+
+**Call sites to convert** (from the survey; `MenuBarPanel:134`, `TransformPanel:642` and
+`ProjectsPanel:370` are already buttons and fold into the new component):
+
+| File | Site | Adopts |
+|---|---|---|
+| `Features/Shell/MenuBarPanel.swift` | `:59` current, `:134` recents | text |
+| `Features/Contrast/ContrastPanel.swift` | `:53` preview | value; menu's "Use as background" earns its place here |
+| `Features/CVD/CVDPanel.swift` | `:117`, `:119`, `:160`, `:178` | value — the **simulated** color for simulated swatches |
+| `Features/Transform/TransformPanel.swift` | `:322`, `:413`, `:642`, `:675` | value, `preferring: .oklch` (transforms return OKLCH) |
+| `Features/Export/ExportPanel.swift` | `:232` | value |
+| `Features/Projects/ProjectsPanel.swift` | `:370` saved color, `:503` palette tile | text / value |
+
+Two deliberate exclusions, both worth stating rather than leaving as gaps:
+`ColorInputField`'s header swatch (`:71`) becomes the popover trigger in M24 instead, and
+**`ConversionPanel` has no swatches at all** — its rows are text, already clickable, and
+already copy. Adding a swatch per row is a visual change M25 subsumes.
+
+**Testing.** `TransformSmokeTests` already asserts swatch accessibility labels and is the
+pattern. Add UI coverage that clicking a CVD simulated swatch and a palette tile changes
+the field. Unit-test the "authored text survives" claim on the store side, since that is
+the half a rendered test cannot see.
+
+### ⬜ M22 — Web-friendly mode
+
+A single `store.webFriendly` flag (M19) with two halves: **hide formats**, and
+**recalibrate values into sRGB**. No errors, no disabled controls, no negative feedback —
+the "hide rather than disable" precedent is already established and documented twice
+(`ExportShape.usesFormat`, `ExportPanel.swift:122`).
+
+**The format table is transcribed, not derived.** Add to
+`ColorCore/Format/FormatCatalog.swift`, beside `catalog`:
+
+```swift
+static let webFriendly: [CSSOutputFormat] = [
+  .hex, .keyword, .rgb, .hsl, .hwb, .oklch, .oklab, .lch, .lab,
+]
+```
+
+A table rather than a predicate, for the reason `componentRoles` and `channelKeywords`
+are tables: the criterion is a judgment about gamut and authoring practice that the enum
+does not carry. **`color(srgb …)` is the discriminating case** — it is fully inside
+sRGB, so any gamut-derived rule would include it, and it is excluded anyway because the
+mode hides the `color()` family and nobody hand-authors that spelling. A derived
+`if case .color` rule would give the same answer today by accident and the wrong answer
+the moment a bounded non-`color()` format is added.
+
+**Three enumeration paths need the filter.** The survey found exactly three, and each
+must be handled or the mode leaks:
+
+1. **`FormatSection.all`** (`Features/Conversion/FormatPresentation.swift:46`) — feeds
+   both `ConversionPanel` and `MenuBarPanel`'s copy menu. Needs a filtered variant that
+   **drops sections left empty**, since Wide gamut loses all four entries and Exact loses
+   all four. An empty section header is exactly the "negative feedback" the mode is meant
+   to avoid.
+2. **`CSSOutputFormat.exportable`** (`ColorCore/Export/ColorExport.swift:77`) — the export
+   panel's Format picker.
+3. **`ColorSpace.allCases`** (`Features/Transform/TransformPanel.swift:277`) — the mix
+   interpolation-space picker.
+
+Also hide **`ExportShape.p3WithFallback`** from the shape picker: it is a wide-gamut
+shape by definition. Its `wideFormat` is `.color(.displayP3)`, so leaving it live would
+put a wide-gamut block in a document the mode promised would not contain one.
+
+**A tool that cannot stay in sRGB is hidden, not half-restricted.** The rule that
+decides every case below: if a tool's output can be pulled into sRGB honestly, it is
+recalibrated; if it cannot, the tool is **hidden**, exactly as an unreachable format is.
+Half-restricting a tool that can still emit a wide value would leave mixed formats in the
+output and defeat the mode.
+
+Checked against every color-producing tool, **mixing is the only one that has to go**:
+
+| Tool | Under web-friendly |
+|---|---|
+| Harmony | Recalibrated — `HarmonyOptions.gamut = .srgb` |
+| Shade ramp | Already `.srgb` by default; nothing to do |
+| Adjustment / lightness curve | Recalibrated — same optional gamut |
+| Contrast solver | Recalibrated — clamp on the returned color |
+| Picker | Recalibrated — plane and cursor clamped to the sRGB edge |
+| CVD simulation | Already `convertedAndMapped(to: .srgb)` (`CVDSimulation.swift:80`) |
+| **`color-mix()`** | **Hidden** |
+
+**Why mixing cannot be recalibrated**, in the order the reasons bite:
+
+1. CSS Color 4 §12 has **no gamut-mapping step**, so clamping a mix would make this app
+   disagree with browsers about `color-mix()` — the explicit reason the mix fixture
+   generator skips out-of-gamut endpoints in the first place.
+2. Restricting the *interpolation space* to the sRGB family does not rescue it either.
+   That would guarantee an in-gamut result only for in-gamut endpoints, and under
+   web-friendly the field must still **accept** a typed `oklch(0.9 0.3 140)` — the mode
+   hides things, it does not reject input. So an endpoint can be outside sRGB and no
+   choice of space contains it.
+
+**Concretely:** M15 folded mixing into `TransformPanel` as a fifth section, not a
+separate tool, so hiding it means hiding that section — the interpolation-space picker
+(`TransformPanel.swift:277`), the hue-method picker, the amount slider, the result
+swatch (`:322`) and its "Use it" button. `store.mixSpace` and `mixHueMethod` stay on the
+store untouched, so turning the mode off restores exactly the setup you left.
+
+**The parser is unaffected, and deliberately so.** `color-mix(…)` typed or pasted into
+the field still parses, because the mode disables non-web-friendly *output* while still
+allowing import from those formats. Same for `rgb(from …)` and `calc()`. The CLI needs
+no change: it has no web-friendly mode, and `theParserIsTheMixCommand` already pins that
+it has no `mix` command to hide.
+
+`FormatSectionTests` (44 lines) currently asserts the four sections partition the
+catalog exactly. **Keep that assertion on the unfiltered list** and add a counterpart
+requiring that the filtered sections partition `webFriendly` and contain no empty
+section.
+
+**Recalibrating values — where, and where deliberately not.** Do not touch
+`ColorValue.derivedOKLCH(_:)` (`Transform/Adjustment.swift:70`). It is the narrowest
+seam — Adjustment, Harmony, ShadeRamp, ContrastSolver and LightnessCurve all funnel
+through it — which is exactly why changing it would silently break the rule "harmonies
+are never gamut-mapped", a rule with tests pinning it in both directions. Constrain at
+the option structs instead, defaulting to today's behaviour:
+
+- **Extract one clamp.** `ShadeRamp` already pulls a stop in with
+  `GamutBoundary.maxChroma` under an `inGamut` guard (`ShadeRamp.swift:120`), and that
+  guard is a correctness rule, not an optimization — clamping unconditionally moves the
+  base off itself, and an unbounded gamut returns `.infinity`. Lift it into one
+  `ColorValue.pulledInto(_ gamut: ColorSpace)` in `Convert/GamutBoundary.swift` and have
+  `ShadeRamp` call it too, so there is one implementation.
+- **`HarmonyOptions` gains `gamut: ColorSpace?`**, nil by default. Set to `.srgb` under
+  web-friendly. Existing tests, which assert a rotated hue leaves sRGB, keep passing on
+  the default.
+- **`ContrastSolver`** gains the same optional clamp on its returned color. Its search is
+  already on sRGB relative luminance, so this only constrains the answer, not the maths.
+  The `solve` self-check still applies — the solver keeps its bracket's passing end.
+- **`ColorInterpolation` is not touched at all**, because the mix section is hidden
+  rather than restricted — see the table above. The arithmetic stays exactly as CSS
+  Color 4 §12 has it, which is what keeps this app agreeing with browsers about
+  `color-mix()`.
+- **The picker.** `PickerPlane` already computes `srgbEdge` alongside `displayEdge`
+  (`:167-170`) and `PickerPanel` already strokes both. Under web-friendly, render the
+  plane against the sRGB edge and clamp the cursor's chroma to
+  `GamutBoundary.maxChroma(…, in: .srgb)`. The "sRGB allows 0.xxxx here" readout and the
+  "Outside sRGB" badge (`PickerPanel.swift:338-359`) become unreachable rather than
+  wrong — hide them.
+
+**The subtle one: `spelling(preferring:)`.** `ColorValue.spelling(preferring:)`
+(`FormatCatalog.swift:108`) **promotes** a format to `color(display-p3 …)` whenever the
+preferred one would gamut-map. It fires on `ColorStore.adopt`, `sampleFromScreen`,
+`PickerState.cssToWrite()` and `TransformPanel`'s adopt — four paths that would each
+quietly write a wide-gamut string into the field while the mode claims to be sRGB-only.
+A screen sample off a P3 display is the everyday case.
+
+Add `spelling(preferring:allowingWideGamut:)`, defaulting to `true` so nothing else
+changes, and pass `!webFriendly` from `ColorStore.adopt` and `PickerState.cssToWrite()`.
+When wide gamut is disallowed the color is mapped into sRGB on the way in — which is the
+mode's whole promise, and it must be stated here that this is *lossy on purpose*.
+
+**Testing.** `webFriendly` is a subset of `catalog` and every member is
+in-sRGB-expressible. Each of the three enumeration sites returns only web-friendly
+entries when the flag is set, and `p3WithFallback` is absent from the shape list.
+Harmonies with `gamut: .srgb` produce only in-gamut members while the default still
+escapes — **assert the disagreement**, since that is the claim, and the existing test
+that a constant-chroma ramp really does leave the gamut is the model for it. `adopt` of a
+P3 sample under the flag writes a string that re-parses inside sRGB. UI: the mix section
+is absent under the flag and returns when it is cleared, with `store.mixSpace` unchanged
+across the round trip. **Manual check, recorded for when this ships:** the mode on a P3
+display — sample a wide color off-screen and confirm the field receives an sRGB
+spelling, not a promoted `color(display-p3 …)`.
+
+**Mutations to confirm:** derive `webFriendly` from `if case .color` instead of the table
+(the `color(srgb …)` test must fail); drop the `spelling(preferring:)` change (the adopt
+test must fail); restrict the mix space picker instead of hiding the section, then mix
+from a typed out-of-gamut endpoint (the result must still escape sRGB — this is the
+mutation that proves hiding was necessary rather than cautious).
+
+### ⬜ M23 — Recents row, and committing a pick on release
+
+Two small changes that share a subject.
+
+**The row.** New `Features/Shell/RecentsRow.swift`, placed in `ContentView`'s `VStack`
+between `ColorInputField` and the tool `Picker` — above the switcher, because a recent
+belongs to no tool, the same argument the input field itself sits on. Gated on
+`store.showsRecents` (M19). Built from `SwatchButton`'s authored-text initializer (M21)
+so clicking a recent returns *your* spelling, which is what `RecentColor.text` exists
+for. A "Clear" affordance matching `MenuBarPanel:115`.
+
+`recentLimit` becomes settings-backed (M19). Default stays 12 — "10 or so", and the menu
+bar's 6-column grid divides evenly into it.
+
+**Commit on release.** `PickerPanel.rememberWhenSettled()` (`:512-519`) is a 1-second
+debounce shared by the plane, hue strip and alpha strip. Replace it with
+`store.remember()` directly in each of the three `onEnded` handlers (`:173`, `:225`,
+`:276`) and delete `rememberSoon`. This is what was asked for and it is also strictly
+better than the debounce, which drops the first of two picks made within a second of
+each other. `remember()` already dedupes by exact `ColorValue`, so a click that does not
+move the cursor files one entry, not two.
+
+**Testing.** Unit: `recentLimit` is honoured when lowered, and lowering it truncates an
+already-full list. UI: `PickerSmokeTests` needs a look — anything timing-coupled to the
+old debounce goes. A UI test that a recent appears in the window's row after a submit,
+and that clicking it restores the authored spelling (the store-side half is already
+covered by `ColorStoreTests`).
+
+### ⬜ M24 — A popover picker on the header swatch
+
+`ColorInputField.swatch` (`:68-81`) becomes a `Button` presenting a `.popover`. The
+dashed empty-state rectangle becomes a button too — with no color yet, opening the
+picker is the single most useful thing that swatch could do.
+
+**Share the controls; do not clone them.** `PickerPanel` currently renders the plane
+(`:146-164`), hue strip (`:196-211`) and alpha strip (`:252-267`) inline. Extract the
+three into their own small views in `Features/Picker/` and have both `PickerPanel` and a
+new `CompactPicker` compose them. Two implementations of a gamut-clamped chroma axis
+would drift, and M22 gives them a second reason to.
+
+The popover owns its own `PickerState`, seeded from the store on appear and using the
+same `lastWritten` loopback guard (`PickerState.syncing(with:color:)`, `:184`) — the
+picker must ignore its own writes or every drag tick re-seeds it. It writes through
+`store.inputText` on change and calls `store.remember()` on drag end, per M23.
+
+The header swatch Button's label stays the swatch itself; the popover is a modifier, not
+an overlay — M21's accessibility rule applies here too.
+
+**Testing.** UI: the header swatch is hittable, opening it reveals `pickerPlane`, and
+dragging changes `colorInput`. Wait on **hittability**, not existence — a popover
+resizes nothing but the panel behind it can still move. Unit coverage stays on
+`PickerState` (`PickerStateTests`, 263 lines), which is where the arithmetic is.
+
+### ⬜ M25 — Click the notation to re-spell the active color
+
+`ColorInputField.summary(for:)` renders `Text(describe(result.notation))` (`:112`) — the
+"6-digit hex" / "oklch()" line under the swatch. Make it a `Menu` listing every format
+that can name the current color, grouped by `FormatSection` (filtered under M22).
+Choosing one rewrites `store.inputText`.
+
+Three things to get right:
+
+- **A `Menu` is a `menuButton` to XCUITest**, not a `popUpButton`. The wrong query never
+  matches. `MenuBarPanel.copyMenu` (`:86-103`) is the existing example of this exact
+  shape, and its `FormatSection` walk is the code to share rather than repeat — that is
+  now three walks of `FormatSection.all` (conversion rows, copy menu, this), which is
+  worth consolidating while M22 is filtering them anyway.
+- **Write at `.lossless`, never at display precision.** `ColorStore` keeps text as its
+  source of truth, so the string written here is immediately re-parsed; rounding it to
+  the panel's 4 decimals would destroy the value permanently. This is the same rule
+  `adopt(_:preferring:)` follows and it accepts the same cost — a re-spelled `oklch()`
+  shows ten decimals in the field.
+- **Filter to formats that can name the color.** `.keyword` returns nil for all but 148
+  colors; `allFormats(options:)` already `compactMap`s, so build the menu from it rather
+  than from the raw catalog.
+
+**Testing.** Unit: re-spelling round-trips — for each exportable format, writing the
+active color in it and re-parsing yields an equal color (or a gamut-mapped one where the
+format `cannotRepresentOutOfGamut`, which is the honest exception). UI: the notation
+control exists as a `menuButton`, and choosing a format changes `colorInput`.
+
+### ⬜ M26 — Import from the export shapes
+
+The largest milestone, and last because it consumes M20's group vocabulary.
+
+**Core: `ColorCore/Import/PaletteImport.swift`.** A separate `ImportShape` enum,
+deliberately not `ExportShape`. The two vocabularies differ in both directions: design
+tokens are importable and not an export shape, and a bare list of colors is importable
+and not a document shape at all. Reusing `ExportShape` would mean two cases that mean
+nothing on one side — the same argument that kept `color-mix()` out of `ColorFunction`.
+
+```
+customProperties · declaration · json · tailwindTheme · tailwindConfig
+p3WithFallback · designTokens · looseColors
+```
+
+**`PaletteImport.detect(_ text: String) -> ImportShape`** — structural sniffing, most
+specific first: `@theme {` → tailwindTheme; `module.exports` or the `@type
+{import('tailwindcss')` banner → tailwindConfig; `@media (color-gamut` → p3WithFallback;
+`:root {` with `--` properties → customProperties; parses as a JSON object containing
+`$value` → designTokens; parses as a JSON object → json; lines shaped `prop: value;` →
+declaration; otherwise looseColors.
+
+**`PaletteImport.parse(_ text:, as shape:) -> ImportedPalette`** returning
+`{ groups: [PaletteGroup], detectedName: String?, texts: [String: String], skipped: [...] }`.
+Report per-value failures the way `DesignTokenImport` does — a thrown error only for a
+whole-input failure, a `skipped` list for individual values — so one bad line does not
+lose the other forty.
+
+**There is no multi-color entry point in ColorCore today.** `CSSColorParser.parse`
+handles exactly one color and throws `trailingContent` otherwise. This milestone adds
+the first multi-color reader, and the seam is: **extract values structurally, then parse
+each one individually.** Values come from between `:` and `;` (CSS), or from JSON string
+values. The parser's single-color contract stays untouched, which is what keeps 35 error
+cases meaning what they mean.
+
+**Name extraction is segment-wise, not character-wise.** Strip `--`, strip Tailwind's
+`color-` namespace for the theme shape, then take the longest common **hyphen-segment**
+prefix across all keys: `primary-100`, `primary-200` → family `primary`, keys `100`,
+`200`. A character-wise prefix would turn `primary-100` and `primar-200` into `primar`
+and produce keys nothing references. With no common prefix — `text-color`,
+`ground-color` — the family is empty and each property becomes its own single-entry
+group, which is precisely the inverse of M20's loose-color rule.
+
+**The round trip is the oracle.** `Export/` already uses this app's own parser as its
+oracle; import can use the exporter. The discriminating test: render a two-group project
+in each shape, import it back, and require the same groups, keys and colors. No external
+reference is needed and no output string is pinned, so the claim survives a rewrite of
+either side.
+
+**Storage spelling is the "format" control.** Per the settled decision, the panel's
+Format control chooses **how imported colors are stored**, defaulting to *preserve* —
+each color keeps the spelling it was pasted in. This is the same doctrine as the three
+`savePalette` overloads, whose whole difference is how each derives the stored spelling.
+
+That needs a **fourth `savePalette` overload** in `Persistence/ProjectLibrary.swift`,
+taking key/color/text triples. The existing ones cannot serve: the `[PaletteEntry]` one
+re-derives with `preferring: .oklch`, the `from: [SavedColor]` one copies an existing
+record, and the `importing: [DesignToken]` one spells in the token's named space. None
+carries pasted text. Merging into any of them destroys exactly the thing that must
+survive — the same rule CLAUDE.md already states about the other three. It shares
+`newPalette(named:kind:in:)` and nothing else, and gets a new `PaletteKind` (or reuses
+`.imported`, decided when writing it).
+
+**UI: a sheet off the Projects panel, not an eighth tool.** The tool switcher is at its
+tested ceiling of seven and an eighth segment is unmeasured risk — this is why M15's
+mixing folded into Transform and M17's import folded into Projects. Import-from-text
+folds into Projects the same way.
+
+The save-controls row (`ProjectsPanel.swift:237-268`) already carries four buttons, so
+`Button("Import Tokens…")` becomes `Menu("Import")` with **From Text…** and **From Token
+File…**. The row stays at four controls.
+
+The sheet holds: a paste box; the detected shape as an overridable picker; the detected
+name as an editable field; the storage-format picker (default "Keep as pasted"); a
+destination — existing project (picker, defaulting to the current one) or a new project
+(name field); and a live preview of the groups and colors that will be created, plus a
+count of anything skipped. A sheet rather than inline because none of that fits beside
+four buttons.
+
+`ProjectLibrary.rename(_ palette:to:)` (`:259`) is currently the library's only unwired
+mutation — the sheet's name field is a natural place to finally give it a call site, or
+to note deliberately that it still has none.
+
+**Testing.** Unit (`Color ToolkitTests/`, a new `PaletteImportTests.swift` beside
+`DesignTokenImportTests.swift`): shape detection for every shape plus ambiguous inputs;
+segment-wise name extraction, including the `primary`/`primar` case that discriminates
+it; the round trip through every shape at both cardinalities; a malformed value is
+skipped and reported while its neighbours import. Persistence (`ProjectStoreTests.swift`):
+the fourth overload preserves pasted text — parse the stored text back and require it to
+reproduce the components, the same check the other overloads carry. UI
+(`ProjectsSmokeTests.swift`): the Import menu exists and opens; **query the sheet's
+controls through `app.sheets`**, since a sheet's buttons appear more than once app-wide
+and an ambiguous query fails at the click with no tree to read.
+
+### Files touched, by area (M19–M26)
+
+**ColorCore** — `Export/ExportTemplate.swift` (`PaletteGroup`), `Export/ColorExport.swift`
+(grouped renderer), `Format/FormatCatalog.swift` (`webFriendly`,
+`spelling(preferring:allowingWideGamut:)`), `Format/CSSFormatter.swift` (`Codable`),
+`Convert/GamutBoundary.swift` (`pulledInto`), `Transform/Harmony.swift` +
+`ContrastSolver.swift` + `ShadeRamp.swift` (optional output gamut), new
+`Import/PaletteImport.swift`.
+
+**App** — new `Features/Settings/`, new `Features/Shell/RecentsRow.swift`, new
+`Services/Preferences.swift`; `DesignSystem/ColorSwatch.swift` (`SwatchButton`),
+`ContentView.swift`, `Features/Conversion/ColorInputField.swift` +
+`FormatPresentation.swift`, `Features/Picker/PickerPanel.swift` + `PickerState.swift`,
+`Features/Export/ExportPanel.swift` + `ExportPresentation.swift`,
+`Features/Projects/ProjectsPanel.swift`, `Features/Shell/ColorStore.swift`,
+`Persistence/ProjectLibrary.swift`, `Color_ToolkitApp.swift`.
+
+**Docs** — this file gains the new invariants as each milestone lands (the grouped
+renderer's uniquing rule; the `webFriendly` table's transcription rule and the
+`color(srgb …)` discriminator; the hide-don't-restrict rule for tools that cannot stay
+in sRGB, and why mixing is the only one; the fourth `savePalette` overload;
+`UITestEphemeralPreferences`'s three launch strings) — CLAUDE.md picks up the same
+invariants once each is built, per its own convention.
+
+---
+
 ## Verification
 
 **A feature reached through a system loupe or a global chord has links no test can touch**, and they fail independently — so check them separately rather than as one gesture. For M4 that was: (1) does the menu bar show the chord, proving the OS accepted the registration and a scene's `.task` fired; (2) does the chord raise the loupe from *another* app, proving the key is captured and the C callback reaches the main actor; (3) does the picked color reach the field and the clipboard, proving the sandbox and the bridge. All three passed. Everything either side of them is covered by [ScreenSamplerTests](Color%20ToolkitTests/ScreenSamplerTests.swift) and [GlobalHotKeyTests](Color%20ToolkitTests/GlobalHotKeyTests.swift).
@@ -1787,6 +2384,7 @@ Per milestone:
 - **M17:** [DesignTokenImportTests](Color%20ToolkitTests/DesignTokenImportTests.swift) for the decoder and [ProjectStoreTests](Color%20ToolkitTests/ProjectStoreTests.swift) for the path through a container. **A fifth distinct no-oracle reason, and the simplest one yet**: colorjs.io parses CSS, and a design token's `$value` is a JSON object rather than a CSS string, so there is nothing to ask it. The Color module's own documented shapes are the fixtures, written inline rather than in fixture files — the generated vector sets earn their own files by being thousands of numbers, where these are five lines of JSON apiece and only read as the spec examples they are when they sit beside the assertion. **Ten mutations, all ten killed, and every failure set is tight**: uniquing on the raw path instead of the sanitized key fails one test, ignoring a resolved reference's type one, letting `hex` rescue broken components one, sorting names as text two (both the ordering claims), dropping the `none` mask one, dropping the alpha clamp one, spelling imports `oklch()` one, keying on a token's leaf name instead of its whole path three (every claim about keys), and ignoring a token's own `$type` one — that last mutation being the one that *found* a gap, since nothing had pinned the first arm of the precedence chain until it was written. The cycle-detection mutation is the odd one out and worth its own sentence: removing the visited set fails the suite **without reporting a single test**, because the unbounded recursion takes the test process down with it. That is the shape of the bug the visited set prevents, and it is why the rule is not an optimization. Two claims are asserted by discrimination rather than by equality alone — an sRGB `[1, 0, 0]` is checked against the `1/255` it would be under `rgb()`'s scale, and the `hex` fallback is checked with a *known* space and broken components, where a fallback that fired would look perfectly plausible. One test deliberately does *not* isolate a rule: `awholeFileImports` takes an alias, two color spaces, a description and a dimension token in one document, because the per-rule tests are diagnostic precisely by testing one thing at a time and a real token file is never one thing. It asserts the three counts together, since those are what the panel reports and "imported 4, ignored 1" is only true if all three are — and it is in the failure set of the reference-type mutation, so it discriminates rather than decorates.
 - **M17, the part no test reaches — and it passed.** This is the app's only file read, so it is the only place a **sandbox** denial can happen, and every test above loads its JSON from a string in the test bundle: that exercises the decoder and nothing about the sandbox. Same shape as M4's loupe and global chord — links a test cannot touch, wanting a named manual check instead. The check is *choose a token file in `~/Downloads` through the Import button and confirm a palette appears*, and it was run on the built app: four swatches under an `Imported` badge, with the summary reading `Imported 4 colors from color-toolkit-m17-check.tokens.json. Ignored 1 token of other types.` So the powerbox URL reads under `ENABLE_USER_SELECTED_FILES = readonly` with the security-scoped claim, which was the open question. **The screenshot happens to discriminate three separate rules, which is why it is worth more than a pass**: the second and fourth swatches are the *same blue*, so `semantic.primary` — a token with no `$type` of its own — resolved through its alias to `brand.500` and took both its value and its type, the rule a filter-then-resolve design drops silently; the order is `50, 500, 900, primary`, so numeric sorting held on real data where alphabetical would have filed `500` ahead of `50`; and the navy is the `display-p3` token, so the wide-gamut path rendered as well as the sRGB ones. XCUITest cannot drive `NSOpenPanel`, exactly as it cannot start a dragging session, so [ProjectsSmokeTests](Color%20ToolkitUITests/ProjectsSmokeTests.swift) stops at asserting the control reached the panel and is hittable — a test that clicked it would fail whether the feature worked or not. The panel's error copy is built for this: the open-panel dismissal, the read, the decode, "readable file with nothing importable in it", and the save are five outcomes with five different sentences, because a denial reported as "no color tokens in that file" would be undiagnosable.
 - **M18:** [ColorToolkitCLITests](ColorToolkitCLITests/CommandTests.swift), and **the oracle is this app's own parser** — the same standard `Export/` is held to and for the same reason: the CLI's output is text a machine will read back. So the discriminating assertion is that a printed value survives `CSSColorParser`, applied to all six document shapes at both cardinalities and to every listing; exact strings are kept for *syntax* (exit codes, which stream a message lands on, `:root {`) and are wrong for anything editorial. Three claims are asserted as totality over an `allCases` rather than by example, because each is a table that a change in ColorCore can silently outgrow: every catalog format has a CLI name and the name inverts, every export shape has one that is lowercase and round-trips, and every command in the `--help` listing dispatches to something. **Twelve mutations, all twelve killed, and every failure set is tight** — collapsing the usage and failure exit codes fails one test, routing diagnostics to stdout five, accepting an unknown option as a positional one, accepting an inert `--format` one, uniquing export keys on the raw path instead of the sanitized key one, ignoring `mappedCountFormat` one, dropping `solve`'s read-back check two, canonicalizing the token listing's spelling one, short-circuiting `--help` before argument scanning one, deriving shape names from raw values three, dropping the listing's mapped note three, and dropping the `convert` table's mapped marker one. **The value extractor took two attempts and the first one is the lesson**: reading "everything after the first space" agreed with three output shapes and silently handed the other five a value with punctuation attached, which reads exactly like a broken serializer — so it now matches structurally, on a `#` run or a *color* function name followed by a balanced paren group. That last qualifier is not decoration: `tailwind-config` opens with `/** @type {import('tailwindcss').Config} */`, and `import(…)` satisfies every part of the shape rule but the name. **Three findings came out of the suite failing first.** The ramp's in-gamut assertion has to read the value at full precision, because a stop on the boundary rounds outward at four decimals and the test would otherwise be measuring the serializer; the mapped-note test had to move from `ramp` to `harmony`, because every ramp stop is already in gamut and asking a ramp for a mapped value tests nothing; and `solve`'s guarantee turned out not to survive serialization at all, which is the milestone note above.
+- **M19–M26 (planned):** none of the eight has landed yet, so nothing below is a finding — it is the standard of proof each milestone must meet before its commit lands, stated in advance so the mutation run has a target. **M19:** `Preferences` round-trips through encode/decode with every field changed, decoding garbage yields defaults, and dropping a `CodingKeys` entry must fail the round-trip test; the quit-and-relaunch check is manual, in the shape of M8b's write and M17's read. **M20:** single-group output byte-identical to today's `render`, a two-group document round-tripping through `CSSColorParser`, colliding group names producing distinct properties, and both cardinalities of `json`/`tailwindConfig` checked separately. **M21:** `TransformSmokeTests`' pattern extended to a CVD swatch and a palette tile, plus a unit test that the authored-text initializer never re-derives a spelling. **M22:** `webFriendly` asserted as a subset of `catalog`; each of the three enumeration sites filtered; a harmony's disagreement between `gamut: .srgb` and the unclamped default asserted explicitly; three named mutations (deriving the table from `if case .color`, dropping the `spelling` change, restricting rather than hiding the mix picker) each required to fail a specific test; the P3-display sample is a manual check. **M23:** `recentLimit` honoured and truncating when lowered; a UI test that a recent appears after a submit and restores the authored spelling on click. **M24:** the header swatch hittable, the popover revealing `pickerPlane`, dragging changing `colorInput` — waited on hittability, not existence. **M25:** every exportable format round-trips the active color when chosen from the menu (or gamut-maps where `cannotRepresentOutOfGamut`); the control queried as a `menuButton`. **M26:** shape detection for every shape and ambiguous inputs, the `primary`/`primar` segment-wise extraction case, the export round trip at both cardinalities, a malformed value skipped without losing its neighbours, the fourth `savePalette` overload's pasted text surviving a re-parse, and the sheet's controls queried through `app.sheets`.
 - **M3/M4 (UI):** run the app and verify interactively. Spot-check conversions against a browser's DevTools color picker, which implements the same spec — a fast, honest end-to-end sanity check.
 
 The scheme is shared and works from the command line:
