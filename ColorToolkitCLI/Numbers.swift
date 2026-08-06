@@ -20,8 +20,12 @@ enum Numbers {
   static func trimmed(_ value: Double, _ places: Int = 4) -> String {
     var text = fixed(value, places)
     guard text.contains(".") else { return text }
-    while text.hasSuffix("0") { text.removeLast() }
-    if text.hasSuffix(".") { text.removeLast() }
+    while text.hasSuffix("0") {
+      text.removeLast()
+    }
+    if text.hasSuffix(".") {
+      text.removeLast()
+    }
     return text
   }
 }

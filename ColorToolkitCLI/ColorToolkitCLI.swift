@@ -27,6 +27,28 @@ enum ColorToolkitCLI {
     ("tokens", "Read a W3C design token file", TokensCommand.usage),
   ]
 
+  static var help: String {
+    let width = commands.map(\.name.count).max() ?? 0
+    let list = commands.map { command in
+      "  " + PaletteOutput.pad(command.name, to: width) + "  " + command.summary
+    }.joined(separator: "\n")
+
+    return """
+    colorkit \(version) — CSS colors from the command line.
+
+    Usage: colorkit <command> [arguments]
+
+    \(list)
+
+    Any command takes --help for its own arguments. Results go to stdout and
+    everything else to stderr, so a value can be captured directly:
+
+      colorkit convert "color-mix(in oklch, red, blue)" --format hex
+
+    Exit codes: 0 success, 1 the command ran and failed, 2 the command line was wrong.
+    """
+  }
+
   static func run(_ arguments: [String]) -> CommandOutcome {
     guard let name = arguments.first else {
       // No arguments is a misuse, not a request for help — so the text goes to stderr
@@ -69,28 +91,6 @@ enum ColorToolkitCLI {
     } catch {
       return error.outcome
     }
-  }
-
-  static var help: String {
-    let width = commands.map(\.name.count).max() ?? 0
-    let list = commands.map { command in
-      "  " + PaletteOutput.pad(command.name, to: width) + "  " + command.summary
-    }.joined(separator: "\n")
-
-    return """
-    colorkit \(version) — CSS colors from the command line.
-
-    Usage: colorkit <command> [arguments]
-
-    \(list)
-
-    Any command takes --help for its own arguments. Results go to stdout and
-    everything else to stderr, so a value can be captured directly:
-
-      colorkit convert "color-mix(in oklch, red, blue)" --format hex
-
-    Exit codes: 0 success, 1 the command ran and failed, 2 the command line was wrong.
-    """
   }
 
   // MARK: Private

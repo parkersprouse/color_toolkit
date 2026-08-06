@@ -429,7 +429,8 @@ struct TransformCommandTests {
     // not the ramp's clamp, and it fails. At ten decimals what comes back is the
     // `ColorValue` the ramp produced, and *that* is what has to be in gamut.
     for value in printedColors(ColorToolkitCLI.run(["ramp", "#3b82f6",
-                                                    "--precision", "10"]).output) {
+                                                    "--precision", "10"]).output)
+    {
       let color = try #require(CSSColorParser.color(value))
       #expect(color.inGamut(of: .srgb, epsilon: ColorValue.gamutNoiseTolerance),
               "\(value) left sRGB")

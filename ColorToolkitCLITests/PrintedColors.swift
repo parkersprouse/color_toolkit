@@ -29,7 +29,9 @@ func printedColors(_ text: String) -> [String] {
 
     if character == "#" {
       var end = index + 1
-      while end < characters.count, characters[end].isHexDigit { end += 1 }
+      while end < characters.count, characters[end].isHexDigit {
+        end += 1
+      }
       if end > index + 1 {
         found.append(String(characters[index ..< end]))
         index = end
@@ -39,7 +41,9 @@ func printedColors(_ text: String) -> [String] {
 
     if character == "(" {
       var start = index
-      while start > 0, isIdentifierCharacter(characters[start - 1]) { start -= 1 }
+      while start > 0, isIdentifierCharacter(characters[start - 1]) {
+        start -= 1
+      }
       // Only a *color* function counts. `tailwind-config` opens with
       // `/** @type {import('tailwindcss').Config} */`, and `import(…)` is an identifier
       // immediately followed by a balanced paren group like every color function is —
@@ -49,10 +53,14 @@ func printedColors(_ text: String) -> [String] {
         var depth = 0
         var end = index
         while end < characters.count {
-          if characters[end] == "(" { depth += 1 }
+          if characters[end] == "(" {
+            depth += 1
+          }
           if characters[end] == ")" {
             depth -= 1
-            if depth == 0 { break }
+            if depth == 0 {
+              break
+            }
           }
           end += 1
         }

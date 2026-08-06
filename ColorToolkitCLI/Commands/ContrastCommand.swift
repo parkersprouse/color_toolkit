@@ -50,7 +50,7 @@ enum ContrastCommand {
     var outcome = CommandOutcome.result(lines.joined(separator: "\n"))
     outcome.diagnostic = (
       ColorArgument.warnings(foreground, as: "foreground color")
-        + ColorArgument.warnings(background, as: "background color")
+        + ColorArgument.warnings(background, as: "background color"),
     ).joined(separator: "\n")
 
     // **The exit code only carries a verdict when one was asked for.** Without

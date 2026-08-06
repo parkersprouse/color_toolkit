@@ -38,7 +38,7 @@ enum AdjustCommand {
     outcome.diagnostic = (
       ColorArgument.warnings(parsed, as: "color")
         + [PaletteOutput.mappedNote([PaletteEntry(key: "", color: result)], options)]
-        .compactMap(\.self)
+        .compactMap(\.self),
     ).joined(separator: "\n")
     return outcome
   }

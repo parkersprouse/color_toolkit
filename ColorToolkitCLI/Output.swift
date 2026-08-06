@@ -3,28 +3,6 @@ import Foundation
 /// The options every color-emitting command shares, and the rules about which of them
 /// mean anything together.
 struct OutputOptions {
-  // MARK: Static
-
-  /// The options a command has to declare to accept an `OutputOptions`.
-  static let spec = OptionSpec(valued: ["format", "precision", "shape", "name", "template"])
-
-  /// The format a command writes when nothing says otherwise.
-  ///
-  /// `oklch()` for the reason `TransformPanel` adopts with `preferring: .oklch`: it is
-  /// unbounded, so it can spell a result that left sRGB instead of quietly moving it,
-  /// and a round trip through it does not quantize onto the 8-bit grid the way hex does.
-  static let defaultFormat: CSSOutputFormat = .oklch
-
-  // MARK: Properties
-
-  var format: CSSOutputFormat = defaultFormat
-  var formatting: CSSFormatOptions = .default
-
-  /// The document to render, or `nil` for the two-column listing.
-  var shape: ExportShape?
-  var name = ExportOptions.defaultName
-  var template: ExportTemplate = .color
-
   // MARK: Lifecycle
 
   /// Reads the shared options, rejecting any that the chosen shape would ignore.
@@ -89,6 +67,26 @@ struct OutputOptions {
   }
 
   // MARK: Internal
+
+  // MARK: Static
+
+  /// The options a command has to declare to accept an `OutputOptions`.
+  static let spec = OptionSpec(valued: ["format", "precision", "shape", "name", "template"])
+
+  /// The format a command writes when nothing says otherwise.
+  ///
+  /// `oklch()` for the reason `TransformPanel` adopts with `preferring: .oklch`: it is
+  /// unbounded, so it can spell a result that left sRGB instead of quietly moving it,
+  /// and a round trip through it does not quantize onto the 8-bit grid the way hex does.
+  static let defaultFormat: CSSOutputFormat = .oklch
+
+  var format: CSSOutputFormat = defaultFormat
+  var formatting: CSSFormatOptions = .default
+
+  /// The document to render, or `nil` for the two-column listing.
+  var shape: ExportShape?
+  var name = ExportOptions.defaultName
+  var template: ExportTemplate = .color
 
   /// The format whose gamut the "mapped" warning is counted against.
   ///

@@ -12,11 +12,7 @@ import Testing
 
 @Suite("Argument scanning")
 struct ArgumentScanningTests {
-  private static let spec = OptionSpec(flags: ["all"], valued: ["format", "name"])
-
-  private static func scan(_ raw: [String]) throws -> Arguments {
-    try Arguments(raw, spec: spec)
-  }
+  // MARK: Internal
 
   @Test("Positionals keep their order and options are lifted out from between them")
   func positionalsKeepOrder() throws {
@@ -88,6 +84,14 @@ struct ArgumentScanningTests {
     #expect(throws: (any Error).self) {
       try Arguments(["--stops", "2.5"], spec: spec).integer("stops")
     }
+  }
+
+  // MARK: Private
+
+  private static let spec = OptionSpec(flags: ["all"], valued: ["format", "name"])
+
+  private static func scan(_ raw: [String]) throws -> Arguments {
+    try Arguments(raw, spec: spec)
   }
 }
 

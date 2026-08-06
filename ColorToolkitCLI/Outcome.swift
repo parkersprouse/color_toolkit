@@ -6,8 +6,6 @@ import Foundation
 /// whole front-end testable from a unit test — `main.swift` is the only code that
 /// touches a file handle, and it does nothing but route these three fields.
 struct CommandOutcome: Equatable {
-  // MARK: Nested types
-
   /// The three exit statuses the CLI distinguishes, and no others.
   ///
   /// A caller scripting this tool can tell "you asked wrong" from "the color you gave
@@ -32,8 +30,6 @@ struct CommandOutcome: Equatable {
       }
     }
   }
-
-  // MARK: Properties
 
   /// Goes to stdout. Results only — this is what a `$(…)` in a shell script captures.
   var output: String = ""

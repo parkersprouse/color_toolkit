@@ -26,14 +26,18 @@ enum CLIError: Error, Equatable {
 /// the two sets is what lets the scanner reject an unknown option instead of guessing —
 /// and an unknown option accepted silently is a typo that changes the answer.
 struct OptionSpec {
-  let flags: Set<String>
-  let valued: Set<String>
+  // MARK: Lifecycle
 
   init(flags: Set<String> = [], valued: Set<String> = []) {
     // `--help` is accepted everywhere, so no command has to remember to list it.
     self.flags = flags.union(["help"])
     self.valued = valued
   }
+
+  // MARK: Internal
+
+  let flags: Set<String>
+  let valued: Set<String>
 
   /// This spec plus another's options, so a command that takes the shared output
   /// options declares them by reference rather than retyping five names.
@@ -44,12 +48,6 @@ struct OptionSpec {
 
 /// A scanned command line: positionals in order, options by name.
 struct Arguments {
-  // MARK: Properties
-
-  private(set) var positionals: [String] = []
-  private var flags: Set<String> = []
-  private var values: [String: String] = [:]
-
   // MARK: Lifecycle
 
   /// Splits `raw` into positionals and options, rejecting anything `spec` does not list.
@@ -127,6 +125,8 @@ struct Arguments {
 
   // MARK: Internal
 
+  private(set) var positionals: [String] = []
+
   var wantsHelp: Bool {
     flags.contains("help")
   }
@@ -181,4 +181,9 @@ struct Arguments {
       )
     }
   }
+
+  // MARK: Private
+
+  private var flags: Set<String> = []
+  private var values: [String: String] = [:]
 }

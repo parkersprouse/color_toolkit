@@ -63,6 +63,8 @@ enum ExportCommand {
 
 /// `colorkit tokens` — a W3C design token file, read and written out as CSS.
 enum TokensCommand {
+  // MARK: Internal
+
   static let spec = OptionSpec().adding(OutputOptions.spec)
 
   static let usage = """

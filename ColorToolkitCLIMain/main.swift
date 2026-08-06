@@ -13,6 +13,7 @@ let outcome = ColorToolkitCLI.run(Array(CommandLine.arguments.dropFirst()))
 if !outcome.output.isEmpty {
   print(outcome.output)
 }
+
 if !outcome.diagnostic.isEmpty {
   FileHandle.standardError.write(Data((outcome.diagnostic + "\n").utf8))
 }

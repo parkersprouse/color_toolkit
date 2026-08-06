@@ -9,7 +9,6 @@
 import Foundation
 import Testing
 
-
 @Suite("Shared output options")
 struct OutputOptionTests {
   @Test("Every export shape renders, and every color in it parses back")
@@ -159,40 +158,7 @@ struct ExportCommandTests {
 
 @Suite("tokens")
 struct TokensCommandTests {
-  /// A file exercising the four rules the importer's precedence chain rests on: an
-  /// explicit `$type`, a group's inherited one, an alias that takes its *resolved*
-  /// reference's type, and a token of another type entirely.
-  private static let document = """
-  {
-    "brand": {
-      "$type": "color",
-      "50":  { "$value": { "colorSpace": "srgb", "components": [0.94, 0.96, 1] } },
-      "500": { "$value": { "colorSpace": "srgb", "components": [0.23, 0.51, 0.96] } },
-      "wide": { "$value": { "colorSpace": "display-p3", "components": [0.1, 0.2, 0.5] } }
-    },
-    "semantic": {
-      "primary": { "$value": "{brand.500}" }
-    },
-    "spacing": {
-      "$type": "dimension",
-      "sm": { "$value": { "value": 4, "unit": "px" } }
-    }
-  }
-  """
-
-  private static func withFile<T>(
-    _ contents: String,
-    named name: String = "cli.tokens.json",
-    _ body: (String) throws -> T,
-  ) rethrows -> T {
-    let url = FileManager.default.temporaryDirectory
-      .appendingPathComponent(UUID().uuidString, isDirectory: true)
-    try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-    let file = url.appendingPathComponent(name)
-    try? Data(contents.utf8).write(to: file)
-    defer { try? FileManager.default.removeItem(at: url) }
-    return try body(file.path)
-  }
+  // MARK: Internal
 
   @Test("A token file reads off disk and every color in it comes back")
   func aTokenFileImports() {
@@ -288,5 +254,42 @@ struct TokensCommandTests {
     }
 
     #expect(ColorToolkitCLI.run(["tokens"]).status == .usage)
+  }
+
+  // MARK: Private
+
+  /// A file exercising the four rules the importer's precedence chain rests on: an
+  /// explicit `$type`, a group's inherited one, an alias that takes its *resolved*
+  /// reference's type, and a token of another type entirely.
+  private static let document = """
+  {
+    "brand": {
+      "$type": "color",
+      "50":  { "$value": { "colorSpace": "srgb", "components": [0.94, 0.96, 1] } },
+      "500": { "$value": { "colorSpace": "srgb", "components": [0.23, 0.51, 0.96] } },
+      "wide": { "$value": { "colorSpace": "display-p3", "components": [0.1, 0.2, 0.5] } }
+    },
+    "semantic": {
+      "primary": { "$value": "{brand.500}" }
+    },
+    "spacing": {
+      "$type": "dimension",
+      "sm": { "$value": { "value": 4, "unit": "px" } }
+    }
+  }
+  """
+
+  private static func withFile<T>(
+    _ contents: String,
+    named name: String = "cli.tokens.json",
+    _ body: (String) throws -> T,
+  ) rethrows -> T {
+    let url = FileManager.default.temporaryDirectory
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+    let file = url.appendingPathComponent(name)
+    try? Data(contents.utf8).write(to: file)
+    defer { try? FileManager.default.removeItem(at: url) }
+    return try body(file.path)
   }
 }
