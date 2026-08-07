@@ -240,7 +240,14 @@ struct ImportTextSheet: View {
         // field — the same "reseed until touched" shape `PickerState` uses, so a
         // keystroke here is never clobbered by the next character typed into the paste
         // box above it.
-        .onChange(of: palette.detectedName) { _, detected in
+        //
+        // `initial: true` is load-bearing, not decoration. This `VStack` — and the
+        // `onChange` on it — does not exist until the first successful parse, so
+        // without it the very first paste creates this modifier with `detectedName`
+        // already at its post-parse value and nothing fires: the field would show the
+        // placeholder while `name` silently stays empty, and `performImport` would
+        // fall back to the group's own name without the field ever having offered it.
+        .onChange(of: palette.detectedName, initial: true) { _, detected in
           guard !nameEdited else { return }
           name = detected ?? ""
         }

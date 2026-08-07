@@ -273,11 +273,18 @@ struct PaletteImportTests {
   @Test("A function call's internal commas are not separators")
   func functionCallCommasAreNotSeparators() throws {
     // color-mix's own grammar has commas at the top level *inside* one color value —
-    // exactly the shape a naive comma split would misread as three colors.
+    // exactly the shape a naive comma split would misread as three colors. The count
+    // alone does not discriminate: splitting on every comma regardless of depth breaks
+    // this into four candidates ("color-mix(in oklch", "red", "blue)", "#3b82f6"), two
+    // of which happen to parse as colors on their own — "red" and "#3b82f6" — so a
+    // wrong split still reports `entries.count == 2`. Asserting the first entry's own
+    // text is what actually tells a correct split from a coincidentally-sized wrong one.
     let text = "color-mix(in oklch, red, blue), #3b82f6"
     let imported = try PaletteImport.parse(text, as: .looseColors)
     let group = try #require(imported.groups.first)
+    #expect(imported.skipped.isEmpty, "Skipped: \(imported.skipped)")
     #expect(group.entries.count == 2)
+    #expect(group.entries.first?.text == "color-mix(in oklch, red, blue)")
   }
 
   // MARK: - designTokens delegation

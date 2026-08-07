@@ -2852,6 +2852,41 @@ M26, 20 in `PaletteImportTests` + 2 in `ProjectStoreTests`), 59 CLI tests unchan
 XCUITests (44 before M26, 1 net new — one pre-existing test rewritten for the menu, one
 genuinely new) — 609 total, all passing in one `** TEST SUCCEEDED **` run.
 
+**Two findings landed after the milestone's own commits, both from a post-landing review,
+and both are the shape CLAUDE.md warns about — a test whose assertion could not fail for
+the right reason.**
+
+1. `topLevelSegments`' comma-list case, `case ",", "\n", ";" where depth == 0:`, does not
+   guard all three separators the way it reads. Swift attaches a `where` written after the
+   last pattern in a comma-separated case list to *that pattern alone* — `,` and `\n` split
+   at any paren depth, and only `;` was actually depth-aware. `color-mix(in oklch, red,
+   blue), #3b82f6` split into four pieces at every top-level *and* nested comma
+   (`"color-mix(in oklch"`, `"red"`, `"blue)"`, `"#3b82f6"`), two of which — `"red"` and the
+   trailing hex — happen to parse as colors on their own. So
+   `functionCallCommasAreNotSeparators`, which only checked `entries.count == 2`, passed
+   outright: a wrong split produced the right count by coincidence, the exact tautology
+   shape M8b's `writableContentTypes` mistake was. Fixed by moving the depth check into an
+   explicit `if` inside one shared case arm; the test now also asserts
+   `imported.skipped.isEmpty` and the first entry's own text, which fails against the
+   original code (confirmed before fixing) and cannot be satisfied by a coincidence of
+   counts.
+2. `ImportTextSheet`'s name-suggestion `.onChange(of: palette.detectedName)` sat on a
+   subtree (`if palette.groups.count == 1 { … }`) that does not exist before the first
+   successful parse — and `onChange` does not fire for the value a modifier is *created*
+   with, only for changes after that. So the very first paste never populated the field:
+   `name` stayed `""`, the field showed its placeholder, and `performImport`'s
+   `!name.isEmpty ? name : group.name` fallback silently covered for it whenever the
+   group's own name happened to equal the placeholder — which the one UI test exercising
+   this used, `brand`, so it passed while the claimed behavior ("tracks the parsed
+   document's suggestion") was false for every other family name. Fixed with
+   `initial: true`; the UI test now asserts the field's value directly rather than only the
+   palette that resulted, which would not have caught this on its own.
+
+Both fixes were confirmed to fail against the unfixed code before being fixed, per this
+project's own rule for a new regression assertion. Neither changed a test *count* — both
+strengthened an existing test's assertions rather than adding a new one — so the totals
+above are unchanged: still 505 unit tests, 45 XCUITests.
+
 ### Files touched, by area (M19–M26)
 
 **ColorCore** – `Export/ExportTemplate.swift` (`PaletteGroup`), `Export/ColorExport.swift`

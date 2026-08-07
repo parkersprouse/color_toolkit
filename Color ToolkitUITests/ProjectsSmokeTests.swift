@@ -383,6 +383,16 @@ final class ProjectsSmokeTests: XCTestCase {
     textBox.click()
     textBox.typeText(":root {\n  --brand-500: #3b82f6;\n  --brand-600: #ef4444;\n}")
 
+    // The name field has to actually pick up the detected family — `onChange` needs
+    // `initial: true` for this, since the field's container does not exist until the
+    // first successful parse and the modifier would otherwise miss that first change.
+    let nameField = sheet.textFields["importSheetName"]
+    XCTAssertTrue(
+      nameField.waitForExistence(timeout: 15),
+      "No name field in the import sheet. Tree was:\n\(app.debugDescription)",
+    )
+    XCTAssertEqual(nameField.value as? String, "brand")
+
     let confirm = sheet.buttons["importSheetConfirm"]
     XCTAssertTrue(
       waitUntilHittable(confirm),

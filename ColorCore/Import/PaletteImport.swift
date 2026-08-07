@@ -718,11 +718,27 @@ nonisolated enum PaletteImport {
     var depth = 0
     for character in text {
       switch character {
-      case "(": depth += 1; current.append(character)
-      case ")": depth -= 1; current.append(character)
-      case ",", "\n", ";" where depth == 0:
-        segments.append(current)
-        current = ""
+      case "(":
+        depth += 1
+        current.append(character)
+      case ")":
+        depth -= 1
+        current.append(character)
+      case ",", "\n", ";":
+        // Swift gives each pattern in a comma-separated case list its own implicit
+        // `where` when only the last one is written explicitly — `case ",", "\n", ";"
+        // where depth == 0` guards only `;`, not the two ahead of it. That shipped
+        // here once: it split `color-mix(in oklch, red, blue)` into four pieces at
+        // every comma regardless of depth, two of which happened to parse as colors
+        // on their own ("red", the trailing "#3b82f6") — enough to pass a test that
+        // only checked `entries.count`. The explicit `if` below is what actually makes
+        // the guard apply to all three separators.
+        if depth == 0 {
+          segments.append(current)
+          current = ""
+        } else {
+          current.append(character)
+        }
       default:
         current.append(character)
       }
