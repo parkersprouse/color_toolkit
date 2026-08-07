@@ -13,6 +13,7 @@ struct PickerAlphaSliderView: View {
   // MARK: Internal
 
   @Binding var state: PickerState
+
   /// See ``PickerPlaneView/identifier`` for why this has to vary per host.
   var identifier = "pickerAlpha"
 

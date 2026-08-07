@@ -19,6 +19,7 @@ struct PickerPlaneView: View {
   // MARK: Internal
 
   @Binding var state: PickerState
+
   /// The square's side, in points. The host measures its own available width and
   /// passes the result down — see `PickerPanel.squareSide(forPanelWidth:)` — rather
   /// than this view re-deriving it, since a popover and a resizable panel size this

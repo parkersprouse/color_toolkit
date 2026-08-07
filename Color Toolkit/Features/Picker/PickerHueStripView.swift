@@ -14,6 +14,7 @@ struct PickerHueStripView: View {
   // MARK: Internal
 
   @Binding var state: PickerState
+
   /// Matches the plane's own side, so the two read as one control rather than two
   /// unrelated strips of different heights.
   var height: CGFloat

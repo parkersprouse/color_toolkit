@@ -113,6 +113,17 @@ nonisolated struct PickerState: Sendable {
     }
   }
 
+  /// A drag position as a fraction of its axis, clamped to `[0, 1]`.
+  ///
+  /// Shared by every picker gesture — the plane clamps two of these, the hue strip
+  /// and alpha slider one each — so the boundary behavior (a drag that overshoots the
+  /// control pins to the edge rather than wrapping or extrapolating) cannot drift
+  /// between them.
+  static func clampedFraction(_ position: CGFloat, over extent: CGFloat) -> Double {
+    guard extent > 0 else { return 0 }
+    return min(max(Double(position / extent), 0), 1)
+  }
+
   // MARK: - Seeding
 
   /// Moves every axis to describe `color`.
@@ -231,16 +242,5 @@ nonisolated struct PickerState: Sendable {
       chroma = min(chroma, limit)
     }
     return cssToWrite(allowingWideGamut: !store.webFriendly)
-  }
-
-  /// A drag position as a fraction of its axis, clamped to `[0, 1]`.
-  ///
-  /// Shared by every picker gesture — the plane clamps two of these, the hue strip
-  /// and alpha slider one each — so the boundary behavior (a drag that overshoots the
-  /// control pins to the edge rather than wrapping or extrapolating) cannot drift
-  /// between them.
-  static func clampedFraction(_ position: CGFloat, over extent: CGFloat) -> Double {
-    guard extent > 0 else { return 0 }
-    return min(max(Double(position / extent), 0), 1)
   }
 }
