@@ -3,6 +3,7 @@
 //  Color ToolkitTests
 //
 
+import Carbon.HIToolbox
 @testable import Color_Toolkit
 import Foundation
 import Observation
@@ -74,6 +75,26 @@ struct PreferencesTests {
     #expect(store.exportOptions.template == .border)
     #expect(store.exportOptions.format == .color(.displayP3))
     #expect(store.formatOptions == Self.nonDefault.formatOptions)
+    #expect(store.globalShortcut == Self.nonDefault.globalShortcut)
+  }
+
+  /// The M27 counterpart to ``negativeRecentLimitIsClamped`` above: a chord with no
+  /// modifier that could still type a character — the shape a hand-edited preferences
+  /// file can carry, since `GlobalShortcut`'s `Codable` synthesis has no notion of
+  /// ``GlobalShortcut/isEligible`` — must not reach `GlobalHotKeyCenter` at all. Falls
+  /// back to ``GlobalShortcut/sampleColor`` rather than merely refusing, the same
+  /// "still works, just with the default" recovery every other clamp in this file
+  /// makes.
+  @MainActor
+  @Test("An ineligible globalShortcut is clamped to the default rather than registered as-is")
+  func ineligibleGlobalShortcutIsClamped() {
+    let store = ColorStore()
+    var corrupt = Preferences()
+    corrupt.globalShortcut = GlobalShortcut(keyCode: UInt32(kVK_ANSI_A), modifiers: 0, keyLabel: "A")
+
+    store.preferences = corrupt
+
+    #expect(store.globalShortcut == .sampleColor)
   }
 
   /// A regression test for a real crash, not a hypothetical one: `remember()` computes
@@ -136,6 +157,12 @@ struct PreferencesTests {
       // observed, so this is the same "does it actually fire" check the other three
       // fields already get.
       ("recentLimit", { $0.recentLimit = 3 }),
+      // `globalShortcut` (M27) is a computed property over a private backing field,
+      // not a stored `var` — a different shape than `recentLimit`'s `didSet`, but the
+      // same "does @Observable actually see through this" question, and the same
+      // reason it needs its own check rather than trusting `recentLimit`'s to stand in
+      // for it.
+      ("globalShortcut", { $0.globalShortcut = .init(keyCode: 1, modifiers: UInt32(cmdKey), keyLabel: "S") }),
     ]
 
     for (name, mutate) in mutations {
@@ -182,5 +209,10 @@ struct PreferencesTests {
     exportShape: .tailwindConfig,
     exportTemplate: .border,
     exportFormat: .color(.displayP3),
+    globalShortcut: GlobalShortcut(
+      keyCode: UInt32(kVK_ANSI_D),
+      modifiers: UInt32(cmdKey | shiftKey),
+      keyLabel: "D",
+    ),
   )
 }

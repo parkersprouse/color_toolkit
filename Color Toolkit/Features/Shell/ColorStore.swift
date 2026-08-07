@@ -300,6 +300,35 @@ final class ColorStore {
   /// because a shortcut advertised but not registered is worse than none offered.
   private(set) var globalShortcutIsActive = false
 
+  /// The system-wide sampling chord (M27), read directly the same way ``recentLimit``
+  /// and ``pickerMode`` are — ``preferences``'s own field mirrors this rather than
+  /// being a second source of truth.
+  ///
+  /// A computed property over a private backing field, not a stored `var` with a
+  /// `didSet`: the setter here re-registers immediately when the shortcut is already
+  /// active, which is the right behavior for the two paths that assign through it — a
+  /// hand-edited preferences file reaching `PreferenceStore.load()`, and the Settings
+  /// "Reset to Defaults" button's `store.preferences = Preferences()` — and neither of
+  /// those needs to tell a caller whether the system accepted the new chord, the same
+  /// graceful-degradation ``activateGlobalShortcut()`` already practices. A user
+  /// recording a chord in Settings deserves better than that silence, which is what
+  /// ``updateGlobalShortcut(_:)`` is for: it validates first, rolls back on failure,
+  /// and writes ``storedGlobalShortcut`` directly rather than through this setter, so a
+  /// successful recording doesn't also pay for a second, redundant unregister/register
+  /// round trip.
+  var globalShortcut: GlobalShortcut {
+    get { storedGlobalShortcut }
+    set {
+      guard globalShortcutIsActive, newValue != storedGlobalShortcut else {
+        storedGlobalShortcut = newValue
+        return
+      }
+      GlobalHotKeyCenter.shared.unregisterAll()
+      storedGlobalShortcut = newValue
+      globalShortcutIsActive = registerGlobalShortcut(newValue)
+    }
+  }
+
   /// How many colors ``recents`` keeps. Settable — was `private static let recentLimit
   /// = 12` — because M19 makes it a preference like the rest of this group rather than
   /// a constant. "Enough to be useful, few enough to stay scannable" no longer fixes the
@@ -350,6 +379,7 @@ final class ColorStore {
         exportShape: exportOptions.shape,
         exportTemplate: exportOptions.template,
         exportFormat: exportOptions.format,
+        globalShortcut: globalShortcut,
       )
     }
     set {
@@ -369,6 +399,11 @@ final class ColorStore {
       exportOptions.shape = newValue.exportShape
       exportOptions.template = newValue.exportTemplate
       exportOptions.format = newValue.exportFormat
+      // Same boundary as `recentLimit`'s clamp above, for the same reason: a value
+      // that did *not* come through the Settings recorder — `newValue` can come
+      // straight from `PreferenceStore.load()` — is not trusted as-is. `isEligible`
+      // rejects a chord with no modifier that could still type a character.
+      globalShortcut = newValue.globalShortcut.isEligible ? newValue.globalShortcut : .sampleColor
     }
   }
 
@@ -690,13 +725,59 @@ final class ColorStore {
   /// system-wide.
   func activateGlobalShortcut() {
     guard !globalShortcutIsActive else { return }
-    globalShortcutIsActive = GlobalHotKeyCenter.shared.register(.sampleColor) { [weak self] in
+    globalShortcutIsActive = registerGlobalShortcut(globalShortcut)
+  }
+
+  /// Rebinds the sampling chord to `shortcut`, tried before it is committed.
+  ///
+  /// This is what the Settings recorder calls, and it is deliberately stricter than
+  /// assigning through ``globalShortcut``: a user recording a chord is watching, so
+  /// silently ending up with none registered — the fallback every other failure path
+  /// in this file accepts — would read as the app breaking rather than as a rejected
+  /// shortcut. Returns `false` and changes nothing else when `shortcut` fails
+  /// ``GlobalShortcut/isEligible`` or the system refuses to register it; in the second
+  /// case the chord that was already working is re-claimed before returning, so a
+  /// rejected recording never leaves the app with no shortcut at all.
+  ///
+  /// - Note: The rejection branch — the system refusing `shortcut` — has no test that
+  ///   forces it. `GlobalHotKeyCenter`'s own doc notes macOS does not reliably report a
+  ///   collision with another application, and the one collision this process *can*
+  ///   force (registering the same chord twice without unregistering) is exactly what
+  ///   this method's own `unregisterAll()` call clears before the retry — so there is
+  ///   no way to make `RegisterEventHotKey` fail deterministically in-process. Reasoned
+  ///   about rather than pinned, the same honesty this file already extends to
+  ///   `NSOpenPanel`/`NSSavePanel`.
+  @discardableResult
+  func updateGlobalShortcut(_ shortcut: GlobalShortcut) -> Bool {
+    guard shortcut.isEligible else { return false }
+    guard shortcut != storedGlobalShortcut else { return true }
+    guard globalShortcutIsActive else {
+      storedGlobalShortcut = shortcut
+      return true
+    }
+
+    let previous = storedGlobalShortcut
+    GlobalHotKeyCenter.shared.unregisterAll()
+    if registerGlobalShortcut(shortcut) {
+      storedGlobalShortcut = shortcut
+      return true
+    }
+    globalShortcutIsActive = registerGlobalShortcut(previous)
+    return false
+  }
+
+  // MARK: Private
+
+  /// The system-wide sampling chord's backing storage. See ``globalShortcut`` for why
+  /// this is a computed property over a private field rather than a plain stored `var`.
+  private var storedGlobalShortcut: GlobalShortcut = .sampleColor
+
+  private func registerGlobalShortcut(_ shortcut: GlobalShortcut) -> Bool {
+    GlobalHotKeyCenter.shared.register(shortcut) { [weak self] in
       guard let self else { return }
       Task { await self.sampleFromScreen(alsoCopy: true) }
     }
   }
-
-  // MARK: Private
 
   /// The color everything is about: the one being converted, sampled, and copied.
   private var foreground: ColorField

@@ -7,7 +7,7 @@ import SwiftUI
 
 /// The app's `Settings` scene (⌘,).
 ///
-/// Three sections: General, Output, and a reset. **Output duplicates
+/// Four sections: General, Shortcuts, Output, and a reset. **Output duplicates
 /// `OutputOptionsMenu`'s seven controls rather than replacing them** — the same
 /// precedent the export panel's own Precision picker already set, documented at
 /// ``ColorStore/formatOptions``. Both are surfaces onto the one set of bindings, so
@@ -28,6 +28,13 @@ struct SettingsView: View {
           value: $store.recentLimit,
           in: 1 ... 50,
         )
+      }
+
+      Section("Shortcuts") {
+        LabeledContent("Pick Color from Screen") {
+          ShortcutRecorderField()
+        }
+        .help("Works from any app, not only while Color Toolkit is frontmost.")
       }
 
       Section("Output") {

@@ -12,13 +12,17 @@ import Carbon.HIToolbox
 /// which are what ``GlobalHotKeyCenter`` has to hand to `RegisterEventHotKey`.
 /// Named `GlobalShortcut` rather than the obvious `KeyboardShortcut` because SwiftUI
 /// already owns that name and means something different by it.
-nonisolated struct GlobalShortcut: Sendable, Hashable {
+nonisolated struct GlobalShortcut: Sendable, Hashable, Codable {
   /// Pick a color from anywhere on screen.
   ///
   /// Three modifiers on purpose. ⇧⌘C is Digital Color Meter's own copy shortcut and
   /// is claimed by plenty of editors; ⌥⌘C is Finder's "Copy as Pathname". A global
   /// hot key wins over the frontmost app's, so a collision here would silently break
   /// something the user already relies on — a worse outcome than an awkward chord.
+  ///
+  /// Also the fallback ``Preferences``' ``globalShortcut`` field decodes to when the
+  /// stored value fails ``isEligible`` — see that property's doc for why a *default*
+  /// this safe is exactly what a corrupt preferences file needs to land on.
   static let sampleColor = GlobalShortcut(
     keyCode: UInt32(kVK_ANSI_C),
     modifiers: UInt32(controlKey | optionKey | cmdKey),
@@ -34,6 +38,27 @@ nonisolated struct GlobalShortcut: Sendable, Hashable {
   /// How the key prints. A key code cannot be turned back into a character without
   /// consulting the active keyboard layout, so the label is carried alongside it.
   let keyLabel: String
+
+  /// Whether this chord is safe to claim system-wide.
+  ///
+  /// A chord that carries none of ⌃⌥⌘ can still type a character — ⇧ alone does not
+  /// save it, since ⇧A still types a capital A — and registering one would swallow
+  /// every keystroke of that character in every app on the machine. A bare function
+  /// key is the one exception, since function keys are not text.
+  ///
+  /// This is what stands between a hand-edited or corrupted preferences file (a
+  /// `"modifiers": 0` sitting next to any letter's key code decodes just fine — see
+  /// ``GlobalShortcut``'s own `Codable` synthesis, which has no notion of this rule)
+  /// and a global hot key that breaks typing app-wide. Two call sites share it rather
+  /// than each inventing its own bar: ``ColorStore/preferences``'s setter falls back to
+  /// ``sampleColor`` when a loaded value fails it, and
+  /// ``ColorStore/updateGlobalShortcut(_:)`` refuses to even attempt registering a
+  /// chord the Settings recorder captured that fails it.
+  var isEligible: Bool {
+    let requiresNoText = UInt32(controlKey | optionKey | cmdKey)
+    if modifiers & requiresNoText != 0 { return true }
+    return Self.functionKeyCodes.contains(keyCode)
+  }
 
   /// The shortcut as a menu would show it, in the order Apple's HIG specifies.
   var displayString: String {
@@ -52,6 +77,15 @@ nonisolated struct GlobalShortcut: Sendable, Hashable {
     }
     return symbols + keyLabel
   }
+
+  /// F1 through F20 — the full range Carbon names, and the only key codes
+  /// ``isEligible`` accepts with no modifier at all.
+  private static let functionKeyCodes: Set<UInt32> = [
+    UInt32(kVK_F1), UInt32(kVK_F2), UInt32(kVK_F3), UInt32(kVK_F4), UInt32(kVK_F5),
+    UInt32(kVK_F6), UInt32(kVK_F7), UInt32(kVK_F8), UInt32(kVK_F9), UInt32(kVK_F10),
+    UInt32(kVK_F11), UInt32(kVK_F12), UInt32(kVK_F13), UInt32(kVK_F14), UInt32(kVK_F15),
+    UInt32(kVK_F16), UInt32(kVK_F17), UInt32(kVK_F18), UInt32(kVK_F19), UInt32(kVK_F20),
+  ]
 }
 
 /// Owns the app's system-wide hot keys.

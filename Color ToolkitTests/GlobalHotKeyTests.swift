@@ -60,6 +60,51 @@ struct GlobalHotKeyTests {
     #expect(bare.displayString == "F13")
   }
 
+  @Test("Survives an encode/decode round trip")
+  func codableRoundTrips() throws {
+    let data = try JSONEncoder().encode(GlobalShortcut.sampleColor)
+    let decoded = try JSONDecoder().decode(GlobalShortcut.self, from: data)
+
+    #expect(decoded == GlobalShortcut.sampleColor)
+  }
+
+  // MARK: - Eligibility
+
+  /// The predicate that stands between a hand-edited preferences file and a global hot
+  /// key that swallows ordinary typing — see ``GlobalShortcut/isEligible``'s own doc.
+  /// Each of ⌃, ⌥, ⌘ alone is enough; ⇧ alone is the one modifier that is deliberately
+  /// not, because ⇧A still types a capital A.
+  @Test(
+    "Any of ⌃⌥⌘ alone makes a chord eligible; ⇧ alone does not",
+    arguments: [
+      (UInt32(controlKey), true),
+      (UInt32(optionKey), true),
+      (UInt32(cmdKey), true),
+      (UInt32(shiftKey), false),
+      (UInt32(0), false),
+    ],
+  )
+  func modifierEligibility(modifiers: UInt32, expected: Bool) {
+    let shortcut = GlobalShortcut(keyCode: UInt32(kVK_ANSI_A), modifiers: modifiers, keyLabel: "A")
+    #expect(shortcut.isEligible == expected)
+  }
+
+  @Test("A bare function key is eligible with no modifier at all")
+  func bareFunctionKeyIsEligible() {
+    let bare = GlobalShortcut(keyCode: UInt32(kVK_F13), modifiers: 0, keyLabel: "F13")
+    #expect(bare.isEligible)
+  }
+
+  @Test("⌃⌥⌘ combined with ⇧ is still eligible — ⇧ merely riding along is not the same as ⇧ alone")
+  func shiftAlongsideARealModifierIsEligible() {
+    let shortcut = GlobalShortcut(
+      keyCode: UInt32(kVK_ANSI_A),
+      modifiers: UInt32(cmdKey | shiftKey),
+      keyLabel: "A",
+    )
+    #expect(shortcut.isEligible)
+  }
+
   // MARK: Private
 
   /// Deliberately not ``GlobalShortcut/sampleColor``: the unit tests are hosted in

@@ -72,7 +72,7 @@ struct ColorInputField: View {
     .accessibilityLabel("Pick a color from the screen")
     .help(
       store.globalShortcutIsActive
-        ? "Pick a color from the screen. Works from any app with \(GlobalShortcut.sampleColor.displayString)."
+        ? "Pick a color from the screen. Works from any app with \(store.globalShortcut.displayString)."
         : "Pick a color from the screen.",
     )
   }

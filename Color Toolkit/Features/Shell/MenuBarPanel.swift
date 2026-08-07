@@ -165,7 +165,7 @@ struct MenuBarPanel: View {
         title: "Pick Color from Screen",
         systemImage: "eyedropper",
         shortcut: store.globalShortcutIsActive
-          ? GlobalShortcut.sampleColor.displayString
+          ? store.globalShortcut.displayString
           : nil,
       ) {
         Task { await store.sampleFromScreen(alsoCopy: true) }

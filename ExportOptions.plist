@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Consumed by `xcodebuild -exportArchive -exportOptionsPlist ExportOptions.plist`,
+	     the step after `xcodebuild archive` — see the Release Build section of
+	     CLAUDE.md. Direct download outside the Mac App Store: `developer-id` picks a
+	     "Developer ID Application" signing identity rather than an App Store one, and
+	     the exported .app still needs `notarytool submit --wait` before it will launch
+	     on another Mac without a Gatekeeper warning. Automatic signing style matches
+	     CODE_SIGN_STYLE in the project itself, so this file names *which* identity to
+	     use, not a second signing configuration competing with it. -->
+	<key>method</key>
+	<string>developer-id</string>
+	<key>teamID</key>
+	<string>6H4PL5UQ2R</string>
+	<key>signingStyle</key>
+	<string>automatic</string>
+	<key>destination</key>
+	<string>export</string>
+</dict>
+</plist>

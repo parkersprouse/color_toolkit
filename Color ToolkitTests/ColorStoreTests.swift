@@ -3,6 +3,7 @@
 //  Color ToolkitTests
 //
 
+import Carbon.HIToolbox
 @testable import Color_Toolkit
 import Foundation
 import Testing
@@ -447,5 +448,73 @@ struct ColorStoreTests {
 
     let after = try #require(store.color)
     #expect(after.exceedsSRGB)
+  }
+
+  // MARK: - Global shortcut (M27)
+
+  /// A fresh `ColorStore` never calls `activateGlobalShortcut()` — every other test in
+  /// this suite relies on that to avoid claiming a real system-wide chord — so
+  /// `globalShortcutIsActive` is `false` here, which routes `updateGlobalShortcut`
+  /// through its cheapest branch: write the value, touch no Carbon API at all. That is
+  /// exactly what makes this deterministic and safe to run in parallel with every
+  /// other test in the suite.
+  @Test("Recording an eligible chord while inactive commits it directly")
+  func updateGlobalShortcutCommitsWhenInactive() {
+    let store = ColorStore()
+    let candidate = GlobalShortcut(keyCode: UInt32(kVK_ANSI_D), modifiers: UInt32(cmdKey), keyLabel: "D")
+
+    #expect(store.updateGlobalShortcut(candidate))
+    #expect(store.globalShortcut == candidate)
+  }
+
+  /// The predicate itself is pinned in `GlobalHotKeyTests`; this is the boundary that
+  /// actually matters — a caller cannot end up with an ineligible chord committed by
+  /// going through the store.
+  @Test("Recording an ineligible chord is refused and leaves the shortcut unchanged")
+  func updateGlobalShortcutRejectsIneligibleChord() {
+    let store = ColorStore()
+    let before = store.globalShortcut
+    let ineligible = GlobalShortcut(keyCode: UInt32(kVK_ANSI_A), modifiers: 0, keyLabel: "A")
+
+    #expect(!store.updateGlobalShortcut(ineligible))
+    #expect(store.globalShortcut == before)
+  }
+
+  @Test("Recording the chord already in effect is a no-op success")
+  func updateGlobalShortcutNoOpsOnTheSameChord() {
+    let store = ColorStore()
+
+    #expect(store.updateGlobalShortcut(store.globalShortcut))
+    #expect(store.globalShortcut == .sampleColor)
+  }
+
+  /// The one test in this suite that claims a real system-wide chord, which is why it
+  /// is deliberately the four-modifier probe `GlobalHotKeyTests` uses rather than
+  /// ``GlobalShortcut/sampleColor`` — the running host claims that one the moment its
+  /// own scenes appear, and racing it would make this flaky. Proves the *active*
+  /// branch of `updateGlobalShortcut`: rebinding while already registered both claims
+  /// the new chord and genuinely releases the old one, checked by re-claiming the old
+  /// chord afterward — `GlobalHotKeyCenter.register` would fail with
+  /// `eventHotKeyExistsErr` if it were still held.
+  @Test("Rebinding while active releases the previous chord and claims the new one")
+  func updateGlobalShortcutRebindsWhileActive() {
+    let center = GlobalHotKeyCenter.shared
+    center.unregisterAll()
+    defer { center.unregisterAll() }
+
+    let store = ColorStore()
+    let first = GlobalShortcut(keyCode: UInt32(kVK_ANSI_Q), modifiers: UInt32(controlKey | optionKey | shiftKey | cmdKey), keyLabel: "Q")
+    let second = GlobalShortcut(keyCode: UInt32(kVK_ANSI_W), modifiers: UInt32(controlKey | optionKey | shiftKey | cmdKey), keyLabel: "W")
+
+    store.globalShortcut = first
+    store.activateGlobalShortcut()
+    #expect(store.globalShortcutIsActive)
+
+    #expect(store.updateGlobalShortcut(second))
+    #expect(store.globalShortcut == second)
+    #expect(store.globalShortcutIsActive)
+
+    // `first` must be free again — held, this fails with `eventHotKeyExistsErr`.
+    #expect(center.register(first) {}, "the previous chord was not released")
   }
 }

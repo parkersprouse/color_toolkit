@@ -2918,6 +2918,128 @@ invariants once each is built, per its own convention.
 
 ---
 
+### ✅ M27 – Customizable keyboard shortcut
+
+Not part of the planned M19–M26 series – a direct user request, taken up once that
+series closed. **Scope was narrowed on inspection, not assumed**: the app has exactly
+one keyboard shortcut anywhere in it, the global "sample color from screen" chord
+(`GlobalShortcut.sampleColor`, ⌃⌥⌘C). There is no `Commands` scene customizing menu
+shortcuts to extend. So "customizable keyboard shortcuts" means making that one binding
+user-recordable, not a broader menu-shortcut system that does not exist yet.
+
+**`GlobalShortcut` gained `Codable` and `isEligible`.** Persisting a shortcut needs
+`Codable`; persisting one safely needs more than that; the two were added together
+rather than dealing with the second as an afterthought. `isEligible` requires at least
+one of ⌃⌥⌘, with a bare function key as the sole exception — ⇧ alone does not qualify,
+since ⇧A still types a capital A, and a chord that can still type a character would
+swallow every keystroke of it in every app on the machine if claimed system-wide. This
+is exactly the class of hazard a hand-edited or corrupted preferences file can trigger
+that `Codable` synthesis has no way to know about.
+
+**Two write paths, deliberately not merged into one.** `ColorStore.globalShortcut` is a
+computed property over a private backing field (not a stored `var` with a `didSet`,
+`recentLimit`'s M23 shape) whose setter re-registers immediately and accepts a possible
+failure silently — the right behavior for a hand-edited preferences file reaching
+`PreferenceStore.load()`, or Settings' "Reset to Defaults" setting `store.preferences =
+Preferences()` wholesale. `updateGlobalShortcut(_:)`, what the Settings recorder calls,
+is stricter: it validates against `isEligible` first, tries the new chord before
+committing, rolls back to the chord that was already working if the system refuses the
+new one, and reports success back to the caller — a user recording a chord in front of
+the app deserves better than the passive paths' silent possibility of ending up with
+none. It writes the private backing field directly, bypassing `globalShortcut`'s own
+setter, so a successful recording does not pay for a second, redundant
+unregister/register round trip.
+
+**`ShortcutRecorderField`** is a local `NSEvent.addLocalMonitorForEvents(matching:
+.keyDown)` installed only while recording, not an `NSViewRepresentable` — no focus ring
+or custom hit-testing is needed, and returning `nil` from the monitor's handler swallows
+the captured event outright, which is what stops a recorded ⌘W from also closing the
+Settings window mid-capture. Carbon's modifier masks are translated from
+`NSEvent.ModifierFlags`, not cast — they are different numeric values, the same fact
+`GlobalShortcut.modifiers`' own doc already states. A small keyCode→label table covers
+Space/Tab/Return/Delete/arrows/F1–F20, since `charactersIgnoringModifiers` is empty or
+unhelpful for all of them.
+
+**Testing.** [GlobalHotKeyTests](Color%20ToolkitTests/GlobalHotKeyTests.swift) pins
+`isEligible`'s boundary and `GlobalShortcut`'s `Codable` round trip.
+[ColorStoreTests](Color%20ToolkitTests/ColorStoreTests.swift) covers
+`updateGlobalShortcut(_:)` end to end, including the one branch that claims a real
+system-wide chord (a four-modifier probe, the same convention `GlobalHotKeyTests`
+already uses to avoid racing the host app's own `.sampleColor` registration) —
+confirmed by mutation that removing the `unregisterAll()` call before a rebind's retry
+fails exactly that test.
+[PreferencesTests](Color%20ToolkitTests/PreferencesTests.swift) extends the M19 pattern
+(round trip, observation, clamp-on-load) to the new field. **No XCUITest**: nothing
+drives the Settings window today, and synthesizing a key event needs Accessibility
+permission a test runner has no business holding — recorded as a manual check, the same
+honesty this file already extends to `NSOpenPanel`/`NSSavePanel`.
+
+**Files touched.** `Services/GlobalHotKey.swift` (`Codable`, `isEligible`),
+`Services/Preferences.swift` (`globalShortcut` field), `Features/Shell/ColorStore.swift`
+(`globalShortcut`, `updateGlobalShortcut(_:)`, `registerGlobalShortcut(_:)`), new
+`Features/Settings/ShortcutRecorderField.swift`, `Features/Settings/SettingsView.swift`
+(Shortcuts section), `Features/Conversion/ColorInputField.swift` +
+`Features/Shell/MenuBarPanel.swift` (read the live shortcut instead of the hardcoded
+default).
+
+### ✅ M28 – Release build (Developer ID)
+
+Also a direct request, not a planned milestone. **Most of a distributable Release
+configuration already existed** before this: `CODE_SIGN_STYLE = Automatic`,
+`DEVELOPMENT_TEAM`, `ENABLE_APP_SANDBOX`, `ENABLE_HARDENED_RUNTIME`, an app icon, a
+bundle identifier, and `MARKETING_VERSION`/`CURRENT_PROJECT_VERSION` were all already
+in the project. No `.entitlements` file exists anywhere in the repo, confirmed still
+correct: Xcode synthesizes one from those build settings at sign time — checked by
+building the app and reading `codesign -d --entitlements -` off the result, which shows
+exactly `com.apple.security.app-sandbox` and
+`com.apple.security.files.user-selected.read-write` (plus `get-task-allow` in Debug
+only, see below).
+
+**The channel was a question for the user, not a default to assume**, since it decides
+`ExportOptions.plist`'s `method` and whether notarization is scripted at all. Asked and
+answered: Developer ID (direct download), not the Mac App Store.
+
+**What was added.** `ExportOptions.plist` at the repo root, fixing `method:
+developer-id` for the `-exportArchive` step; a *Release build* section in CLAUDE.md's
+Commands documenting the four-command archive → export → notarize → staple sequence;
+`INFOPLIST_KEY_NSHumanReadableCopyright`, empty in both configurations before this,
+filled in both.
+
+**What was verified versus documented.** `xcodebuild archive` was actually run — it
+needs no more credentials than an ordinary build — and the archived app's entitlements
+were read directly: `com.apple.security.get-task-allow`, present in every Debug build,
+is **absent** from the Release archive. That is the fact that actually distinguishes "a
+debug build with distribution-shaped settings" from a build Gatekeeper will treat as
+one to distribute, and a green `xcodebuild build` cannot show it on its own, because
+`build` and `archive` sign differently even from the same configuration.
+`-exportArchive` and `notarytool submit`/`stapler staple` were **not** run —
+`security find-identity -v -p codesigning` found no "Developer ID Application"
+certificate in this environment — and are documented rather than verified, the same
+honesty this file extends to every step needing credentials or hardware an agent does
+not have.
+
+**One assumption corrected by actually looking, not by reasoning about the scheme.**
+The scheme builds both the app and `colorkit`, which suggested `colorkit` might already
+be embedded in the distributed app or might be entirely absent from an archive. Neither
+is true: listing the archive's contents shows `colorkit` **is** installed, at
+`Products/usr/local/bin/colorkit` — a plain command-line-tool target with no
+`SKIP_INSTALL` gets installed there by `xcodebuild archive` regardless of the app target
+— but `-exportArchive` only pulls `Products/Applications/*.app` out of an archive, so
+today's Developer ID export carries the app only. Whether `colorkit` should ship
+alongside it (a Copy Files phase embedding it in `Contents/MacOS/`, the pattern apps
+that also ship a CLI use) is a product decision left to the user, not made here.
+
+**Two settings left as found, deliberately.** `MACOSX_DEPLOYMENT_TARGET = 26.5` means
+the shipped app targets essentially only the newest OS, and `REGISTER_APP_GROUPS = YES`
+is confirmed inert — no `com.apple.security.application-groups` entitlement appears in
+a signed binary either way, and nothing in the codebase uses an app group. Both are
+recorded in CLAUDE.md rather than silently changed, since changing either is a product
+call this milestone was not asked to make.
+
+**Files touched.** New `ExportOptions.plist` (repo root);
+`Color Toolkit.xcodeproj/project.pbxproj` (`INFOPLIST_KEY_NSHumanReadableCopyright` in
+both the app target's Debug and Release configurations).
+
 ## Verification
 
 **A feature reached through a system loupe or a global chord has links no test can touch**, and they fail independently – so check them separately rather than as one gesture. For M4 that was: (1) does the menu bar show the chord, proving the OS accepted the registration and a scene's `.task` fired; (2) does the chord raise the loupe from *another* app, proving the key is captured and the C callback reaches the main actor; (3) does the picked color reach the field and the clipboard, proving the sandbox and the bridge. All three passed. Everything either side of them is covered by [ScreenSamplerTests](Color%20ToolkitTests/ScreenSamplerTests.swift) and [GlobalHotKeyTests](Color%20ToolkitTests/GlobalHotKeyTests.swift).
@@ -3022,6 +3144,42 @@ Per milestone:
   both cardinalities, a malformed value skipped without losing its neighbours, the
   fourth `savePalette` overload's pasted text surviving a re-parse, and the sheet's
   controls queried through `app.sheets`.
+- **M27:** [GlobalHotKeyTests](Color%20ToolkitTests/GlobalHotKeyTests.swift) pins
+  `isEligible` by discrimination on each of ⌃⌥⌘ alone (eligible) against ⇧ alone and no
+  modifier at all (both not), plus a bare function key (eligible with nothing at all) –
+  the exact boundary a hand-edited preferences file can cross. `GlobalShortcut`'s new
+  `Codable` conformance round-trips. [ColorStoreTests](Color%20ToolkitTests/ColorStoreTests.swift)
+  covers `updateGlobalShortcut(_:)`'s three reachable branches – commits directly while
+  inactive, refuses an ineligible chord unchanged, no-ops on the chord already in
+  effect – plus the one branch that claims a real system-wide chord: rebinding while
+  active, proved by re-claiming the *old* chord afterward (`eventHotKeyExistsErr` if it
+  were still held). **Confirmed by mutation**: removing the `unregisterAll()` call
+  before the retry failed exactly that test. [PreferencesTests](Color%20ToolkitTests/PreferencesTests.swift)
+  extends the M19 `recentLimit` pattern to `globalShortcut` – round-trips as part of
+  `nonDefault`, clamps to `.sampleColor` when the loaded value is ineligible, and gets
+  its own `withObservationTracking` mutation entry, since `globalShortcut` is a
+  computed property over a private field rather than a stored `didSet` and needed its
+  own proof that `@Observable` still sees through it. **No XCUITest** – nothing drives
+  the Settings window (the same gap M22's own toggle already records), and synthesizing
+  a key event to exercise `ShortcutRecorderField`'s live `NSEvent` monitor needs
+  Accessibility permission a test runner has no business holding. Turning a captured
+  `NSEvent` into a `GlobalShortcut` is a recorded manual check.
+- **M28:** not a code milestone, so its verification is different in kind – there is no
+  new logic to mutate, only build settings and a documented procedure. What was
+  actually run: `xcodebuild archive` (needs no more credentials than `build` already
+  does), then `codesign -d --entitlements -` on the archived app, confirming
+  `com.apple.security.get-task-allow` – present in every ordinary Debug build – is
+  absent from the Release one. That is the fact that distinguishes a debug build with
+  distribution-shaped settings from one Gatekeeper will actually treat as distributable,
+  and `xcodebuild build` alone cannot show it. Listing the archive's contents also
+  settled a real question rather than an assumed one: `colorkit` **is** installed into
+  the archive (`Products/usr/local/bin/colorkit`) but is **not** carried into an
+  exported `.app`, since `-exportArchive` only pulls `Products/Applications/*.app` –
+  confirmed by reading the archive tree, not inferred from the scheme. `-exportArchive`
+  and `notarytool` were not run – `security find-identity -v -p codesigning` found no
+  "Developer ID Application" identity in this environment, only the "Apple Development"
+  one ordinary builds use – and are recorded as unverified, needing the app's own
+  credentialed step.
 - **M3/M4 (UI):** run the app and verify interactively. Spot-check conversions against a browser's DevTools color picker, which implements the same spec – a fast, honest end-to-end sanity check.
 
 The scheme is shared and works from the command line:

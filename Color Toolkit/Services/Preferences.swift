@@ -32,6 +32,13 @@ nonisolated struct Preferences: Codable, Equatable, Sendable {
   var exportShape: ExportShape = .customProperties
   var exportTemplate: ExportTemplate = .color
   var exportFormat: CSSOutputFormat = .oklch
+  /// The system-wide sampling chord (M27). Decodes to whatever was saved with no
+  /// validation of its own — `GlobalShortcut`'s `Codable` synthesis has no notion of
+  /// ``GlobalShortcut/isEligible`` — so a hand-edited or corrupted file can decode a
+  /// chord that would swallow ordinary typing. `ColorStore.preferences`'s setter is
+  /// where that gets caught, the same boundary that already clamps a negative
+  /// `recentLimit`.
+  var globalShortcut: GlobalShortcut = .sampleColor
 
   // MARK: Private
 
@@ -45,6 +52,7 @@ nonisolated struct Preferences: Codable, Equatable, Sendable {
     case exportShape
     case exportTemplate
     case exportFormat
+    case globalShortcut
   }
 }
 

@@ -53,6 +53,15 @@ back into groups, keys and colors, and `ImportTextSheet` (behind Projects' new
 grouping prefers this app's own `/* From "…" */` export headers when present and falls
 back to segment-wise hyphen-prefix inference otherwise; `p3WithFallback` reads only its
 `@media` override, never the lossy hex fallback.
+**M27 is done too**: the system-wide sampling shortcut is user-customizable — the only
+keyboard shortcut anywhere in this app — through a Settings recorder (`Shortcuts`
+section) built on `ColorStore.updateGlobalShortcut(_:)`. `GlobalShortcut` gained
+`Codable` and an `isEligible` predicate (needs one of ⌃⌥⌘, or a bare function key) that
+guards both the Settings recorder and `Preferences`' load path, so a hand-edited
+preferences file can never register a chord that would swallow ordinary typing.
+**M28 is done too**: a Developer ID release/export path — see *Release build* under
+Commands below for what was actually run and verified versus documented and left for a
+credentialed step only the person distributing the app can perform.
 
 **[PLAN.md](PLAN.md) is the source of truth** for milestone status, what is deferred
 and why, and the reasoning behind every decision recorded below. This file is the
@@ -243,6 +252,75 @@ Ask the oracle rather than reasoning about gamuts:
 ```bash
 cd Tools && node -e "import('colorjs.io').then(({default:C}) => console.log(new C('oklch(0.9 0.3 140)').inGamut('rec2020')))"
 ```
+
+### Release build (M28 — Developer ID)
+
+The app target's Debug/Release split, `CODE_SIGN_STYLE = Automatic`, `DEVELOPMENT_TEAM`,
+`ENABLE_APP_SANDBOX` and `ENABLE_HARDENED_RUNTIME` were already in place before M28 — no
+`.entitlements` file exists (see the invariant below), and Xcode synthesizes one from
+those four build settings at sign time. What M28 added is the export/notarize path
+distribution actually needs, chosen for **Developer ID (direct download)**, not the Mac
+App Store:
+
+```bash
+xcodebuild -project "Color Toolkit.xcodeproj" -scheme "Color Toolkit" -configuration Release -archivePath build/ColorToolkit.xcarchive archive
+xcodebuild -exportArchive -archivePath build/ColorToolkit.xcarchive -exportOptionsPlist ExportOptions.plist -exportPath build/export
+xcrun notarytool submit build/export/"Color Toolkit.zip" --keychain-profile "AC_NOTARY" --wait
+xcrun stapler staple build/export/"Color Toolkit.app"
+```
+
+`ExportOptions.plist` (repo root) fixes `method: developer-id` — the one setting that
+picks a "Developer ID Application" signing identity over an App Store one at export
+time; the archive step itself still signs with whatever automatic identity is active,
+same as any other build.
+
+**Only the first command is something an agent can run and verify here, and it was.**
+`xcodebuild archive` needs no credentials beyond what `xcodebuild build` already uses, so
+it was actually run, and the archived app's entitlements were read with
+`codesign -d --entitlements -` the way the file access invariant below already
+recommends: `com.apple.security.get-task-allow` — present in every ordinary Debug
+build, and confirmed present in one pulled from this project's own DerivedData while
+verifying this — is **absent** from the Release archive. That is the one fact that
+actually distinguishes "a debug build with distribution-shaped settings" from "a build
+Gatekeeper will treat as one to actually distribute," and it is the thing a green
+`xcodebuild build` cannot show on its own, because `build` and `archive` are signed
+differently even from the same Release configuration.
+
+**`-exportArchive` and `notarytool` were not run, and could not be.** Both need a
+"Developer ID Application" certificate; `security find-identity -v -p codesigning`
+found none in this environment, only the "Apple Development" identity ordinary builds
+use. Getting one is the same one-time, credentialed step every Developer ID app needs —
+either let Xcode create it (Xcode → Settings → Accounts, signed into the paid Apple
+Developer Program membership `DEVELOPMENT_TEAM = 6H4PL5UQ2R` already names) or download
+it from developer.apple.com — and `notarytool` additionally needs an app-specific
+password or an API key stored in the keychain profile named above
+(`xcrun notarytool store-credentials`). Treat both steps as **unverified**, the same
+honesty this file already extends to `NSOpenPanel`/`NSSavePanel`: nobody has run them
+against this project, agent or otherwise.
+
+**`colorkit` is in the raw archive and not in the exported app, and that is a fact worth
+knowing before assuming otherwise.** The scheme builds both targets, and `colorkit` has
+no explicit `SKIP_INSTALL`, so `xcodebuild archive` installs it at
+`ColorToolkit.xcarchive/Products/usr/local/bin/colorkit` — confirmed by listing the
+archive, not inferred from the scheme. But `-exportArchive` only pulls
+`Products/Applications/*.app` out of an archive; it has no notion of an installed Unix
+binary sitting elsewhere in the same tree. So today's Developer ID distribution story
+covers the **app only** — `colorkit` has a real, signed build sitting in the archive with
+nowhere the export step will carry it. Shipping it alongside the app (a Copy Files phase
+embedding it in `Contents/MacOS/`, the way apps that also ship a CLI usually do) is a
+product decision nobody has made yet, not an oversight this section quietly papers over.
+
+**Two settings were left as found, on purpose, because changing either is a product call
+this milestone did not make:** `MACOSX_DEPLOYMENT_TARGET = 26.5` means the shipped app
+runs on essentially only the newest OS at time of writing, and `REGISTER_APP_GROUPS =
+YES` is inert — confirmed by the same entitlements read above: no
+`com.apple.security.application-groups` key appears in a signed binary either way, and
+nothing in the codebase uses an app group. Both are recorded here rather than silently
+changed.
+
+`INFOPLIST_KEY_NSHumanReadableCopyright` was empty in both configurations before M28 and
+now reads `"© 2026 Parker Sprouse. All rights reserved."` — cheap, correct, and the one
+change in this section that needed no judgment call.
 
 ## Architecture
 
@@ -1042,6 +1120,49 @@ Layered so the numeric core stays independently testable and UI-free:
   down the moment it closes, so `.task { seedFromStore() }` re-runs on every open
   regardless. `.id(_:)` stays anyway, as insurance against a future OS where that
   stops holding — kept deliberately rather than as dead code found and left alone.
+- **`ColorStore.globalShortcut` (M27) is a computed property over a private backing
+  field, not a stored `var` with a `didSet` — the shape `recentLimit` uses for the same
+  "re-register immediately" need.** The difference is deliberate: assigning through
+  `globalShortcut` (a hand-edited preferences file reaching `PreferenceStore.load()`, or
+  Settings' "Reset to Defaults" setting `store.preferences = Preferences()` wholesale)
+  re-registers and accepts a possible failure silently, the same graceful degradation
+  `activateGlobalShortcut()` already practices. `updateGlobalShortcut(_:)` — what the
+  Settings recorder calls — is stricter on purpose: it tries the new chord *before*
+  committing, rolls back to the chord that was already working if the system refuses the
+  new one, and reports success back to the caller, because a user recording a chord in
+  front of the app deserves better than the passive paths' silence. It writes the private
+  backing field directly rather than through `globalShortcut`'s own setter, so a
+  successful recording does not also pay for a second, redundant unregister/register
+  round trip.
+- **`GlobalShortcut.isEligible` (M27) is the one predicate both write paths share, and
+  skipping it anywhere is the bug to watch for.** A chord with none of ⌃⌥⌘ can still type
+  a character — ⇧ alone does not save it, since ⇧A still types a capital A — and
+  registering one system-wide would swallow every keystroke of that character in every
+  app on the machine. `GlobalShortcut`'s `Codable` synthesis has no notion of this rule,
+  so a hand-edited or corrupted preferences file decodes a `"modifiers": 0` next to any
+  letter's key code just fine; `ColorStore.preferences`'s setter is where that gets
+  caught (falls back to `.sampleColor`, the same boundary that already clamps a negative
+  `recentLimit`), and `updateGlobalShortcut(_:)` is where a live recording gets caught.
+  A bare function key is the one exception, since function keys are not text.
+- **`updateGlobalShortcut(_:)`'s rejection branch — the system refusing a chord — has no
+  test that forces it, and this is a recorded limitation, not a gap nobody noticed.**
+  `GlobalHotKeyCenter`'s own doc already notes macOS does not reliably report a collision
+  with another application, and the one collision this process *can* force (registering
+  the same chord twice without unregistering first) is exactly what this method's own
+  `unregisterAll()` call clears before the retry. There is no way to make
+  `RegisterEventHotKey` fail deterministically in-process, so the rollback is reasoned
+  about and exercised on the *success* path (`ColorStoreTests
+  .updateGlobalShortcutRebindsWhileActive`, which claims a real four-modifier probe chord
+  the same way `GlobalHotKeyTests` does), not pinned on the failure path — the same
+  honesty this file already extends to `NSOpenPanel`/`NSSavePanel`.
+- **`ShortcutRecorderField` (M27) has no XCUITest, and cannot reasonably get one.**
+  Nothing today drives the Settings window (M22's own web-friendly toggle is already a
+  recorded gap for the same reason), and synthesizing a key event to exercise a live
+  `NSEvent` monitor would need Accessibility permission a test runner has no business
+  holding — the same limitation `GlobalHotKeyTests` already documents for the *firing*
+  half of a registered chord. What the view hands to `ColorStore.updateGlobalShortcut(_:)`
+  is unit-tested directly; turning a raw `NSEvent` into a `GlobalShortcut` is a recorded
+  manual check.
 - New tool panels: add a `Tool` case, a folder under `Features/`, and a branch in
   `ContentView`. Keep spec facts in ColorCore and wording in the panel — see
   `RequirementPresentation`.
