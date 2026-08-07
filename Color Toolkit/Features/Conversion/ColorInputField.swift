@@ -40,6 +40,8 @@ struct ColorInputField: View {
 
   @Environment(ColorStore.self) private var store
 
+  @State private var showsPicker = false
+
   // MARK: - Eyedropper
 
   /// Samples a pixel into the field. Does **not** touch the clipboard — the field is
@@ -65,8 +67,27 @@ struct ColorInputField: View {
 
   // MARK: - Swatch
 
-  @ViewBuilder
+  /// A popover trigger (M24), not a ``SwatchButton``: this swatch doesn't adopt a
+  /// color on click or carry the "use as background / copy" menu those do — it
+  /// opens ``CompactPicker`` on the color already in the field. With no color yet,
+  /// opening the picker is the single most useful thing this swatch can do, so the
+  /// dashed empty state is a button too.
   private var swatch: some View {
+    Button {
+      showsPicker = true
+    } label: {
+      swatchContent
+    }
+    .buttonStyle(.plain)
+    .accessibilityIdentifier("headerSwatch")
+    .accessibilityLabel("Color picker")
+    .popover(isPresented: $showsPicker, arrowEdge: .bottom) {
+      CompactPicker()
+    }
+  }
+
+  @ViewBuilder
+  private var swatchContent: some View {
     if let color = store.color {
       ColorSwatch(color: color)
         .frame(width: 58, height: 58)
@@ -76,6 +97,10 @@ struct ColorInputField: View {
           .separator,
           style: StrokeStyle(lineWidth: 1, dash: [4, 3]),
         )
+        // A stroked-only shape hit-tests only its 1pt outline, leaving the
+        // middle of the empty state dead to a click — this is the one case
+        // where the swatch has nothing filled to catch it.
+        .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .frame(width: 58, height: 58)
     }
   }

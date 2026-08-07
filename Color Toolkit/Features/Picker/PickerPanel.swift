@@ -16,6 +16,11 @@ import SwiftUI
 /// The panel writes to the shared field on every change and reads back only when
 /// something else has written there — see ``PickerState/syncing(with:color:)`` for why
 /// the two directions cannot be the same code path.
+///
+/// The plane, hue strip and alpha strip are ``PickerPlaneView``, ``PickerHueStripView``
+/// and ``PickerAlphaSliderView`` (M24) — extracted so the popover picker on the header
+/// swatch, ``CompactPicker``, composes the identical controls instead of a second,
+/// inevitably drifting copy.
 struct PickerPanel: View {
   // MARK: Internal
 
@@ -24,7 +29,7 @@ struct PickerPanel: View {
       VStack(alignment: .leading, spacing: 16) {
         modeSwitcher
         planeAndStrip
-        alphaSlider
+        PickerAlphaSliderView(state: $state)
         readout
       }
       .padding(16)
@@ -34,82 +39,14 @@ struct PickerPanel: View {
     }
     .task { seedFromStore() }
     .onChange(of: store.inputText) { state.syncing(with: store.inputText, color: store.color) }
-    // `.task(id:)` restarts when the id moves, which discards the stale result.
-    // Stopping the *work* takes an explicit cancel — see `renderPlane()`.
-    .task(id: planeKey) { await renderPlane() }
-    .task(id: stripKey) { await renderStrip() }
   }
 
   // MARK: Private
 
-  /// What the plane's pixels depend on. Only a change here is worth re-rendering
-  /// sixty thousand conversions for — moving the cursor around a plane does not
-  /// change the plane.
-  private struct PlaneKey: Equatable {
-    let mode: PickerMode
-    let hue: Double
-    /// Included so toggling ``ColorStore/webFriendly`` (M22) mid-session re-renders
-    /// the plane against the new edge rather than leaving the old one on screen —
-    /// `.task(id:)` only restarts when the key itself changes.
-    let webFriendly: Bool
-  }
-
-  /// The strip shows hues *at the current position*, so it follows the cursor. It is
-  /// one-dimensional and correspondingly cheap.
-  private struct StripKey: Equatable {
-    let mode: PickerMode
-    let first: Double
-    let second: Double
-    let webFriendly: Bool
-  }
-
   @Environment(ColorStore.self) private var store
 
   @State private var state = PickerState()
-  @State private var plane: PickerPlane?
-  @State private var strip: CGImage?
   @State private var planeSide: CGFloat = 320
-  @State private var planeRender: Task<PickerPlane?, Never>?
-  @State private var stripRender: Task<CGImage?, Never>?
-
-  private var planeKey: PlaneKey {
-    PlaneKey(
-      mode: state.mode,
-      hue: state.mode == .hsv ? state.hsvHue : state.oklchHue,
-      webFriendly: store.webFriendly,
-    )
-  }
-
-  private var stripKey: StripKey {
-    switch state.mode {
-    case .hsv:
-      StripKey(mode: .hsv, first: state.saturation, second: state.value, webFriendly: store.webFriendly)
-    case .oklch:
-      StripKey(mode: .oklch, first: state.lightness, second: state.chroma, webFriendly: store.webFriendly)
-    }
-  }
-
-  /// Where the cursor sits, as a fraction of the plane.
-  ///
-  /// Clamped, because a typed color can be off the plane entirely — `oklch(0.7 0.5
-  /// 30)` has more chroma than the axis carries. Parking the ring on the edge is
-  /// better than drawing it out of bounds, and the readout below states the real
-  /// number either way.
-  private var cursorFraction: CGPoint {
-    switch state.mode {
-    case .hsv:
-      CGPoint(x: state.saturation / 100, y: 1 - state.value / 100)
-    case .oklch:
-      CGPoint(
-        x: min(state.chroma / PickerState.chromaAxisMaximum, 1),
-        y: 1 - min(max(state.lightness, 0), 1),
-      )
-    }
-  }
-
-  private var currentHue: Double {
-    state.mode == .hsv ? state.hsvHue : state.oklchHue
-  }
 
   // MARK: - Mode
 
@@ -140,172 +77,11 @@ struct PickerPanel: View {
 
   private var planeAndStrip: some View {
     HStack(alignment: .top, spacing: 12) {
-      planeView
-      stripView
+      PickerPlaneView(state: $state, side: planeSide)
+      PickerHueStripView(state: $state, height: planeSide)
     }
     .frame(height: planeSide)
     .frame(maxWidth: .infinity, alignment: .leading)
-  }
-
-  private var planeView: some View {
-    GeometryReader { proxy in
-      let size = proxy.size
-
-      ZStack {
-        if let plane {
-          Image(decorative: plane.image, scale: 1)
-            .resizable()
-            .interpolation(.high)
-        } else {
-          Rectangle().fill(.quaternary)
-        }
-
-        Canvas { context, canvasSize in
-          if state.mode == .oklch, let plane, plane.rows > 1 {
-            // The display edge is not drawn under web-friendly mode (M22): the
-            // plane's pixels already stop at the sRGB line, so a dashed curve past
-            // it would be a boundary this square cannot actually reach.
-            if !store.webFriendly {
-              // Dashed first so the solid sRGB line wins where they overlap
-              // at the pinched ends.
-              strokeEdge(
-                plane.displayEdge, in: canvasSize, context: &context,
-                dash: [4, 3], width: 1,
-              )
-            }
-            strokeEdge(plane.srgbEdge, in: canvasSize, context: &context, width: 1.5)
-          }
-          drawCursor(in: canvasSize, context: &context)
-        }
-      }
-      .contentShape(Rectangle())
-      .gesture(
-        DragGesture(minimumDistance: 0)
-          .onChanged { moveCursor(to: $0.location, in: size) }
-          // Never mid-drag — a drag crosses hundreds of colors on the way to
-          // the one that was wanted — but directly on release (M23), replacing
-          // the 1-second debounce this used to share with the hue and alpha
-          // gestures below. The debounce dropped the first of two picks made
-          // within a second of each other; committing on every release fixes
-          // that. It also means dialing in one color across plane, hue and
-          // alpha in turn now files three entries rather than one — each
-          // release genuinely does leave a different `ColorValue` behind, so
-          // `store.remember()`'s exact-value dedupe has nothing to collapse
-          // there. It still collapses the case that actually is noise: a
-          // release that ends where the drag began, or two releases in a row
-          // that land on the same pixel.
-          .onEnded { _ in store.remember() },
-      )
-    }
-    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-    .overlay {
-      RoundedRectangle(cornerRadius: 8, style: .continuous)
-        .strokeBorder(.separator, lineWidth: 1)
-    }
-    // One element rather than a container: a plane has no children worth landing
-    // on, and XCUITest cannot drag something that is not an element.
-    .accessibilityElement()
-    .accessibilityIdentifier("pickerPlane")
-    .accessibilityLabel(state.mode == .hsv ? "Saturation and value" : "Chroma and lightness")
-  }
-
-  // MARK: - Hue strip
-
-  private var stripView: some View {
-    GeometryReader { proxy in
-      let size = proxy.size
-
-      ZStack {
-        if let strip {
-          Image(decorative: strip, scale: 1)
-            .resizable()
-            .interpolation(.high)
-        } else {
-          Rectangle().fill(.quaternary)
-        }
-
-        Canvas { context, canvasSize in
-          let y = CGFloat(currentHue / 360) * canvasSize.height
-          let marker = Path(
-            roundedRect: CGRect(x: -1, y: y - 3, width: canvasSize.width + 2, height: 6),
-            cornerRadius: 3,
-          )
-          context.stroke(marker, with: .color(.black.opacity(0.55)), lineWidth: 3)
-          context.stroke(marker, with: .color(.white), lineWidth: 1.5)
-        }
-      }
-      .contentShape(Rectangle())
-      .gesture(
-        DragGesture(minimumDistance: 0)
-          .onChanged { value in
-            let fraction = clampedFraction(value.location.y, over: size.height)
-            apply { state in
-              switch state.mode {
-              case .hsv: state.hsvHue = fraction * 360
-              case .oklch: state.oklchHue = fraction * 360
-              }
-            }
-          }
-          .onEnded { _ in store.remember() },
-      )
-    }
-    .frame(width: 28)
-    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-    .overlay {
-      RoundedRectangle(cornerRadius: 6, style: .continuous)
-        .strokeBorder(.separator, lineWidth: 1)
-    }
-    .accessibilityElement()
-    .accessibilityIdentifier("pickerHue")
-    .accessibilityLabel("Hue")
-  }
-
-  // MARK: - Alpha
-
-  private var alphaSlider: some View {
-    let opaque = ColorValue(
-      space: state.color.space,
-      components: state.color.components,
-      alpha: 1,
-    )
-
-    return GeometryReader { proxy in
-      let size = proxy.size
-
-      ZStack {
-        Checkerboard(squareSize: 6)
-        LinearGradient(
-          colors: [opaque.displayColor.opacity(0), opaque.displayColor],
-          startPoint: .leading,
-          endPoint: .trailing,
-        )
-
-        Canvas { context, canvasSize in
-          let x = CGFloat(state.alpha) * canvasSize.width
-          let marker = Path(
-            roundedRect: CGRect(x: x - 3, y: -1, width: 6, height: canvasSize.height + 2),
-            cornerRadius: 3,
-          )
-          context.stroke(marker, with: .color(.black.opacity(0.55)), lineWidth: 3)
-          context.stroke(marker, with: .color(.white), lineWidth: 1.5)
-        }
-      }
-      .contentShape(Rectangle())
-      .gesture(
-        DragGesture(minimumDistance: 0)
-          .onChanged { value in
-            let fraction = clampedFraction(value.location.x, over: size.width)
-            apply { $0.alpha = fraction }
-          }
-          .onEnded { _ in store.remember() },
-      )
-    }
-    .frame(height: 24)
-    .clipShape(Capsule())
-    .overlay { Capsule().strokeBorder(.separator, lineWidth: 1) }
-    .accessibilityElement()
-    .accessibilityIdentifier("pickerAlpha")
-    .accessibilityLabel("Alpha")
   }
 
   // MARK: - Readout
@@ -355,9 +131,10 @@ struct PickerPanel: View {
           Spacer()
         }
         // Unreachable rather than wrong under web-friendly (M22): the cursor's
-        // chroma is clamped to the sRGB edge on every drag (see `apply(_:)`), so
-        // this line would only ever report "no headroom used" — hidden, the same
-        // way every other exotic control in this mode is.
+        // chroma is clamped to the sRGB edge on every drag (see
+        // ``PickerState/committing(_:in:)``), so this line would only ever
+        // report "no headroom used" — hidden, the same way every other exotic
+        // control in this mode is.
         if !store.webFriendly {
           gamutLine
         }
@@ -399,7 +176,7 @@ struct PickerPanel: View {
     }
   }
 
-  // MARK: - Plane
+  // MARK: - Plumbing
 
   /// The row's height is set from the panel's **width**, never inferred from the
   /// space available.
@@ -410,88 +187,17 @@ struct PickerPanel: View {
   /// controls out from under a click that was already on its way. Width is bounded,
   /// measuring it cannot feed back into itself, and a square is as wide as it is
   /// tall — so width is the one dimension worth asking about.
+  ///
+  /// The result is now also the plane's explicit **width** (M24, via
+  /// ``PickerPlaneView/side``), not only its height. Before the extraction the plane
+  /// had no `.frame(width:)` of its own and simply took whatever the row's `HStack`
+  /// had left over after the 28pt strip — the same number this function already
+  /// computes, so the square held in practice below the 460pt height cap but silently
+  /// stopped being square above it, at a panel width past roughly 532pt. Giving the
+  /// plane this value as its width too closes that gap rather than merely preserving it.
   private func squareSide(forPanelWidth width: CGFloat) -> CGFloat {
     // Panel padding, the strip, and the gap between them.
     min(max(width - 72, 240), 460)
-  }
-
-  /// Two passes: a dark line under a light one, so the curve stays visible whether it
-  /// crosses a pale yellow or a deep blue. A single stroke in either color disappears
-  /// somewhere along its own length.
-  private func strokeEdge(
-    _ edge: [Double],
-    in size: CGSize,
-    context: inout GraphicsContext,
-    dash: [CGFloat] = [],
-    width: CGFloat,
-  ) {
-    guard edge.count > 1 else { return }
-
-    var path = Path()
-    for (row, chroma) in edge.enumerated() {
-      let point = CGPoint(
-        x: CGFloat(chroma / PickerState.chromaAxisMaximum) * size.width,
-        y: CGFloat(row) / CGFloat(edge.count - 1) * size.height,
-      )
-      if row == 0 {
-        path.move(to: point)
-      } else {
-        path.addLine(to: point)
-      }
-    }
-
-    let style = StrokeStyle(lineWidth: width + 1.5, lineCap: .round, dash: dash)
-    context.stroke(path, with: .color(.black.opacity(0.45)), style: style)
-    context.stroke(
-      path,
-      with: .color(.white.opacity(0.95)),
-      style: StrokeStyle(lineWidth: width, lineCap: .round, dash: dash),
-    )
-  }
-
-  private func drawCursor(in size: CGSize, context: inout GraphicsContext) {
-    let position = CGPoint(
-      x: cursorFraction.x * size.width,
-      y: cursorFraction.y * size.height,
-    )
-    let ring = Path(ellipseIn: CGRect(x: position.x - 7, y: position.y - 7, width: 14, height: 14))
-    context.stroke(ring, with: .color(.black.opacity(0.55)), lineWidth: 3)
-    context.stroke(ring, with: .color(.white), lineWidth: 1.5)
-  }
-
-  private func moveCursor(to point: CGPoint, in size: CGSize) {
-    let x = clampedFraction(point.x, over: size.width)
-    let y = clampedFraction(point.y, over: size.height)
-
-    apply { state in
-      switch state.mode {
-      case .hsv:
-        state.saturation = x * 100
-        state.value = (1 - y) * 100
-      case .oklch:
-        state.chroma = x * PickerState.chromaAxisMaximum
-        state.lightness = 1 - y
-      }
-    }
-  }
-
-  // MARK: - Plumbing
-
-  /// Every axis change goes through here: mutate, then push the result to the field.
-  ///
-  /// Clamps chroma to the sRGB edge under web-friendly mode (M22) — in `apply`
-  /// rather than only in `moveCursor`, because a hue-strip drag can leave a chroma
-  /// that fit the old hue past the new one's boundary, and this is the one place
-  /// every kind of change (plane, hue, alpha) already funnels through. Never in
-  /// `seed(from:)`: the mode hides output, it does not reject input, so a typed
-  /// `oklch(0.9 0.3 140)` must still arrive on the panel unclamped.
-  private func apply(_ change: (inout PickerState) -> Void) {
-    change(&state)
-    if store.webFriendly, state.mode == .oklch {
-      let limit = GamutBoundary.maxChroma(lightness: state.lightness, hue: state.oklchHue, in: .srgb)
-      state.chroma = min(state.chroma, limit)
-    }
-    store.inputText = state.cssToWrite(allowingWideGamut: !store.webFriendly)
   }
 
   /// Re-entering the tool rebuilds this panel's `@State` from scratch, which is right
@@ -503,46 +209,6 @@ struct PickerPanel: View {
       state.seed(from: color)
     }
     state.setMode(store.pickerMode, carrying: store.color)
-  }
-
-  private func clampedFraction(_ position: CGFloat, over extent: CGFloat) -> Double {
-    guard extent > 0 else { return 0 }
-    return min(max(Double(position / extent), 0), 1)
-  }
-
-  /// Renders off the main actor, and **cancels the render it replaces**.
-  ///
-  /// The cancellation has to be explicit. A detached task does not inherit its
-  /// parent's — that is what "detached" means — so `.task(id:)` tearing down the
-  /// wrapper leaves the render itself running to completion on a background thread.
-  /// Dropping its stale result afterwards would still look correct and would still
-  /// burn a full plane's worth of conversions per frame of a hue drag.
-  private func renderPlane() async {
-    let snapshot = state
-    let webFriendly = store.webFriendly
-    planeRender?.cancel()
-    let render = Task.detached(priority: .userInitiated) {
-      PickerPlaneRenderer.plane(mode: snapshot.mode, state: snapshot, webFriendly: webFriendly)
-    }
-    planeRender = render
-
-    let rendered = await render.value
-    guard !Task.isCancelled, let rendered else { return }
-    plane = rendered
-  }
-
-  private func renderStrip() async {
-    let snapshot = state
-    let webFriendly = store.webFriendly
-    stripRender?.cancel()
-    let render = Task.detached(priority: .userInitiated) {
-      PickerPlaneRenderer.hueStrip(mode: snapshot.mode, state: snapshot, webFriendly: webFriendly)
-    }
-    stripRender = render
-
-    let rendered = await render.value
-    guard !Task.isCancelled, let rendered else { return }
-    strip = rendered
   }
 }
 

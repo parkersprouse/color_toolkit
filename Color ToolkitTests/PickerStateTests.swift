@@ -259,6 +259,63 @@ struct PickerStateTests {
     #expect(state.lightness == 0.6231)
   }
 
+  // MARK: - Committing a gesture (M24)
+
+  /// The web-friendly chroma clamp used to be private to `PickerPanel.apply(_:)` and
+  /// reachable only through a running app. Extracting the three gestures into their
+  /// own views for M24 moved the clamp onto `PickerState` itself, which is what makes
+  /// this a unit test rather than a recorded manual check.
+  @MainActor
+  @Test("A drag past the sRGB edge is clamped under web-friendly mode")
+  func committingClampsUnderWebFriendly() throws {
+    let store = ColorStore(initialInput: "oklch(0.7 0.35 140)")
+    store.webFriendly = true
+    var state = oklchState(lightness: 0.7, chroma: 0.35, hue: 140)
+
+    // No further change to make — the seed itself is already past the edge, the
+    // same shape a hue-strip drag leaving a chroma the new hue cannot hold would
+    // produce.
+    let text = state.committing({ _ in }, in: store)
+
+    #expect(state.chroma < 0.35, "chroma was not clamped: \(state.chroma)")
+    let returned = try CSSColorParser.parse(text).color
+    #expect(!returned.exceedsSRGB, "wrote a color outside sRGB despite web-friendly mode: \(text)")
+  }
+
+  /// The counterpart — with the flag off, the identical drag is left untouched, the
+  /// same distinction ``wideChromaIsNotClampedAway`` draws for `cssToWrite` alone.
+  @MainActor
+  @Test("The same drag is untouched with web-friendly mode off")
+  func committingLeavesWideChromaAloneByDefault() throws {
+    let store = ColorStore(initialInput: "oklch(0.7 0.35 140)")
+    var state = oklchState(lightness: 0.7, chroma: 0.35, hue: 140)
+
+    let text = state.committing({ _ in }, in: store)
+
+    #expect(abs(state.chroma - 0.35) < 1e-9)
+    let returned = try CSSColorParser.parse(text).color
+    #expect(returned.exceedsSRGB)
+  }
+
+  /// `committing` returns the text rather than writing `store.inputText` itself, so
+  /// this picker's own state — `lastWritten` included — is fully settled before the
+  /// store, and therefore ``syncing(with:color:)``, ever sees the write. Getting the
+  /// order backwards (writing the store from inside the mutating body, ahead of the
+  /// `@Binding` write-back every caller reaches this through) would leave
+  /// `lastWritten` stale at the moment this runs, and the commit below would read as
+  /// an outside edit — re-seeding the axes and undoing the very change just made.
+  @MainActor
+  @Test("committing settles its own state before the caller writes the store")
+  func committingOrdersItsOwnWriteBeforeTheStores() {
+    let store = ColorStore(initialInput: "#3b82f6")
+    var state = oklchState()
+
+    store.inputText = state.committing({ $0.chroma = 0.2 }, in: store)
+    state.syncing(with: store.inputText, color: store.color)
+
+    #expect(state.chroma == 0.2, "the picker mistook its own write for an outside edit")
+  }
+
   // MARK: Private
 
   private func oklchState(

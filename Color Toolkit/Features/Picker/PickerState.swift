@@ -3,6 +3,7 @@
 //  Color Toolkit
 //
 
+import CoreGraphics
 import Foundation
 
 /// Which pair of axes the plane is showing.
@@ -160,12 +161,11 @@ nonisolated struct PickerState: Sendable {
   /// The CSS to write, remembered so the write can be recognized coming back.
   ///
   /// - Parameter allowingWideGamut: `false` under ``ColorStore/webFriendly`` (M22).
-  ///   Defensive rather than load-bearing on the usual path: the plane already
-  ///   clamps chroma to the sRGB edge on every drag under the flag (see
-  ///   `PickerPanel.apply(_:)`), so `color` normally already fits. This is what
-  ///   still keeps the promise for the one case that arrives unclamped — seeding
-  ///   from a typed, wide `oklch()` value, since seeding carries input across
-  ///   rather than rejecting it.
+  ///   Defensive rather than load-bearing on the usual path: every gesture already
+  ///   clamps chroma to the sRGB edge under the flag (see ``committing(_:in:)``), so
+  ///   `color` normally already fits. This is what still keeps the promise for the
+  ///   one case that arrives unclamped — seeding from a typed, wide `oklch()` value,
+  ///   since seeding carries input across rather than rejecting it.
   mutating func cssToWrite(allowingWideGamut: Bool = true) -> String {
     let color = allowingWideGamut ? color : color.pulledInto(.srgb)
     let text = color.cssStringOrHex(
@@ -194,5 +194,53 @@ nonisolated struct PickerState: Sendable {
     lastWritten = nil
     guard let color else { return }
     seed(from: color)
+  }
+
+  // MARK: - Committing a gesture
+
+  /// The one seam every kind of drag — plane, hue strip, alpha — funnels through
+  /// (M24): mutate the axes, clamp chroma to the sRGB edge under
+  /// ``ColorStore/webFriendly`` (M22), and return the text to write.
+  ///
+  /// Extracted from what was `PickerPanel.apply(_:)` when the three gestures became
+  /// their own views (``PickerPlaneView``, ``PickerHueStripView``,
+  /// ``PickerAlphaSliderView``) shared by both `PickerPanel` and the popover
+  /// `CompactPicker` — one shared implementation is what keeps the clamp from being
+  /// reproduced across two hosts and three gestures. The clamp lives here rather than
+  /// only in the plane's own drag handler, because a hue-strip drag can leave a
+  /// chroma that fit the old hue past the new one's boundary, and every kind of
+  /// change already reaches this one function.
+  ///
+  /// Returns the string rather than writing `store.inputText` itself, and that is
+  /// not a style choice: `self` is reached through a `@Binding` in every caller, so
+  /// writing the store *inside* this method would run before the binding's own
+  /// write-back finishes — `lastWritten` would still be stale in the source of truth
+  /// at the moment the store's observers fire. Returning the text and letting the
+  /// caller assign `store.inputText = state.committing(…)` keeps the exact ordering
+  /// `apply(_:)` had: this picker's own state is fully settled, `lastWritten`
+  /// included, before the store — and therefore `syncing(with:color:)` — ever sees
+  /// the write.
+  ///
+  /// Never called from `seed(from:)`: the mode hides output, it does not reject
+  /// input, so a typed `oklch(0.9 0.3 140)` must still arrive on the panel unclamped.
+  @MainActor
+  mutating func committing(_ change: (inout PickerState) -> Void, in store: ColorStore) -> String {
+    change(&self)
+    if store.webFriendly, mode == .oklch {
+      let limit = GamutBoundary.maxChroma(lightness: lightness, hue: oklchHue, in: .srgb)
+      chroma = min(chroma, limit)
+    }
+    return cssToWrite(allowingWideGamut: !store.webFriendly)
+  }
+
+  /// A drag position as a fraction of its axis, clamped to `[0, 1]`.
+  ///
+  /// Shared by every picker gesture — the plane clamps two of these, the hue strip
+  /// and alpha slider one each — so the boundary behavior (a drag that overshoots the
+  /// control pins to the edge rather than wrapping or extrapolating) cannot drift
+  /// between them.
+  static func clampedFraction(_ position: CGFloat, over extent: CGFloat) -> Double {
+    guard extent > 0 else { return 0 }
+    return min(max(Double(position / extent), 0), 1)
   }
 }

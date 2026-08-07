@@ -399,7 +399,7 @@ M0–M12 are built. The stock SwiftData template (`Item.swift`, the `NavigationS
 | Export        | [ExportTemplate.swift](ColorCore/Export/ExportTemplate.swift), [ColorExport.swift](ColorCore/Export/ColorExport.swift)                                                                                                                                                                                                                                                       |
 | Conversion UI | [ColorInputField.swift](Color%20Toolkit/Features/Conversion/ColorInputField.swift), [ConversionPanel.swift](Color%20Toolkit/Features/Conversion/ConversionPanel.swift), [FormatPresentation.swift](Color%20Toolkit/Features/Conversion/FormatPresentation.swift)                                                                                                             |
 | Contrast UI   | [ContrastPanel.swift](Color%20Toolkit/Features/Contrast/ContrastPanel.swift)                                                                                                                                                                                                                                                                                                 |
-| Picker UI     | [PickerState.swift](Color%20Toolkit/Features/Picker/PickerState.swift), [PickerPlane.swift](Color%20Toolkit/Features/Picker/PickerPlane.swift), [PickerPanel.swift](Color%20Toolkit/Features/Picker/PickerPanel.swift)                                                                                                                                                       |
+| Picker UI     | [PickerState.swift](Color%20Toolkit/Features/Picker/PickerState.swift), [PickerPlane.swift](Color%20Toolkit/Features/Picker/PickerPlane.swift), [PickerPanel.swift](Color%20Toolkit/Features/Picker/PickerPanel.swift), [PickerPlaneView.swift](Color%20Toolkit/Features/Picker/PickerPlaneView.swift), [PickerHueStripView.swift](Color%20Toolkit/Features/Picker/PickerHueStripView.swift), [PickerAlphaSliderView.swift](Color%20Toolkit/Features/Picker/PickerAlphaSliderView.swift), [CompactPicker.swift](Color%20Toolkit/Features/Picker/CompactPicker.swift)                                                                                                                                                       |
 | CVD UI        | [CVDPanel.swift](Color%20Toolkit/Features/CVD/CVDPanel.swift)                                                                                                                                                                                                                                                                                                                |
 | Transform UI  | [TransformPanel.swift](Color%20Toolkit/Features/Transform/TransformPanel.swift)                                                                                                                                                                                                                                                                                              |
 | Export UI     | [ExportPanel.swift](Color%20Toolkit/Features/Export/ExportPanel.swift), [ExportPresentation.swift](Color%20Toolkit/Features/Export/ExportPresentation.swift)                                                                                                                                                                                                                 |
@@ -2529,7 +2529,7 @@ a reintroduced debounce. 474 unit tests (473 before M23, 1 new), 59 CLI tests
 unchanged, and the full XCUITest suite (34 before M23, 37 after) all pass in one
 `** TEST SUCCEEDED **` run.
 
-### ⬜ M24 – A popover picker on the header swatch
+### ✅ M24 – A popover picker on the header swatch
 
 `ColorInputField.swatch` (`:68-81`) becomes a `Button` presenting a `.popover`. The
 dashed empty-state rectangle becomes a button too – with no color yet, opening the
@@ -2553,6 +2553,67 @@ an overlay – M21's accessibility rule applies here too.
 dragging changes `colorInput`. Wait on **hittability**, not existence – a popover
 resizes nothing but the panel behind it can still move. Unit coverage stays on
 `PickerState` (`PickerStateTests`, 263 lines), which is where the arithmetic is.
+
+Built as planned, with four things the plan note above did not spell out.
+
+**The popover's plane, hue strip and alpha slider carry their own identifier,
+distinct from `PickerPanel`'s, rather than reusing `pickerPlane` / `pickerHue` /
+`pickerAlpha` as the plan's own testing note implies.** The header swatch sits above
+the tool switcher (`ContentView`), so nothing stops opening the popover while already
+on the Pick tab – a scenario the plan's testing note does not mention and the running
+app makes trivially reachable. Two elements sharing one accessibility identifier there
+would be an ambiguous XCUITest query with no tree to read, exactly the hazard CLAUDE.md's
+"never write a fallback chain of XCUITest queries" note exists to keep out of this
+codebase. So each of `PickerPlaneView`, `PickerHueStripView` and `PickerAlphaSliderView`
+takes an `identifier` parameter, defaulted to `PickerPanel`'s pre-M24 strings so every
+existing test keeps passing unchanged; `CompactPicker` passes `"compactPickerPlane"`,
+`"compactPickerHue"`, `"compactPickerAlpha"` and `"compactPickerMode"`.
+`CompactPickerSmokeTests.testThePlaneAndItsPopoverCopyCanBothBeOnScreenAtOnce` opens the
+Pick tab first and then the popover specifically to exercise the collision this avoids –
+opening the popover from the default Convert tab, which the plan's own phrasing suggests,
+would never have reached it, since `PickerPanel` is not mounted there.
+
+**Rendering lives inside each of the three shared views, not in whichever host embeds
+them.** `PickerPanel` and `CompactPicker` each hold their own `PickerState`, so each
+needs its own rendered bitmap; hoisting the `.task(id:)` render loop up to the two hosts
+would only relocate the duplication the plan asks to remove, not delete it. Each view
+owns its own `@State` image cache and cancels the render it replaces, exactly as
+`PickerPanel` did before the extraction.
+
+**The M22 web-friendly clamp moved onto `PickerState` itself, as
+`committing(_:in:)`, and that turned it from a recorded manual check into a unit test.**
+It was private to `PickerPanel.apply(_:)` before M24, reachable only through a running
+app. `committing` **returns** the text to write rather than assigning `store.inputText`
+from inside its own body – every caller now reaches `self` through a `@Binding`, and
+writing the store ahead of the binding's own write-back would leave `lastWritten` stale
+in the source of truth at the exact moment the store's observers fire, which
+`committingOrdersItsOwnWriteBeforeTheStores` pins directly. Three new
+`PickerStateTests` cover the clamp on, the clamp off, and this ordering; the first was
+confirmed to fail against the clamp removed (`state.chroma → 0.35`, not clamped).
+
+**`PickerPlaneView`'s side became an explicit `.frame(width:height:)`, not a byte-for-byte
+preservation of the implicit leftover-`HStack`-space layout.** The pre-M24 plane had no
+`.frame(width:)` of its own; `squareSide(forPanelWidth:)` caps its result at `460` and
+that value was only ever applied to the row's *height*, so above roughly 532pt of panel
+width the square was silently a rectangle. Passing the same value as the plane's width
+too closes that gap. Recorded here because it is a considered behavior change surfaced
+by the extraction, not a side effect that should be found later in a screenshot.
+
+**One thing not in the plan at all: the dashed empty-state swatch, once it became a
+`Button`, needed `.contentShape(RoundedRectangle(...))` to be clickable in the middle.**
+`RoundedRectangle.strokeBorder` with no fill hit-tests only its 1pt outline, so a click
+dead center on the 58×58 square would land on nothing without it – the filled
+`ColorSwatch` case needs no such fix, since its `Rectangle().fill(...)` already gives
+SwiftUI a shape to hit-test. Confirmed by mutation: removing the modifier fails
+`CompactPickerSmokeTests.testTheEmptyStateSwatchOpensThePopoverToo` and nothing else.
+
+**Testing, final.** Three new `PickerStateTests` cases (the clamp on, the clamp off,
+the write-ordering guarantee), all three confirmed against a mutation of the rule they
+cover; one new UI file, `CompactPickerSmokeTests` (the popover opens and a drag inside
+it reaches the field; the plane and its popover copy coexist without an ambiguous
+query; the empty-state swatch is clickable). 477 unit tests (474 before M24, 3 new), 59
+CLI tests unchanged, 40 XCUITests (37 before M24, 3 new) – all passing in one
+`** TEST SUCCEEDED **` run, 576 tests total.
 
 ### ⬜ M25 – Click the notation to re-spell the active color
 
@@ -2689,6 +2750,8 @@ and an ambiguous query fails at the click with no tree to read.
 `Services/Preferences.swift`; `DesignSystem/ColorSwatch.swift` (`SwatchButton`),
 `ContentView.swift`, `Features/Conversion/ColorInputField.swift` +
 `FormatPresentation.swift`, `Features/Picker/PickerPanel.swift` + `PickerState.swift`,
+new `Features/Picker/PickerPlaneView.swift` + `PickerHueStripView.swift` +
+`PickerAlphaSliderView.swift` + `CompactPicker.swift` (M24),
 `Features/Export/ExportPanel.swift` + `ExportPresentation.swift`,
 `Features/Projects/ProjectsPanel.swift`, `Features/Shell/ColorStore.swift`,
 `Persistence/ProjectLibrary.swift`, `Color_ToolkitApp.swift`.
@@ -2757,7 +2820,25 @@ Per milestone:
   (confirmed the same way), and passes at the real fix. `RecentsSmokeTests` covers the
   row itself: a submit-then-click round trip through the authored text, and Clear
   emptying the list and hiding itself.
-- **M24–M26 (planned):** none of the three has landed yet, so nothing below is a finding – it is the standard of proof each milestone must meet before its commit lands, stated in advance so the mutation run has a target. **M24:** the header swatch hittable, the popover revealing `pickerPlane`, dragging changing `colorInput` – waited on hittability, not existence. **M25:** every exportable format round-trips the active color when chosen from the menu (or gamut-maps where `cannotRepresentOutOfGamut`); the control queried as a `menuButton`. **M26:** shape detection for every shape and ambiguous inputs, the `primary`/`primar` segment-wise extraction case, the export round trip at both cardinalities, a malformed value skipped without losing its neighbours, the fourth `savePalette` overload's pasted text surviving a re-parse, and the sheet's controls queried through `app.sheets`.
+- **M24 (done):** the header swatch hittable, opening it reveals `compactPickerPlane`
+  (not `pickerPlane` – see the M24 retrospective above for why the identifier differs
+  from what this section originally said to check), and dragging inside it changes
+  `colorInput`, waited on hittability rather than existence. Extended past the
+  standard stated in advance: the plane and its popover copy coexist on screen without
+  an ambiguous query, and the empty-state swatch's `.contentShape` fix is pinned by a
+  mutation (`CompactPickerSmokeTests.testTheEmptyStateSwatchOpensThePopoverToo` fails
+  without it). The web-friendly clamp, previously a recorded manual check, is now three
+  `PickerStateTests` cases on `PickerState.committing(_:in:)`, each confirmed against a
+  mutation of the rule it covers.
+- **M25–M26 (planned):** neither has landed yet, so nothing below is a finding – it is
+  the standard of proof each milestone must meet before its commit lands, stated in
+  advance so the mutation run has a target. **M25:** every exportable format round-trips
+  the active color when chosen from the menu (or gamut-maps where
+  `cannotRepresentOutOfGamut`); the control queried as a `menuButton`. **M26:** shape
+  detection for every shape and ambiguous inputs, the `primary`/`primar` segment-wise
+  extraction case, the export round trip at both cardinalities, a malformed value
+  skipped without losing its neighbours, the fourth `savePalette` overload's pasted text
+  surviving a re-parse, and the sheet's controls queried through `app.sheets`.
 - **M3/M4 (UI):** run the app and verify interactively. Spot-check conversions against a browser's DevTools color picker, which implements the same spec – a fast, honest end-to-end sanity check.
 
 The scheme is shared and works from the command line:

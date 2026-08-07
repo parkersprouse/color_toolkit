@@ -32,7 +32,14 @@ the first remembered color, so nothing resizes out from under a click), plus
 commit-on-release in the picker — each of the plane, hue-strip and alpha-slider drags
 now calls `store.remember()` directly in its own `onEnded`, replacing a shared
 1-second debounce that used to drop the first of two picks made close together.
-**M24–M26 are planned and not yet built**; see PLAN.md.
+**M24 is done too**: a popover picker behind `ColorInputField`'s header swatch, so a
+color can be picked without leaving whatever tool is open. The plane, hue strip and
+alpha slider are now `PickerPlaneView`, `PickerHueStripView` and
+`PickerAlphaSliderView` — pulled out of `PickerPanel` so the popover's `CompactPicker`
+composes the same three controls instead of a second, drifting copy — and the M22
+web-friendly clamp moved with them onto `PickerState.committing(_:in:)`, which is now
+unit-tested directly rather than only reachable through a running app.
+**M25–M26 are planned and not yet built**; see PLAN.md.
 
 **[PLAN.md](PLAN.md) is the source of truth** for milestone status, what is deferred
 and why, and the reasoning behind every decision recorded below. This file is the
@@ -629,6 +636,16 @@ Layered so the numeric core stays independently testable and UI-free:
   last wrote — a boolean "am I writing" flag does not work, because observation fires
   after the synchronous reparse. Each mode writes a format that can hold its output:
   `oklch()` at `.lossless`, or hex for HSV.
+- **`PickerPlaneView`'s side is now an explicit `.frame(width:height:)`, not implicit
+  leftover `HStack` space.** Before M24's extraction the plane had no `.frame(width:)`
+  of its own — it simply took whatever the row had left after the 28pt hue strip, which
+  happened to equal `PickerPanel.squareSide(forPanelWidth:)`'s own result. That function
+  caps its return at `460`, but only the row's *height* was ever set from it; the
+  plane's actual width was uncapped, so above roughly 532pt of panel width the square
+  silently stopped being one. Giving the plane the same value as an explicit width too
+  (so both hosts pass one `side`/`height` pair down) closes that gap rather than merely
+  preserving it — a deliberate correction picked up during the extraction, not a
+  side effect to discover later in a screenshot.
 - **An export `template` and an export `shape` are not the same control** and must not
   be merged back. A template is per color (`border: 1px solid X`); a shape is per
   document (`:root {}`, JSON, a Tailwind config). Exactly one shape consumes a template,
@@ -861,14 +878,47 @@ Layered so the numeric core stays independently testable and UI-free:
   `GeometryReader`-inside-`ScrollView` resize above, just triggered from the opposite
   direction (content appearing rather than a proposal changing).
 - **Commit-on-release (M23) can file up to three recents for one settled pick, and
-  that is intended, not a missed dedupe.** `PickerPanel`'s plane, hue-strip and alpha
-  gestures each call `store.remember()` directly from their own `onEnded` — replacing
-  a single 1-second debounce the three used to share, which dropped the first of two
-  picks made within a second of each other. `remember()`'s exact-value dedupe still
-  collapses the case that is actually noise (a release that lands where the drag
-  began, or two releases in a row on the same pixel); it has nothing to collapse
-  across plane → hue → alpha, because each release genuinely does leave a different
-  `ColorValue` behind until the last one repeats what came before.
+  that is intended, not a missed dedupe.** `PickerPlaneView`, `PickerHueStripView` and
+  `PickerAlphaSliderView`'s gestures (moved out of `PickerPanel` and shared with the
+  popover `CompactPicker` in M24) each call `store.remember()` directly from their own
+  `onEnded` — replacing a single 1-second debounce the three used to share, which
+  dropped the first of two picks made within a second of each other. `remember()`'s
+  exact-value dedupe still collapses the case that is actually noise (a release that
+  lands where the drag began, or two releases in a row on the same pixel); it has
+  nothing to collapse across plane → hue → alpha, because each release genuinely does
+  leave a different `ColorValue` behind until the last one repeats what came before.
+- **The picker's three gestures are one implementation now, not one per host.**
+  `PickerPlaneView`, `PickerHueStripView` and `PickerAlphaSliderView` (M24) each render
+  and cache their own bitmap and own the drag that moves it, so `PickerPanel` and
+  `CompactPicker` compose the identical controls at different sizes instead of two
+  copies of a gamut-clamped chroma axis drifting apart. The M22 web-friendly clamp
+  moved with them onto `PickerState.committing(_:in:)`, the one seam every kind of
+  change — plane, hue, alpha — now funnels through, which is what makes the clamp
+  unit-testable (`PickerStateTests`) rather than reachable only through a running app.
+  `committing` **returns** the text to write rather than assigning `store.inputText`
+  itself, and that is not a style choice: every caller reaches `self` through a
+  `@Binding`, so writing the store from inside the mutating body would run ahead of the
+  binding's own write-back, leaving `lastWritten` stale in the source of truth at the
+  moment the store's observers fire. `store.inputText = state.committing(…)` keeps this
+  picker's own state — `lastWritten` included — fully settled before the store, and
+  therefore `syncing(with:color:)`, ever sees the write.
+- **The three shared picker views take an `identifier` parameter, defaulted to
+  `PickerPanel`'s own strings, because the popover and the Pick tab can be on screen at
+  once.** The header swatch that opens `CompactPicker` sits above the tool switcher
+  (same reasoning as `RecentsRow`'s placement), so nothing stops opening the popover
+  while already on the Pick tab — two elements sharing one accessibility identifier
+  there would be an ambiguous XCUITest query with no tree to read, the exact hazard
+  "never write a fallback chain of XCUITest queries" (Testing, below) exists to keep
+  out. `CompactPicker` passes `"compactPickerPlane"` etc.; `PickerPanel` passes nothing
+  and gets `"pickerPlane"` etc. as before M24.
+- **A `Button` whose label is a stroked-only shape hit-tests only the stroke, not the
+  shape's interior.** `ColorInputField`'s empty-state swatch (`RoundedRectangle
+  .strokeBorder`, no fill) needed an explicit `.contentShape(RoundedRectangle(...))`
+  once it became a button (M24) — without it, a click dead center on the 58×58 square
+  lands on nothing and the popover never opens, while the filled `ColorSwatch` case
+  needs no such fix because its `Rectangle().fill(...)` already gives SwiftUI something
+  to hit-test. Confirmed by mutation: removing the modifier fails
+  `CompactPickerSmokeTests.testTheEmptyStateSwatchOpensThePopoverToo` and nothing else.
 - New tool panels: add a `Tool` case, a folder under `Features/`, and a branch in
   `ContentView`. Keep spec facts in ColorCore and wording in the panel — see
   `RequirementPresentation`.
