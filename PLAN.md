@@ -2742,99 +2742,115 @@ before being pinned so the exact string wasn't a guess. 483 unit tests (476 befo
 M25, 7 new), 59 CLI tests unchanged, 44 XCUITests (42 before M25, 2 new) – 586 total,
 all passing in one `** TEST SUCCEEDED **` run.
 
-### ⬜ M26 – Import from the export shapes
+### ✅ M26 – Import from the export shapes
 
-The largest milestone, and last because it consumes M20's group vocabulary.
+The largest milestone, and last because it consumed M20's group vocabulary.
 
-**Core: `ColorCore/Import/PaletteImport.swift`.** A separate `ImportShape` enum,
-deliberately not `ExportShape`. The two vocabularies differ in both directions: design
-tokens are importable and not an export shape, and a bare list of colors is importable
-and not a document shape at all. Reusing `ExportShape` would mean two cases that mean
-nothing on one side – the same argument that kept `color-mix()` out of `ColorFunction`.
+**Core: `ColorCore/Import/PaletteImport.swift`.** A separate `ImportShape` enum, not
+`ExportShape` — design tokens are importable and not an export shape, and a bare list of
+colors is importable and not a document shape at all:
 
 ```
 customProperties · declaration · json · tailwindTheme · tailwindConfig
 p3WithFallback · designTokens · looseColors
 ```
 
-**`PaletteImport.detect(_ text: String) -> ImportShape`** – structural sniffing, most
-specific first: `@theme {` → tailwindTheme; `module.exports` or the `@type
-{import('tailwindcss')` banner → tailwindConfig; `@media (color-gamut` → p3WithFallback;
-`:root {` with `--` properties → customProperties; parses as a JSON object containing
-`$value` → designTokens; parses as a JSON object → json; lines shaped `prop: value;` →
-declaration; otherwise looseColors.
+`detect(_:)` sniffs structurally, most specific first, exactly as planned. `parse(_:as:)`
+throws only `PaletteImportError` for a whole-input failure (an empty paste, a design-token
+file that isn't JSON); one bad value inside an otherwise good document is reported in
+`ImportedPalette.skipped` instead, mirroring `DesignTokenImport`'s split between a thrown
+error and a skip list.
 
-**`PaletteImport.parse(_ text:, as shape:) -> ImportedPalette`** returning
-`{ groups: [PaletteGroup], detectedName: String?, texts: [String: String], skipped: [...] }`.
-Report per-value failures the way `DesignTokenImport` does – a thrown error only for a
-whole-input failure, a `skipped` list for individual values – so one bad line does not
-lose the other forty.
+**Two deliberate departures from the plan's sketch, both decided before any code was
+written.**
 
-**There is no multi-color entry point in ColorCore today.** `CSSColorParser.parse`
-handles exactly one color and throws `trailingContent` otherwise. This milestone adds
-the first multi-color reader, and the seam is: **extract values structurally, then parse
-each one individually.** Values come from between `:` and `;` (CSS), or from JSON string
-values. The parser's single-color contract stays untouched, which is what keeps 35 error
-cases meaning what they mean.
+1. **No `texts: [String: String]` side table.** A dictionary keyed by entry key breaks the
+   instant two groups share a key — `brand.500` and `accent.500` both key `"500"`, and one
+   pasted spelling silently overwrites the other. `ImportedEntry` carries `key`, `color`
+   *and* `text` together instead, so the pasted spelling travels with the color it belongs
+   to rather than living in a second collection indexed the same fragile way.
+2. **Header comments decide grouping before segment inference does.** The plan's
+   segment-wise extraction ("`primary-100`, `primary-200` → family `primary`") cannot by
+   itself satisfy the plan's own round-trip oracle: a two-group `customProperties` export
+   (`--brand-500, --brand-600, --accent-500`) has *no* shared segment across all three
+   properties, so pure prefix inference would produce three singleton groups instead of two.
+   What actually carries the grouping is `ColorExport`'s own `/* From "…" */` header comment
+   — a *fact*, where prefix inference is a *guess* about a file this app never wrote. So a
+   headered block strips exactly the header's name off every property; segment-wise
+   inference is the fallback only when there is no header at all (a single-group export, or
+   a hand-authored file). `p3WithFallback` inherits this for free, since it re-enters the
+   same property-block parser on its `@media` override text.
 
-**Name extraction is segment-wise, not character-wise.** Strip `--`, strip Tailwind's
-`color-` namespace for the theme shape, then take the longest common **hyphen-segment**
-prefix across all keys: `primary-100`, `primary-200` → family `primary`, keys `100`,
-`200`. A character-wise prefix would turn `primary-100` and `primar-200` into `primar`
-and produce keys nothing references. With no common prefix – `text-color`,
-`ground-color` – the family is empty and each property becomes its own single-entry
-group, which is precisely the inverse of M20's loose-color rule.
+**`p3WithFallback` reads only its `@media` override, never the hex fallback block.** Hex
+`cannotRepresentOutOfGamut`, so trusting the fallback would silently round away exactly the
+colors that motivated choosing the shape. `PaletteImportTests.p3WithFallbackReadsTheOverride`
+renders a pure Display P3 primary and asserts both that the import matches it and that the
+fallback block's own hex answer is a *materially different* color — not a rounding-tolerance
+question but a "which block did this actually read" one.
 
-**The round trip is the oracle.** `Export/` already uses this app's own parser as its
-oracle; import can use the exporter. The discriminating test: render a two-group project
-in each shape, import it back, and require the same groups, keys and colors. No external
-reference is needed and no output string is pinned, so the claim survives a rewrite of
-either side.
+**Name extraction is segment-wise, not character-wise, exactly as planned** — and this is
+where `PaletteImportTests.familyExtractionIsSegmentWise` earns its keep: `primary-100` and
+`primar-200` share seven raw characters and zero hyphen segments, so a character-wise
+prefix (verified by mutation) would collapse them to `primar`, a family nothing named. No
+shared segment at all becomes N singleton groups, M20's loose-color rule in reverse.
 
-**Storage spelling is the "format" control.** Per the settled decision, the panel's
-Format control chooses **how imported colors are stored**, defaulting to *preserve* –
-each color keeps the spelling it was pasted in. This is the same doctrine as the three
-`savePalette` overloads, whose whole difference is how each derives the stored spelling.
+**Storage spelling is the "format" control, exactly as planned** — but the mechanism moved
+down a layer from the sketch. `ProjectLibrary`'s fourth overload always writes
+`ImportedEntry.text` verbatim; "keep as pasted" vs. a chosen format is decided by
+`ImportTextSheet` *before* the call, which re-spells each entry's `text` with
+`ColorValue.formatted(as:options:)` when a specific format is picked. This is the identical
+discipline `ColorStore.respell(as:)` (M25) established for the same reason: a control naming
+an exact format must not be second-guessed by a lower layer that is allowed to override it.
 
-That needs a **fourth `savePalette` overload** in `Persistence/ProjectLibrary.swift`,
-taking key/color/text triples. The existing ones cannot serve: the `[PaletteEntry]` one
-re-derives with `preferring: .oklch`, the `from: [SavedColor]` one copies an existing
-record, and the `importing: [DesignToken]` one spells in the token's named space. None
-carries pasted text. Merging into any of them destroys exactly the thing that must
-survive – the same rule CLAUDE.md already states about the other three. It shares
-`newPalette(named:kind:in:)` and nothing else, and gets a new `PaletteKind` (or reuses
-`.imported`, decided when writing it).
+**The fourth `savePalette` overload reuses `.imported` rather than adding a `PaletteKind`
+case**, the alternative the plan left open. Both this and the design-token overload mean the
+identical thing — "somebody else's names, read out of a file or a paste box" — so a second
+case would be a schema-visible string distinguishing nothing a user or a test needs told
+apart.
 
-**UI: a sheet off the Projects panel, not an eighth tool.** The tool switcher is at its
-tested ceiling of seven and an eighth segment is unmeasured risk – this is why M15's
-mixing folded into Transform and M17's import folded into Projects. Import-from-text
-folds into Projects the same way.
+**`ProjectLibrary.rename(_:to:)` stays unwired, and this is a deliberate note rather than an
+oversight.** The plan floated wiring it from the sheet's name field; the field instead
+supplies the name at *creation* (`savePalette(importing:named:to:)` already takes one), so
+there is no post-hoc rename to perform. `rename` remains the library's only unused mutation.
 
-The save-controls row (`ProjectsPanel.swift:237-268`) already carries four buttons, so
-`Button("Import Tokens…")` becomes `Menu("Import")` with **From Text…** and **From Token
-File…**. The row stays at four controls.
+**UI: `Menu("Import")` off the Projects panel's save-controls row, not an eighth tool** —
+`Button("Import Tokens…")` became `Menu("Import")` with **From Text…** (`ImportTextSheet`,
+new) and **From Token File…** (the pre-existing `fileImporter` flow, unchanged). The row
+stays at four controls, per the tool-switcher ceiling this milestone series has respected
+throughout.
 
-The sheet holds: a paste box; the detected shape as an overridable picker; the detected
-name as an editable field; the storage-format picker (default "Keep as pasted"); a
-destination – existing project (picker, defaulting to the current one) or a new project
-(name field); and a live preview of the groups and colors that will be created, plus a
-count of anything skipped. A sheet rather than inline because none of that fits beside
-four buttons.
+The sheet: a plain `TextEditor` paste box (bound straight to state, deliberately never a
+"Paste" button reading `NSPasteboard` — nothing outside a running app, and no XCUITest,
+could type into that); an overridable shape picker; an editable name field that tracks the
+parsed document's suggestion until the user actually types in it (single-group case only —
+multiple groups already have their own names from structure); a storage-format picker
+narrowed under `webFriendly` the same way `ExportPanel`'s already is; a destination segmented
+control (existing project, defaulting to whatever `ProjectsPanel` has open, or a new one);
+and a live preview of every group's swatches plus a skipped-value count.
 
-`ProjectLibrary.rename(_ palette:to:)` (`:259`) is currently the library's only unwired
-mutation – the sheet's name field is a natural place to finally give it a call site, or
-to note deliberately that it still has none.
-
-**Testing.** Unit (`Color ToolkitTests/`, a new `PaletteImportTests.swift` beside
-`DesignTokenImportTests.swift`): shape detection for every shape plus ambiguous inputs;
-segment-wise name extraction, including the `primary`/`primar` case that discriminates
-it; the round trip through every shape at both cardinalities; a malformed value is
-skipped and reported while its neighbours import. Persistence (`ProjectStoreTests.swift`):
-the fourth overload preserves pasted text – parse the stored text back and require it to
-reproduce the components, the same check the other overloads carry. UI
-(`ProjectsSmokeTests.swift`): the Import menu exists and opens; **query the sheet's
-controls through `app.sheets`**, since a sheet's buttons appear more than once app-wide
-and an ambiguous query fails at the click with no tree to read.
+**Testing.** Unit (`PaletteImportTests.swift`, 20 tests): shape detection including
+ordering (`@theme` ahead of the JSON/declaration fallbacks); the segment-wise vs.
+character-wise discriminator; the round trip through every export shape at both
+cardinalities (a lone color, a two-group document), plus a sanitized-name case; the
+`p3WithFallback` override-vs-fallback discriminator; a malformed value skipped without
+losing its neighbours; `looseColors`' paren-depth-aware splitting (a `color-mix()`
+argument's internal commas are not separators); `designTokens` delegation, including a
+broken token skipped without losing a good one alongside it. Four mutations verified by
+hand — ignoring headers, character-wise prefix, reading `p3WithFallback`'s hex block,
+reordering `detect()`'s `@media`/`:root` checks — each failed exactly its own test and no
+other. Persistence (`ProjectStoreTests.swift`, 2 tests): the fourth overload's stored text
+is the literal pasted string, not a re-derivation (checked by mutation against
+`.derived(_:preferring: .oklch)`, which both tests catch); the stored text reparses to the
+stored components, the same check every other stored spelling in this app carries. UI
+(`ProjectsSmokeTests.swift`): the Import menu offers both paths without clicking the
+un-drivable one (`NSOpenPanel`, same limitation the pre-M26 test already worked around);
+a full paste-to-palette run through `app.sheets`, typing a two-property `:root` block into
+the `textViews` query, confirming, and asserting a palette row and the import summary
+both appear — the one place the segment-wise family inference is checked reaching an
+actual saved `Palette` rather than a parsed `ImportedPalette`. 505 unit tests (483 before
+M26, 20 in `PaletteImportTests` + 2 in `ProjectStoreTests`), 59 CLI tests unchanged, 45
+XCUITests (44 before M26, 1 net new — one pre-existing test rewritten for the menu, one
+genuinely new) — 609 total, all passing in one `** TEST SUCCEEDED **` run.
 
 ### Files touched, by area (M19–M26)
 

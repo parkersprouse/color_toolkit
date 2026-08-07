@@ -46,7 +46,13 @@ and narrowed the same way under `webFriendly`. Choosing one calls the new
 `ColorStore.respell(as:)` rather than `adopt(_:preferring:)`, because `adopt`'s
 `spelling(preferring:)` step is allowed to override the format it is handed and a menu
 click naming an exact format must not be second-guessed.
-**M26 is planned and not yet built**; see PLAN.md.
+**M26 is done too**: the other half of the export round trip — `PaletteImport` reads a
+pasted stylesheet, Tailwind config, JSON document, design-token file or bare color list
+back into groups, keys and colors, and `ImportTextSheet` (behind Projects' new
+`Menu("Import")`, beside the pre-existing token-file picker) saves them. Family
+grouping prefers this app's own `/* From "…" */` export headers when present and falls
+back to segment-wise hyphen-prefix inference otherwise; `p3WithFallback` reads only its
+`@media` override, never the lossy hex fallback.
 
 **[PLAN.md](PLAN.md) is the source of truth** for milestone status, what is deferred
 and why, and the reasoning behind every decision recorded below. This file is the
@@ -68,9 +74,9 @@ change without a mistake masquerading as an app regression:
 xcodebuild -project "Color Toolkit.xcodeproj" -target colorkit -destination 'platform=macOS' build && ./build/Release/colorkit --help
 ```
 
-Full test suite (~9 minutes, nearly all of it UI tests — the 483 + 59 Swift Testing
-tests finish in about a second, the 44 XCUITests take seven minutes and up). **There are
-two Swift Testing bundles now**: `Color ToolkitTests` (483 tests, 52 suites) and
+Full test suite (~9 minutes, nearly all of it UI tests — the 505 + 59 Swift Testing
+tests finish in about a second, the 45 XCUITests take seven minutes and up). **There are
+two Swift Testing bundles now**: `Color ToolkitTests` (505 tests, 53 suites) and
 `ColorToolkitCLITests` (59 tests, 10 suites), and both are in the scheme:
 
 ```bash
@@ -620,6 +626,56 @@ Layered so the numeric core stays independently testable and UI-free:
   only format that ever answers so). It still pulls the color into sRGB first under
   `webFriendly`, the same recalibration `adopt` performs and for the identical reason —
   a perceptual function is unbounded and won't clamp itself.
+- **`PaletteImport` (M26) prefers this app's own `/* From "…" */` export headers over
+  segment-wise inference, and the reason is not style — segment inference alone cannot
+  satisfy the round-trip claim it is held to.** A two-group `customProperties` export
+  (`--brand-500, --brand-600, --accent-500`) has no hyphen segment shared by all three
+  property names, so a purely prefix-based reading would produce three singleton groups
+  instead of the two that were exported. A header is this app's own record of what the
+  group was called — a *fact* — where segment inference is a *guess* about a file this
+  app never wrote, so a headered block strips exactly the header's name off every
+  property and only a headerless block (a single-group export, or a hand-authored file)
+  reaches for segment-wise `commonFamily` inference. Both paths are pinned:
+  `twoGroupsRoundTrip` for the headered case, `familyExtractionIsSegmentWise` /
+  `sharedSegmentPrefixBecomesFamily` for the fallback, and a mutation that ignores
+  headers entirely fails only the two-group tests, nothing else.
+- **`PaletteImport` reads only `p3WithFallback`'s `@media` override, never its hex
+  fallback block.** Hex `cannotRepresentOutOfGamut`, so trusting the fallback would
+  silently round away exactly the colors that motivated choosing the shape in the first
+  place — a color imported this way would come back a *different* color than what was
+  exported, not merely a less precise one. `p3WithFallbackReadsTheOverride` renders a
+  pure Display P3 primary and asserts both that the import matches it and that the
+  fallback block's own hex answer differs by orders of magnitude more than any
+  formatting tolerance — a mutation that reads the fallback block instead fails exactly
+  this test and its two-group sibling.
+- **`ImportedEntry` carries `key`, `color` and `text` together, not — as PLAN.md's
+  original M26 sketch proposed — a `texts: [String: String]` side table keyed by entry
+  key.** Keys are only unique *within* a group; `brand.500` and `accent.500` both key
+  `"500"`, and a dictionary keyed that way has one pasted spelling silently overwrite
+  the other the moment two groups collide on a key. Carrying the text on the entry
+  itself has no such collision because there is nothing to collide against.
+- **`ProjectLibrary`'s fourth `savePalette` overload (M26, `importing entries:
+  [ImportedEntry]`) writes `entry.text` verbatim — `ColorRecord(entry.color, text:
+  entry.text)`, never `.derived(_:preferring:)`.** The storage-format control's default
+  is "keep as pasted," and that promise is only real if the stored text is the literal
+  substring `PaletteImport` found rather than a round trip through `ColorValue` and
+  back. When `ImportTextSheet`'s format picker instead names a specific format, the
+  *sheet* rewrites each entry's `text` with `ColorValue.formatted(as:options:)` before
+  the call — the identical discipline `ColorStore.respell(as:)` (M25) established:
+  a control naming an exact format must not be second-guessed by a lower layer that is
+  allowed to override it. Both `importedEntryTextIsStoredVerbatim` and
+  `importedEntryTextReproducesComponents` catch a mutation that routes through
+  `.derived` instead.
+- **The fourth `savePalette` overload reuses `PaletteKind.imported` rather than adding a
+  new case.** It and the design-token overload mean the identical thing — "somebody
+  else's names, read out of a file or a paste box, not generated by a tool in this
+  app" — so a second case would be a schema-visible string distinguishing nothing a user
+  or a test needs told apart.
+- **`ProjectLibrary.rename(_:to:)` is still the library's only unwired mutation, and M26
+  did not change that.** The plan floated wiring it from `ImportTextSheet`'s name field;
+  the field instead supplies the name at *creation* time (`savePalette(importing:
+  named:to:)` already takes one), so there is no post-hoc rename to perform. Recorded
+  deliberately rather than left to look like an oversight.
 - **`ExportOptions.shape` and `.format` are persisted preferences (M19), which predates
   web-friendly mode (M22) — so the mode can be turned on with `p3WithFallback` or a
   `color()` format already chosen from an earlier session.** Hiding those choices from
