@@ -241,6 +241,53 @@ struct ProjectStoreTests {
     #expect(saved.notes == "The one on the buttons")
   }
 
+  // MARK: - Imported palettes (M26, pasted text)
+
+  /// **The fourth overload writes `ImportedEntry/text` verbatim, never a re-derived
+  /// spelling.** The discriminating input is a color whose *stored components* would
+  /// re-serialize differently at `.lossless` than the exact substring pasted in — an
+  /// out-of-gamut `oklch()` value, since `.lossless` preserves rather than clamps but
+  /// still reformats to its own decimal precision. Routing this through
+  /// `.derived(_:preferring:)` would rewrite it; this overload must not.
+  @Test("An imported entry's text is stored exactly as pasted, not re-derived")
+  func importedEntryTextIsStoredVerbatim() throws {
+    let library = try Self.makeLibrary()
+    let project = try library.createProject(named: "Site")
+    let pasted = "oklch(0.7 0.5 140.123456789)"
+    let color = try #require(CSSColorParser.parse(pasted).color)
+    let entry = ImportedEntry(key: "500", color: color, text: pasted)
+
+    try library.savePalette(importing: [entry], named: "Brand", to: project)
+
+    let saved = try #require(try library.projects().first?.orderedPalettes.first?.orderedEntries.first)
+    #expect(saved.text == pasted)
+  }
+
+  /// The same check every stored spelling is held to: parsing the stored text has to
+  /// reproduce the stored components, or the two are two claims that can drift apart.
+  @Test("An imported entry's stored text reproduces its stored components")
+  func importedEntryTextReproducesComponents() throws {
+    let library = try Self.makeLibrary()
+    let project = try library.createProject(named: "Site")
+    let text = """
+    :root {
+      --brand-500: #3b82f6;
+      --brand-600: #ef4444;
+    }
+    """
+    let imported = try PaletteImport.parse(text, as: .customProperties)
+    let group = try #require(imported.groups.first)
+
+    try library.savePalette(importing: group.entries, named: group.name, to: project)
+
+    let palette = try #require(try library.projects().first?.orderedPalettes.first)
+    #expect(palette.kind == .imported)
+    for saved in palette.orderedEntries {
+      let reparsed = try #require(CSSColorParser.parse(saved.text).color)
+      #expect(reparsed == saved.colorValue)
+    }
+  }
+
   /// An orphaned `SavedColor` belongs to no project, so no view would ever show it and
   /// nobody would ever know it was there. The cascade is declared on the relationships;
   /// this is what proves it reaches both of them — the loose colors *and* the ones two
