@@ -20,11 +20,25 @@ struct PickerPlaneView: View {
 
   @Binding var state: PickerState
 
-  /// The square's side, in points. The host measures its own available width and
-  /// passes the result down — see `PickerPanel.squareSide(forPanelWidth:)` — rather
-  /// than this view re-deriving it, since a popover and a resizable panel size this
-  /// two completely different ways.
+  /// The plane's height always, and its width too unless ``fillsAvailableWidth`` is
+  /// set. The host measures its own available width and passes the result down — see
+  /// `PickerPanel.squareSide(forPanelWidth:)` — rather than this view re-deriving it,
+  /// since a popover and a resizable panel size this two completely different ways.
   var side: CGFloat
+  /// `true` for `PickerPanel`, `false` (the default) for `CompactPicker`.
+  ///
+  /// The plane used to fill whatever width the row had left over — no
+  /// `.frame(width:)` of its own — and only its *height* came from `side`. M24's
+  /// extraction gave it an explicit `.frame(width: side, height: side)` instead,
+  /// reasoning that a true square was a correctness fix (see PLAN.md's M24
+  /// retrospective on `squareSide(forPanelWidth:)`'s pre-M24 non-square edge case
+  /// above 532pt of panel width). It reads correctly at that one width, and reads
+  /// worse everywhere else: a `PickerPanel` wider than 460 + 72pt now shows a
+  /// fixed square with empty space beside it, where it used to stretch to fill the
+  /// panel — the shape actually wanted there, confirmed after the fact by the person
+  /// who asked for it. `CompactPicker`'s popover has no such container to fill and
+  /// is sized once, so it keeps the explicit square this parameter defaults to.
+  var fillsAvailableWidth = false
   /// Distinct per host so `PickerPanel`'s Pick tab and `CompactPicker`'s popover can
   /// be on screen at once — the header swatch that opens the popover sits above the
   /// tool switcher, so nothing stops a person from opening it while already on the
@@ -75,7 +89,7 @@ struct PickerPlaneView: View {
           .onEnded { _ in store.remember() },
       )
     }
-    .frame(width: side, height: side)
+    .frame(width: fillsAvailableWidth ? nil : side, height: side)
     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     .overlay {
       RoundedRectangle(cornerRadius: 8, style: .continuous)

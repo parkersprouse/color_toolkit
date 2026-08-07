@@ -636,16 +636,26 @@ Layered so the numeric core stays independently testable and UI-free:
   last wrote — a boolean "am I writing" flag does not work, because observation fires
   after the synchronous reparse. Each mode writes a format that can hold its output:
   `oklch()` at `.lossless`, or hex for HSV.
-- **`PickerPlaneView`'s side is now an explicit `.frame(width:height:)`, not implicit
-  leftover `HStack` space.** Before M24's extraction the plane had no `.frame(width:)`
-  of its own — it simply took whatever the row had left after the 28pt hue strip, which
-  happened to equal `PickerPanel.squareSide(forPanelWidth:)`'s own result. That function
-  caps its return at `460`, but only the row's *height* was ever set from it; the
-  plane's actual width was uncapped, so above roughly 532pt of panel width the square
-  silently stopped being one. Giving the plane the same value as an explicit width too
-  (so both hosts pass one `side`/`height` pair down) closes that gap rather than merely
-  preserving it — a deliberate correction picked up during the extraction, not a
-  side effect to discover later in a screenshot.
+- **`PickerPlaneView.fillsAvailableWidth` decides whether the plane is a fixed square
+  or stretches to its row's width, and the two hosts want different answers.**
+  Pre-M24, the plane had no `.frame(width:)` of its own — it simply took whatever the
+  row had left after the 28pt hue strip, so a wide `PickerPanel` showed a plane that
+  filled the available width, capped only in height by
+  `PickerPanel.squareSide(forPanelWidth:)`'s `460` ceiling. M24's extraction briefly
+  gave the plane an explicit `.frame(width: side, height: side)` unconditionally,
+  reasoning that a true square closed a real edge case (above ~532pt of panel width
+  the old layout was a rectangle, not a square) — correct about the edge case, wrong
+  about which shape was wanted: a wide `PickerPanel` reads better filling its width,
+  not sitting in a fixed square beside empty space, confirmed after the fact by the
+  person who had it the fluid way originally. `fillsAvailableWidth: true` restores
+  that for `PickerPanel` (`.frame(width: nil, height: side)` — an unconstrained width
+  is exactly "no `.frame(width:)` of its own"); `CompactPicker`'s popover has no
+  container to fill and keeps the fixed square, `fillsAvailableWidth`'s default.
+  Two lessons in one bullet: a layout "correctness fix" can still be the wrong call
+  if it changes which shape was actually wanted, and this file's own retrospective
+  prose is not immune to that — the M24 entry in PLAN.md called the square "a
+  deliberate correction … not a side effect to discover later in a screenshot," which
+  is exactly what happened anyway once a real window was resized past 532pt.
 - **An export `template` and an export `shape` are not the same control** and must not
   be merged back. A template is per color (`border: 1px solid X`); a shape is per
   document (`:root {}`, JSON, a Tailwind config). Exactly one shape consumes a template,

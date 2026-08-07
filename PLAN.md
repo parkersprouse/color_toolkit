@@ -2605,12 +2605,23 @@ recorded per this file's own rule about a mutation that survives being a finding
 chase rather than a rule to trust.
 
 **`PickerPlaneView`'s side became an explicit `.frame(width:height:)`, not a byte-for-byte
-preservation of the implicit leftover-`HStack`-space layout.** The pre-M24 plane had no
-`.frame(width:)` of its own; `squareSide(forPanelWidth:)` caps its result at `460` and
-that value was only ever applied to the row's *height*, so above roughly 532pt of panel
-width the square was silently a rectangle. Passing the same value as the plane's width
-too closes that gap. Recorded here because it is a considered behavior change surfaced
-by the extraction, not a side effect that should be found later in a screenshot.
+preservation of the implicit leftover-`HStack`-space layout — and this section's own
+framing of that as settled turned out to be the thing that needed correcting, not the
+layout.** The pre-M24 plane had no `.frame(width:)` of its own; `squareSide(forPanelWidth:)`
+caps its result at `460` and that value was only ever applied to the row's *height*, so
+above roughly 532pt of panel width the square was silently a rectangle. M24 closed that
+by giving the plane the same value as its width too, called it "a considered behavior
+change … not a side effect that should be found later in a screenshot," and shipped it
+for both hosts unconditionally. **It was found later anyway, by the person who had
+configured the fluid layout on purpose**: a wide `PickerPanel` filling its container
+reads better than a fixed square beside empty space, which is exactly the shape M24
+removed. `PickerPlaneView` gained `fillsAvailableWidth` (default `false`) as the
+correction – `true` for `PickerPanel` restores the pre-M24 fluid width via
+`.frame(width: nil, height: side)`, `CompactPicker`'s popover keeps the fixed square
+since it has no container to fill. The lesson kept for next time: a layout fix that
+closes one edge case (the >532pt rectangle) can still ship the wrong default shape for
+the common case, and "closes a gap" is not the same claim as "is what was wanted" –
+worth checking against a screenshot, or in this case, against the person who asked.
 
 **One thing not in the plan at all: the dashed empty-state swatch, once it became a
 `Button`, needed `.contentShape(RoundedRectangle(...))` to be clickable in the middle.**

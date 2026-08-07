@@ -86,7 +86,10 @@ struct PickerPanel: View {
 
   private var planeAndStrip: some View {
     HStack(alignment: .top, spacing: 12) {
-      PickerPlaneView(state: $state, side: planeSide)
+      // `fillsAvailableWidth: true` — this panel's plane stretches to the row's
+      // full width rather than sitting in a fixed square; see
+      // `PickerPlaneView.fillsAvailableWidth`.
+      PickerPlaneView(state: $state, side: planeSide, fillsAvailableWidth: true)
       PickerHueStripView(state: $state, height: planeSide)
     }
     .frame(height: planeSide)
@@ -197,13 +200,18 @@ struct PickerPanel: View {
   /// measuring it cannot feed back into itself, and a square is as wide as it is
   /// tall — so width is the one dimension worth asking about.
   ///
-  /// The result is now also the plane's explicit **width** (M24, via
-  /// ``PickerPlaneView/side``), not only its height. Before the extraction the plane
-  /// had no `.frame(width:)` of its own and simply took whatever the row's `HStack`
-  /// had left over after the 28pt strip — the same number this function already
-  /// computes, so the square held in practice below the 460pt height cap but silently
-  /// stopped being square above it, at a panel width past roughly 532pt. Giving the
-  /// plane this value as its width too closes that gap rather than merely preserving it.
+  /// This still governs only the plane's **height**. M24's extraction briefly gave
+  /// the plane an explicit `.frame(width:)` too, making it a true square that stopped
+  /// growing past 460pt in either dimension — reasoned at the time as closing a gap
+  /// left by the pre-M24 layout, where the plane had no `.frame(width:)` of its own
+  /// and simply took whatever the row's `HStack` had left over after the 28pt strip.
+  /// That reasoning was correct about the *edge case* (above roughly 532pt of panel
+  /// width the old layout was a rectangle, not a square) and wrong about which shape
+  /// was wanted: a `PickerPanel` wider than that reads better filling the width it
+  /// has, not sitting in a fixed square beside empty space. Reverted for this panel
+  /// (`fillsAvailableWidth: true` on the `PickerPlaneView` this feeds) once that
+  /// became clear; `CompactPicker`'s popover has no such container to fill and keeps
+  /// the fixed square.
   private func squareSide(forPanelWidth width: CGFloat) -> CGFloat {
     // Panel padding, the strip, and the gap between them.
     min(max(width - 72, 240), 460)
