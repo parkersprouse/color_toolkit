@@ -117,6 +117,15 @@ struct ImportTextSheet: View {
     store.webFriendly ? CSSOutputFormat.webFriendlyExportable : CSSOutputFormat.exportable
   }
 
+  private var canImport: Bool {
+    guard case let .success(palette) = outcome, !palette.groups.isEmpty else { return false }
+    guard !palette.groups.flatMap(\.entries).isEmpty else { return false }
+    if creatingNewProject {
+      return !newProjectName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+    return destinationProjectID != nil
+  }
+
   // MARK: - Chrome
 
   private var header: some View {
@@ -141,15 +150,6 @@ struct ImportTextSheet: View {
     .padding(16)
   }
 
-  private var canImport: Bool {
-    guard case let .success(palette) = outcome, !palette.groups.isEmpty else { return false }
-    guard !palette.groups.flatMap(\.entries).isEmpty else { return false }
-    if creatingNewProject {
-      return !newProjectName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-    return destinationProjectID != nil
-  }
-
   // MARK: - Controls
 
   /// A plain, editable text view bound straight to state — never a "Paste" button
@@ -167,6 +167,46 @@ struct ImportTextSheet: View {
           RoundedRectangle(cornerRadius: 6).strokeBorder(.separator, lineWidth: 1)
         }
         .accessibilityIdentifier("importSheetText")
+    }
+  }
+
+  private var storageFormatControl: some View {
+    LabeledContent("Storage format") {
+      Picker("Storage format", selection: $storageFormat) {
+        Text("Keep as pasted").tag(CSSOutputFormat?.none)
+        ForEach(availableFormats, id: \.self) { format in
+          Text(format.title).tag(CSSOutputFormat?.some(format))
+        }
+      }
+      .labelsHidden()
+      .accessibilityIdentifier("importSheetFormat")
+    }
+  }
+
+  private var destinationControl: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Picker("Destination", selection: $creatingNewProject) {
+        Text("Existing Project").tag(false)
+        Text("New Project").tag(true)
+      }
+      .pickerStyle(.segmented)
+      .labelsHidden()
+      .disabled(projects.isEmpty)
+      .accessibilityIdentifier("importSheetDestinationKind")
+
+      if creatingNewProject {
+        TextField("New project name", text: $newProjectName, prompt: Text("Untitled Project"))
+          .textFieldStyle(.roundedBorder)
+          .accessibilityIdentifier("importSheetNewProjectName")
+      } else {
+        Picker("Project", selection: $destinationProjectID) {
+          ForEach(projects) { project in
+            Text(project.name).tag(Optional(project.uuid))
+          }
+        }
+        .labelsHidden()
+        .accessibilityIdentifier("importSheetProjectPicker")
+      }
     }
   }
 
@@ -210,46 +250,6 @@ struct ImportTextSheet: View {
           .font(.caption)
           .foregroundStyle(.secondary)
           .fixedSize(horizontal: false, vertical: true)
-      }
-    }
-  }
-
-  private var storageFormatControl: some View {
-    LabeledContent("Storage format") {
-      Picker("Storage format", selection: $storageFormat) {
-        Text("Keep as pasted").tag(CSSOutputFormat?.none)
-        ForEach(availableFormats, id: \.self) { format in
-          Text(format.title).tag(CSSOutputFormat?.some(format))
-        }
-      }
-      .labelsHidden()
-      .accessibilityIdentifier("importSheetFormat")
-    }
-  }
-
-  private var destinationControl: some View {
-    VStack(alignment: .leading, spacing: 8) {
-      Picker("Destination", selection: $creatingNewProject) {
-        Text("Existing Project").tag(false)
-        Text("New Project").tag(true)
-      }
-      .pickerStyle(.segmented)
-      .labelsHidden()
-      .disabled(projects.isEmpty)
-      .accessibilityIdentifier("importSheetDestinationKind")
-
-      if creatingNewProject {
-        TextField("New project name", text: $newProjectName, prompt: Text("Untitled Project"))
-          .textFieldStyle(.roundedBorder)
-          .accessibilityIdentifier("importSheetNewProjectName")
-      } else {
-        Picker("Project", selection: $destinationProjectID) {
-          ForEach(projects) { project in
-            Text(project.name).tag(Optional(project.uuid))
-          }
-        }
-        .labelsHidden()
-        .accessibilityIdentifier("importSheetProjectPicker")
       }
     }
   }

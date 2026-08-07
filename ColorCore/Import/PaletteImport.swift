@@ -202,12 +202,61 @@ nonisolated enum PaletteImport {
 
   // MARK: Private
 
+  // MARK: - Shared line extraction
+
+  /// A `name: value;` pair as read off one line, with the trailing `/* key */` comment
+  /// ``ColorExport/declarations(_:formatting:)`` writes, if there was one.
+  private struct ParsedLine {
+    let name: String
+    let value: String
+    let comment: String?
+  }
+
+  /// Everything one source line could be: a `/* From "…" */` group header, or a property
+  /// line. Every other line — a selector, a brace, an `@media` prelude, a blank line — is
+  /// simply not produced by this scan, so callers never see it.
+  private enum SourceLine {
+    case header(String)
+    case property(ParsedLine)
+  }
+
+  // MARK: - Family / key inference
+
+  /// Accumulates entries under a family name, preserving the order families were first
+  /// seen — `JSONSerialization` and a hand-rolled JS scan both need this, since neither
+  /// document format is guaranteed to preserve source order any more than
+  /// `DesignTokenImport` could rely on `JSONSerialization` for one.
+  private struct GroupBuilder {
+    // MARK: Internal
+
+    private(set) var order: [String] = []
+
+    var groups: [ImportedGroup] {
+      order.map { ImportedGroup(name: $0, entries: entries[$0] ?? []) }
+    }
+
+    mutating func add(_ entry: ImportedEntry, to family: String) {
+      if entries[family] == nil {
+        order.append(family)
+      }
+      entries[family, default: []].append(entry)
+    }
+
+    // MARK: Private
+
+    private var entries: [String: [ImportedEntry]] = [:]
+  }
+
   // MARK: - Detection helpers
 
   private static func containsValueKey(_ node: [String: Any]) -> Bool {
-    if node["$value"] != nil { return true }
+    if node["$value"] != nil {
+      return true
+    }
     for value in node.values {
-      if let child = value as? [String: Any], containsValueKey(child) { return true }
+      if let child = value as? [String: Any], containsValueKey(child) {
+        return true
+      }
     }
     return false
   }
@@ -229,24 +278,6 @@ nonisolated enum PaletteImport {
       guard line.hasSuffix(";"), let colon = line.firstIndex(of: ":") else { return false }
       return !line[line.startIndex ..< colon].trimmingCharacters(in: .whitespaces).isEmpty
     }
-  }
-
-  // MARK: - Shared line extraction
-
-  /// A `name: value;` pair as read off one line, with the trailing `/* key */` comment
-  /// ``ColorExport/declarations(_:formatting:)`` writes, if there was one.
-  private struct ParsedLine {
-    let name: String
-    let value: String
-    let comment: String?
-  }
-
-  /// Everything one source line could be: a `/* From "…" */` group header, or a property
-  /// line. Every other line — a selector, a brace, an `@media` prelude, a blank line — is
-  /// simply not produced by this scan, so callers never see it.
-  private enum SourceLine {
-    case header(String)
-    case property(ParsedLine)
   }
 
   /// Line-based and `;`-terminated, not scanned across the whole document. **This is not
@@ -312,26 +343,6 @@ nonisolated enum PaletteImport {
     return blocks.filter { !$0.lines.isEmpty }
   }
 
-  // MARK: - Family / key inference
-
-  /// Accumulates entries under a family name, preserving the order families were first
-  /// seen — `JSONSerialization` and a hand-rolled JS scan both need this, since neither
-  /// document format is guaranteed to preserve source order any more than
-  /// `DesignTokenImport` could rely on `JSONSerialization` for one.
-  private struct GroupBuilder {
-    private(set) var order: [String] = []
-    private var entries: [String: [ImportedEntry]] = [:]
-
-    mutating func add(_ entry: ImportedEntry, to family: String) {
-      if entries[family] == nil { order.append(family) }
-      entries[family, default: []].append(entry)
-    }
-
-    var groups: [ImportedGroup] {
-      order.map { ImportedGroup(name: $0, entries: entries[$0] ?? []) }
-    }
-  }
-
   /// The longest common **hyphen-segment** prefix across `names`, and each name's
   /// remaining suffix once that prefix (and its separating hyphen) is removed.
   ///
@@ -350,7 +361,9 @@ nonisolated enum PaletteImport {
         count += 1
       }
       shared = Array(shared.prefix(count))
-      if shared.isEmpty { return nil }
+      if shared.isEmpty {
+        return nil
+      }
     }
     let family = shared.joined(separator: "-")
     var keys: [String: String] = [:]
@@ -374,7 +387,9 @@ nonisolated enum PaletteImport {
         var key = entry.key
         if used.contains(key) {
           var suffix = 2
-          while used.contains("\(key)-\(suffix)") { suffix += 1 }
+          while used.contains("\(key)-\(suffix)") {
+            suffix += 1
+          }
           key = "\(key)-\(suffix)"
         }
         used.insert(key)
@@ -426,8 +441,12 @@ nonisolated enum PaletteImport {
     for block in headeredBlocks(in: text) {
       let stripped = block.lines.map { line -> (line: ParsedLine, name: String) in
         var name = line.name
-        if name.hasPrefix("--") { name.removeFirst(2) }
-        if !stripPrefix.isEmpty, name.hasPrefix(stripPrefix) { name.removeFirst(stripPrefix.count) }
+        if name.hasPrefix("--") {
+          name.removeFirst(2)
+        }
+        if !stripPrefix.isEmpty, name.hasPrefix(stripPrefix) {
+          name.removeFirst(stripPrefix.count)
+        }
         return (line, name)
       }
 
@@ -508,7 +527,9 @@ nonisolated enum PaletteImport {
   // MARK: - json
 
   private static func jsonKeyOrder(_ lhs: String, _ rhs: String) -> Bool {
-    if let left = Int(lhs), let right = Int(rhs) { return left < right }
+    if let left = Int(lhs), let right = Int(rhs) {
+      return left < right
+    }
     return lhs < rhs
   }
 
@@ -582,7 +603,9 @@ nonisolated enum PaletteImport {
   /// commas outside the object braces already being tracked by depth).
   private static func stripJSQuotes(_ text: String) -> String {
     var value = text.trimmingCharacters(in: .whitespaces)
-    if value.hasSuffix(",") { value.removeLast() }
+    if value.hasSuffix(",") {
+      value.removeLast()
+    }
     value = value.trimmingCharacters(in: .whitespaces)
     guard value.count >= 2 else { return value }
     if (value.hasPrefix("'") && value.hasSuffix("'"))
