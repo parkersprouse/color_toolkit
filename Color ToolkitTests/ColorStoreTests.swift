@@ -376,7 +376,7 @@ struct ColorStoreTests {
     store.respell(as: .hex)
 
     #expect(store.inputText.hasPrefix("#"), "got \(store.inputText) instead of a hex string")
-    #expect(!(try #require(store.color).exceedsSRGB))
+    #expect(try !(#require(store.color).exceedsSRGB))
   }
 
   /// The same trap ``adoptIgnoresDisplayPrecision`` pins for `adopt`: this string

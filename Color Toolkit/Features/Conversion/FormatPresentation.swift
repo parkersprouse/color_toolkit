@@ -99,7 +99,7 @@ nonisolated struct FormatSection: Identifiable, Sendable {
   /// independently. Consolidated here rather than left as three copies that could
   /// drift the day a fourth condition joins `webFriendly`.
   static func sections(webFriendly: Bool) -> [FormatSection] {
-    webFriendly ? Self.webFriendly : Self.all
+    webFriendly ? Self.webFriendly : all
   }
 }
 
