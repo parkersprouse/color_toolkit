@@ -3137,13 +3137,43 @@ Per milestone:
   was typed – rewritten against `rgb(59 130 246)`, whose hex fallback reads differently
   from its own text, the same mutation fails. See the M25 section above for the full
   account.
-- **M26 (planned):** has not landed yet, so nothing below is a finding – it is the
-  standard of proof the milestone must meet before its commit lands, stated in advance
-  so the mutation run has a target. Shape detection for every shape and ambiguous
-  inputs, the `primary`/`primar` segment-wise extraction case, the export round trip at
-  both cardinalities, a malformed value skipped without losing its neighbours, the
-  fourth `savePalette` overload's pasted text surviving a re-parse, and the sheet's
-  controls queried through `app.sheets`.
+- **M26:** [PaletteImportTests](Color%20ToolkitTests/PaletteImportTests.swift) (20
+  tests) – shape detection for every shape including ordering (`@theme` ahead of the
+  JSON/declaration fallbacks), the `primary`/`primar` segment-wise vs. character-wise
+  discriminator, the round trip through every export shape at both cardinalities (a
+  lone color, a two-group document) plus a sanitized-name case, the `p3WithFallback`
+  override-vs-fallback discriminator, a malformed value skipped without losing its
+  neighbours, `looseColors`' paren-depth-aware splitting, and `designTokens` delegation
+  including a broken token skipped without losing a good one alongside it. **Four
+  mutations verified by hand – ignoring headers, character-wise prefix, reading
+  `p3WithFallback`'s hex block, reordering `detect()`'s `@media`/`:root` checks – each
+  failed exactly its own test and no other.**
+  [ProjectStoreTests](Color%20ToolkitTests/ProjectStoreTests.swift) (2 tests) pins the
+  fourth `savePalette` overload's stored text as the literal pasted string rather than a
+  re-derivation – checked by mutation against routing through
+  `.derived(_:preferring: .oklch)`, which both tests catch – and that the stored text
+  reparses to the stored components, the same check every other stored spelling in this
+  app carries. [ProjectsSmokeTests](Color%20ToolkitUITests/ProjectsSmokeTests.swift)
+  covers the Import menu offering both paths without clicking the un-drivable one
+  (`NSOpenPanel`), and a full paste-to-palette run through `app.sheets` – typing a
+  two-property `:root` block into the `textViews` query, confirming, and asserting a
+  palette row and the import summary both appear. 505 unit tests (483 before M26), 59
+  CLI tests unchanged, 45 XCUITests (44 before, 1 net new).
+
+  **Two findings surfaced after the milestone's own commits landed, both from a
+  post-landing review, and both the shape CLAUDE.md warns about – a test whose
+  assertion could not fail for the right reason.** `topLevelSegments`' comma-list case
+  attached its `where` clause to only the last of three patterns, so `,` and `\n` split
+  at any paren depth and an input containing a nested function's commas split into
+  pieces that happened to still produce the right *count* – fixed by moving the depth
+  check into an explicit `if`, with the test now also asserting `imported.skipped.isEmpty`
+  and the first entry's own text. `ImportTextSheet`'s name-suggestion `.onChange` sat on
+  a subtree that does not exist before the first successful parse, so the very first
+  paste never populated the name field – covered only by coincidence in the one UI test
+  whose group name happened to match the field's placeholder – fixed with
+  `initial: true`, with the UI test now asserting the field's value directly. Both fixes
+  were confirmed to fail against the unfixed code before being fixed; neither changed a
+  test count.
 - **M27:** [GlobalHotKeyTests](Color%20ToolkitTests/GlobalHotKeyTests.swift) pins
   `isEligible` by discrimination on each of ⌃⌥⌘ alone (eligible) against ⇧ alone and no
   modifier at all (both not), plus a bare function key (eligible with nothing at all) –
