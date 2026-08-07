@@ -83,6 +83,12 @@ struct ContrastPanel: View {
         }
         .buttonStyle(.borderless)
         .accessibilityIdentifier("swapColors")
+        // An icon-only `Button` otherwise announces its SF Symbol name — VoiceOver
+        // would read this one as "arrow up arrow down", the same failure the tool
+        // switcher's `Text`-not-`Label` note in `ContentView` exists to avoid. An
+        // identifier is not a substitute: XCUITest reads it, VoiceOver does not, and
+        // `.help` is a pointer tooltip rather than an accessibility label.
+        .accessibilityLabel("Swap text and background")
         .help("Swap text and background. APCA scores the two directions differently.")
       }
 

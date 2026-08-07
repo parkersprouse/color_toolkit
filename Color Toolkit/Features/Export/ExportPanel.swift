@@ -3,6 +3,9 @@
 //  Color Toolkit
 //
 
+// For the preview's `.modelContainer` only — export itself touches no SwiftData, which
+// is what keeps `ExportStoreTests` free of a `ModelContainer`.
+import SwiftData
 import SwiftUI
 
 /// The colors you have, written out as something you can paste.
@@ -329,4 +332,7 @@ struct ExportPanel: View {
       store.tool = .export
       return store
     }())
+    // Export itself touches no SwiftData, but this preview is the whole `ContentView`
+    // and its switcher can reach Projects — see the note on `ContentView`'s own preview.
+    .modelContainer(PersistenceStack.make(inMemory: true).container)
 }

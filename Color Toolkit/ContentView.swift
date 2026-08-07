@@ -5,6 +5,9 @@
 //  Created by Parker Sprouse on 7/23/26.
 //
 
+// For the preview's `.modelContainer` only — this view has no persistence of its own,
+// and `ProjectsPanel` still owns the app's only `@Query` and `modelContext`.
+import SwiftData
 import SwiftUI
 
 struct ContentView: View {
@@ -158,4 +161,9 @@ struct OutputOptionsMenu: View {
 #Preview {
   ContentView()
     .environment(ColorStore(initialInput: "oklch(0.7 0.15 250)"))
+    // The switcher can reach Projects, whose `@Query` has no container to read
+    // without this — a preview that crashes the moment a tab is clicked. In memory,
+    // so a preview never writes into the real library, matching the two previews
+    // that show `ProjectsPanel` directly.
+    .modelContainer(PersistenceStack.make(inMemory: true).container)
 }

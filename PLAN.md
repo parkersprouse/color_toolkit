@@ -2808,10 +2808,13 @@ identical thing — "somebody else's names, read out of a file or a paste box" �
 case would be a schema-visible string distinguishing nothing a user or a test needs told
 apart.
 
-**`ProjectLibrary.rename(_:to:)` stays unwired, and this is a deliberate note rather than an
-oversight.** The plan floated wiring it from the sheet's name field; the field instead
-supplies the name at *creation* (`savePalette(importing:named:to:)` already takes one), so
-there is no post-hoc rename to perform. `rename` remains the library's only unused mutation.
+**`ProjectLibrary.rename(_ palette:to:)` stays unwired, and this is a deliberate note rather
+than an oversight.** The plan floated wiring it from the sheet's name field; the field
+instead supplies the name at *creation* (`savePalette(importing:named:to:)` already takes
+one), so there is no post-hoc rename to perform. The *palette* overload remains the
+library's only unused mutation — the project one is wired, from `ProjectsPanel`'s name
+field on submit. Naming the overload matters: written bare as `rename(_:to:)` the claim
+covers both and is false.
 
 **UI: `Menu("Import")` off the Projects panel's save-controls row, not an eighth tool** —
 `Button("Import Tokens…")` became `Menu("Import")` with **From Text…** (`ImportTextSheet`,
