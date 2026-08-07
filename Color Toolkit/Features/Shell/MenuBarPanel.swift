@@ -95,7 +95,7 @@ struct MenuBarPanel: View {
 
   private var copyMenu: some View {
     Menu {
-      ForEach(store.webFriendly ? FormatSection.webFriendly : FormatSection.all) { section in
+      ForEach(FormatSection.sections(webFriendly: store.webFriendly)) { section in
         Section(section.title) {
           ForEach(formats(in: section)) { formatted in
             Button(formatted.format.title) { store.copy(formatted) }

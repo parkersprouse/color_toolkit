@@ -2684,33 +2684,63 @@ tests unchanged, 42 XCUITests (37 before M24, 5 new) – all passing in one
 `** TEST SUCCEEDED **` run, 578
 tests total.
 
-### ⬜ M25 – Click the notation to re-spell the active color
+### ✅ M25 – Click the notation to re-spell the active color
 
-`ColorInputField.summary(for:)` renders `Text(describe(result.notation))` (`:112`) – the
-"6-digit hex" / "oklch()" line under the swatch. Make it a `Menu` listing every format
-that can name the current color, grouped by `FormatSection` (filtered under M22).
-Choosing one rewrites `store.inputText`.
+`ColorInputField.summary(for:)` rendered `Text(describe(result.notation))` – the
+"6-digit hex" / "oklch()" line under the swatch. It is now a `Menu` listing every
+format that can name the current color, grouped by `FormatSection` and narrowed under
+`webFriendly` exactly the way `MenuBarPanel.copyMenu` already was. Choosing one calls
+the new `ColorStore.respell(as:)`.
 
-Three things to get right:
+**`respell` is deliberately not built on `adopt(_:preferring:)`, and that turned out to
+be the one real design decision here rather than a detail.** `adopt` exists for a color
+with no notation opinion of its own – an eyedropper sample, a picker result – so its
+`spelling(preferring:)` step is allowed to override the format it is handed when that
+format can't hold the value losslessly, silently substituting `color(display-p3 …)`.
+A menu click *is* the opinion: choosing "Hex" has to mean hex, gamut mapping and all,
+never a quiet swap to a format the click never named. So `respell` calls
+`ColorValue.formatted(as:options:)` directly with the exact format chosen and writes
+back precisely its `css`, or nothing at all when the color can't be named that way –
+only `.keyword` ever answers so, and while the menu already filters those out,
+`respell` guards independently rather than trusting the caller to have filtered
+correctly. It still pulls the color into sRGB first under `webFriendly`, the identical
+recalibration `adopt` performs and for the identical reason: a perceptual function is
+unbounded and `.lossless` will not clamp it on its own.
 
-- **A `Menu` is a `menuButton` to XCUITest**, not a `popUpButton`. The wrong query never
-  matches. `MenuBarPanel.copyMenu` (`:86-103`) is the existing example of this exact
-  shape, and its `FormatSection` walk is the code to share rather than repeat – that is
-  now three walks of `FormatSection.all` (conversion rows, copy menu, this), which is
-  worth consolidating while M22 is filtering them anyway.
-- **Write at `.lossless`, never at display precision.** `ColorStore` keeps text as its
-  source of truth, so the string written here is immediately re-parsed; rounding it to
-  the panel's 4 decimals would destroy the value permanently. This is the same rule
-  `adopt(_:preferring:)` follows and it accepts the same cost – a re-spelled `oklch()`
-  shows ten decimals in the field.
-- **Filter to formats that can name the color.** `.keyword` returns nil for all but 148
-  colors; `allFormats(options:)` already `compactMap`s, so build the menu from it rather
-  than from the raw catalog.
+**The three-way `FormatSection.all`/`.webFriendly` ternary the plan flagged really was
+worth consolidating.** `ConversionPanel`'s rows, `MenuBarPanel`'s copy menu, and this
+new notation menu all spelled `store.webFriendly ? FormatSection.webFriendly :
+FormatSection.all` independently; all three now call the new
+`FormatSection.sections(webFriendly:)`.
 
-**Testing.** Unit: re-spelling round-trips – for each exportable format, writing the
-active color in it and re-parsing yields an equal color (or a gamut-mapped one where the
-format `cannotRepresentOutOfGamut`, which is the honest exception). UI: the notation
-control exists as a `menuButton`, and choosing a format changes `colorInput`.
+**A mutation survived on the first pass, and the fix is the finding worth keeping.**
+`respellNoOpsWhenTheColorCannotBeNamed` first used `#3b82f6` as its color: a mutation
+that falls back to a hex spelling instead of no-opping when a format can't name the
+color passed that version of the test outright, because `#3b82f6`'s hex spelling and
+its typed spelling are the identical string – the mutation was invisible against a
+starting text that already *was* what the fallback would produce. Rewritten against
+`rgb(59 130 246)`, whose hex fallback (`#3b82f6`) differs textually from what was
+typed, the same mutation now fails the test. Three other mutations were caught on the
+first pass and each failure set was tight: dropping the `webFriendly` clamp fails only
+the clamp test; reading at `formatOptions` instead of `.lossless` fails the precision
+test directly and, incidentally, ten of the seventeen round-trip cases too (every
+non-hex/rgb/hsl/hwb/keyword format loses enough precision at the default 4-decimal
+display setting to trip the round trip's own 1e-7 tolerance); and routing through
+`spelling(preferring:)` the way `adopt` does fails only the gamut-mapping test, which
+is exactly the behavior that test exists to distinguish `respell` from `adopt` by.
+
+**Testing.** `ColorStoreTests` gained a "Notation menu (M25)" section, seven cases: the
+round trip parameterized over the whole catalog on `rebeccapurple` – chosen in-gamut
+and keyword-nameable, so `.keyword` gets a real case instead of the vacuous no-op it
+would be against an unnamed color; the honest gamut-mapping exception, which also
+proves `respell` doesn't silently substitute a format the way `adopt` does; display
+precision; the can't-name-it no-op described above; and both directions of the
+`webFriendly` clamp. A new UI file, `NotationMenuSmokeTests`, two cases: the control
+exists as a `menuButton`; choosing `rgb()` on `rebeccapurple` rewrites the field to
+`rgb(102 51 153)`, cross-checked against `colorkit convert rebeccapurple --format rgb`
+before being pinned so the exact string wasn't a guess. 483 unit tests (476 before
+M25, 7 new), 59 CLI tests unchanged, 44 XCUITests (42 before M25, 2 new) – 586 total,
+all passing in one `** TEST SUCCEEDED **` run.
 
 ### ⬜ M26 – Import from the export shapes
 
@@ -2913,15 +2943,31 @@ Per milestone:
   written, found to fail on a platform limitation (a transient popover holds
   key-window status, so the window behind it cannot be clicked into while it is
   shown), and deleted rather than left red.
-- **M25–M26 (planned):** neither has landed yet, so nothing below is a finding – it is
-  the standard of proof each milestone must meet before its commit lands, stated in
-  advance so the mutation run has a target. **M25:** every exportable format round-trips
-  the active color when chosen from the menu (or gamut-maps where
-  `cannotRepresentOutOfGamut`); the control queried as a `menuButton`. **M26:** shape
-  detection for every shape and ambiguous inputs, the `primary`/`primar` segment-wise
-  extraction case, the export round trip at both cardinalities, a malformed value
-  skipped without losing its neighbours, the fourth `savePalette` overload's pasted text
-  surviving a re-parse, and the sheet's controls queried through `app.sheets`.
+- **M25 (done):** every catalog format round-trips `rebeccapurple` when chosen from the
+  menu (`respellRoundTripsEveryFormat`, parameterized over `CSSOutputFormat.catalog`,
+  including `.keyword` since the base color is itself nameable), and the honest
+  exception is pinned separately – re-spelling a wide-gamut color into hex maps it
+  rather than silently substituting `color(display-p3 …)` the way `adopt` would. The
+  control is queried as a `menuButton`
+  (`NotationMenuSmokeTests.testTheNotationControlExistsAsAMenuButton`), and choosing
+  `rgb()` rewrites `colorInput` to the value `colorkit convert` was asked to confirm
+  first. **Four mutations, four caught, one only after a fix**: dropping the
+  `webFriendly` clamp and routing through `adopt`'s `spelling(preferring:)` were each
+  caught by exactly the test built to catch them and nothing else; reading at
+  `formatOptions` instead of `.lossless` was caught by its own test and, incidentally,
+  by ten of the seventeen round-trip cases; and falling back to hex instead of no-oping
+  when a format can't name the color passed the *first* version of its test, because
+  that test started from `#3b82f6`, whose hex spelling is textually identical to what
+  was typed – rewritten against `rgb(59 130 246)`, whose hex fallback reads differently
+  from its own text, the same mutation fails. See the M25 section above for the full
+  account.
+- **M26 (planned):** has not landed yet, so nothing below is a finding – it is the
+  standard of proof the milestone must meet before its commit lands, stated in advance
+  so the mutation run has a target. Shape detection for every shape and ambiguous
+  inputs, the `primary`/`primar` segment-wise extraction case, the export round trip at
+  both cardinalities, a malformed value skipped without losing its neighbours, the
+  fourth `savePalette` overload's pasted text surviving a re-parse, and the sheet's
+  controls queried through `app.sheets`.
 - **M3/M4 (UI):** run the app and verify interactively. Spot-check conversions against a browser's DevTools color picker, which implements the same spec – a fast, honest end-to-end sanity check.
 
 The scheme is shared and works from the command line:

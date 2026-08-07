@@ -39,7 +39,14 @@ alpha slider are now `PickerPlaneView`, `PickerHueStripView` and
 composes the same three controls instead of a second, drifting copy — and the M22
 web-friendly clamp moved with them onto `PickerState.committing(_:in:)`, which is now
 unit-tested directly rather than only reachable through a running app.
-**M25–M26 are planned and not yet built**; see PLAN.md.
+**M25 is done too**: the "6-digit hex" / "oklch()" line under the header swatch's
+summary — previously plain `Text` — is now a `Menu` listing every format that can name
+the active color, grouped the same way `MenuBarPanel`'s copy menu groups its formats
+and narrowed the same way under `webFriendly`. Choosing one calls the new
+`ColorStore.respell(as:)` rather than `adopt(_:preferring:)`, because `adopt`'s
+`spelling(preferring:)` step is allowed to override the format it is handed and a menu
+click naming an exact format must not be second-guessed.
+**M26 is planned and not yet built**; see PLAN.md.
 
 **[PLAN.md](PLAN.md) is the source of truth** for milestone status, what is deferred
 and why, and the reasoning behind every decision recorded below. This file is the
@@ -61,9 +68,9 @@ change without a mistake masquerading as an app regression:
 xcodebuild -project "Color Toolkit.xcodeproj" -target colorkit -destination 'platform=macOS' build && ./build/Release/colorkit --help
 ```
 
-Full test suite (~9 minutes, nearly all of it UI tests — the 443 + 59 Swift Testing
-tests finish in about a second, the 32 XCUITests take seven minutes and up). **There are
-two Swift Testing bundles now**: `Color ToolkitTests` (443 tests, 50 suites) and
+Full test suite (~9 minutes, nearly all of it UI tests — the 483 + 59 Swift Testing
+tests finish in about a second, the 44 XCUITests take seven minutes and up). **There are
+two Swift Testing bundles now**: `Color ToolkitTests` (483 tests, 52 suites) and
 `ColorToolkitCLITests` (59 tests, 10 suites), and both are in the scheme:
 
 ```bash
@@ -600,6 +607,19 @@ Layered so the numeric core stays independently testable and UI-free:
   out, not what does the clamping. A regression test that only exercises the `.hex`
   preferred format cannot catch this — hex `cannotRepresentOutOfGamut` and maps
   regardless of the flag, so `.oklch` is the path that actually discriminates.
+- **`ColorStore.respell(as:)` (M25) is deliberately not built on `adopt(_:preferring:)`,
+  even though both end by writing `inputText` at `.lossless`.** `adopt` exists for a
+  color with no notation opinion of its own — an eyedropper sample, a picker result —
+  so its `spelling(preferring:)` step is allowed to override the format it was handed
+  when that format can't hold the value losslessly, quietly substituting
+  `color(display-p3 …)`. The notation menu under the header swatch hands `respell` a
+  format the user just clicked, and *that* is the opinion — "Hex" has to mean hex,
+  gamut mapping and all, never a silent swap to a format the click never named. So
+  `respell` calls `ColorValue.formatted(as:options:)` directly and writes exactly what
+  comes back, or nothing at all if the color can't be named that way (`.keyword` is the
+  only format that ever answers so). It still pulls the color into sRGB first under
+  `webFriendly`, the same recalibration `adopt` performs and for the identical reason —
+  a perceptual function is unbounded and won't clamp itself.
 - **`ExportOptions.shape` and `.format` are persisted preferences (M19), which predates
   web-friendly mode (M22) — so the mode can be turned on with `p3WithFallback` or a
   `color()` format already chosen from an earlier session.** Hiding those choices from

@@ -342,4 +342,110 @@ struct ColorStoreTests {
     let store = ColorStore(initialInput: "")
     #expect(store.formats.isEmpty)
   }
+
+  // MARK: - Notation menu (M25)
+
+  /// The headline claim: every format in the catalog can re-spell `rebeccapurple`
+  /// exactly, so choosing any of them from the menu has to round-trip. In-gamut and
+  /// keyword-nameable on purpose — the same reason `ExportRoundTripTests.base` picks
+  /// an 8-bit sRGB color — so `.keyword` gets a meaningful case instead of the vacuous
+  /// no-op it would be against an unnamed color.
+  @Test("Choosing a format from the notation menu round-trips the color", arguments: CSSOutputFormat.catalog)
+  func respellRoundTripsEveryFormat(format: CSSOutputFormat) throws {
+    let store = ColorStore(initialInput: "rebeccapurple")
+    let before = try #require(store.color)
+
+    store.respell(as: format)
+
+    let after = try #require(store.color)
+    #expect(after.deltaEOK(to: before) < 1e-7, "\(format) round-tripped to \(store.inputText)")
+  }
+
+  /// The honest exception the round-trip test above doesn't exercise: a format that
+  /// `cannotRepresentOutOfGamut` maps rather than losing the color, and it maps
+  /// **as the format that was chosen** — this is the behavior that makes ``respell``
+  /// a different method from ``adopt(_:preferring:)`` rather than a thin wrapper
+  /// around it. `adopt`'s `spelling(preferring:)` would see that hex can't hold a
+  /// Display P3 red and silently substitute `color(display-p3 …)` instead; a click on
+  /// "Hex" in the menu means hex.
+  @Test("Re-spelling into a format that cannotRepresentOutOfGamut maps instead of substituting another format")
+  func respellGamutMapsInsteadOfSubstitutingFormat() throws {
+    let store = ColorStore(initialInput: "color(display-p3 1 0 0)")
+    #expect(try #require(store.color).exceedsSRGB)
+
+    store.respell(as: .hex)
+
+    #expect(store.inputText.hasPrefix("#"), "got \(store.inputText) instead of a hex string")
+    #expect(!(try #require(store.color).exceedsSRGB))
+  }
+
+  /// The same trap ``adoptIgnoresDisplayPrecision`` pins for `adopt`: this string
+  /// becomes the field's new source of truth and is immediately re-parsed, so
+  /// rounding it to the panel's display precision would be a permanent loss, not a
+  /// cosmetic one.
+  @Test("Re-spelling ignores the display precision the user picked")
+  func respellIgnoresDisplayPrecision() throws {
+    let precise = ColorValue(space: .displayP3, 0.9876543210, 0.1234567891, 0.0246813579)
+    let text = try #require(precise.cssString(as: .color(.displayP3), options: .lossless))
+    let store = ColorStore(initialInput: text)
+    store.formatOptions.precision = 2 // "Compact"
+    let before = try #require(store.color)
+
+    store.respell(as: .oklch)
+
+    let after = try #require(store.color)
+    #expect(
+      after.deltaEOK(to: before) < 1e-7,
+      "display precision (\(store.formatOptions.precision)) leaked into \(store.inputText)",
+    )
+  }
+
+  /// `.keyword` is the only format ``ColorValue/formatted(as:options:)`` ever answers
+  /// `nil` for, and the menu is built by filtering those out — but ``respell(as:)``
+  /// guards the same way independently, so a caller that reached it anyway (or a
+  /// future menu that forgot to filter) fails safely instead of blanking the field.
+  /// `rgb()`, not hex, and that choice is load-bearing: a mutation that falls back to
+  /// hex instead of no-opping would be invisible against `#3b82f6` as the starting
+  /// text, since that color's hex spelling and its typed spelling are the same
+  /// string. `rgb(59 130 246)` names the identical color but not identically, so a
+  /// fallback-to-hex mutation changes `store.inputText` and this test catches it.
+  @Test("Re-spelling into a format that can't name the color leaves the field untouched")
+  func respellNoOpsWhenTheColorCannotBeNamed() {
+    let store = ColorStore(initialInput: "rgb(59 130 246)") // not one of the 148 keywords
+    let before = store.inputText
+
+    store.respell(as: .keyword)
+
+    #expect(store.inputText == before)
+  }
+
+  /// The counterpart to ``adoptClampsWideGamutUnderWebFriendly``: `oklch()` is
+  /// unbounded and `.lossless` does not gamut-map it, so without pulling the color
+  /// into sRGB first, re-spelling a wide-gamut color that was typed in before the
+  /// mode was switched on would leave it spelled outside sRGB despite the mode being
+  /// on.
+  @Test("Under webFriendly, re-spelling into a perceptual format still clamps to sRGB")
+  func respellClampsUnderWebFriendly() throws {
+    let store = ColorStore(initialInput: "color(display-p3 1 0 0)")
+    store.webFriendly = true
+
+    store.respell(as: .oklch)
+
+    let after = try #require(store.color)
+    #expect(!after.exceedsSRGB, "the mode's whole promise: \(store.inputText)")
+  }
+
+  /// Off is the default, and off must leave `respell` exactly as
+  /// ``respellRoundTripsEveryFormat`` already pins for a chosen wide format — the flag
+  /// changes nothing about ordinary re-spelling.
+  @Test("webFriendly false leaves re-spelling unclamped")
+  func respellUnaffectedWhenWebFriendlyIsOff() throws {
+    let store = ColorStore(initialInput: "color(display-p3 1 0 0)")
+    store.webFriendly = false
+
+    store.respell(as: .oklch)
+
+    let after = try #require(store.color)
+    #expect(after.exceedsSRGB)
+  }
 }

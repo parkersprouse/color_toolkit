@@ -148,8 +148,7 @@ struct ColorInputField: View {
 
   private func summary(for result: ParseResult) -> some View {
     HStack(spacing: 8) {
-      Text(describe(result.notation))
-        .foregroundStyle(.secondary)
+      notationMenu(for: result)
 
       if result.color.exceedsDisplayGamut {
         ColorBadge(text: "Beyond this display")
@@ -170,6 +169,44 @@ struct ColorInputField: View {
           )
       }
     }
+  }
+
+  /// A `Menu` (M25) over every format that can name the active color, grouped the same
+  /// way ``MenuBarPanel/copyMenu`` groups its formats — sharing ``FormatSection`` rather
+  /// than repeating its walk, and narrowed to ``FormatSection/webFriendly`` under the
+  /// same flag. Unlike the copy menu, choosing an entry here doesn't just read the
+  /// color — it rewrites `store.inputText`, so ``ColorStore/respell(as:)`` is the one
+  /// place that decides what string actually gets written.
+  private func notationMenu(for result: ParseResult) -> some View {
+    Menu {
+      ForEach(FormatSection.sections(webFriendly: store.webFriendly)) { section in
+        let formats = nameableFormats(in: section, for: result.color)
+        if !formats.isEmpty {
+          Section(section.title) {
+            ForEach(formats, id: \.self) { format in
+              Button(format.title) { store.respell(as: format) }
+            }
+          }
+        }
+      }
+    } label: {
+      Text(describe(result.notation))
+        .foregroundStyle(.secondary)
+    }
+    .menuStyle(.borderlessButton)
+    .fixedSize()
+    .accessibilityIdentifier("notationMenu")
+  }
+
+  /// `section.formats`, narrowed to the ones that can actually name `color` —
+  /// `.keyword` is the only format that ever answers `nil`, but the filter is written
+  /// generally rather than special-cased to it, the same way
+  /// ``ColorValue/allFormats(options:)`` does it. Options are ``CSSFormatOptions/lossless``
+  /// only to decide *nameability*, not to spell what is shown — the menu items are
+  /// labelled with the format's title (`format.title`), never with the resulting CSS, so
+  /// no precision choice here reaches the screen.
+  private func nameableFormats(in section: FormatSection, for color: ColorValue) -> [CSSOutputFormat] {
+    section.formats.filter { color.formatted(as: $0, options: .lossless) != nil }
   }
 
   private func describe(_ notation: ColorNotation) -> String {

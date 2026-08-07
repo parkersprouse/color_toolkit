@@ -591,6 +591,32 @@ final class ColorStore {
     backgroundText = Self.spelled(newColor, preferring: format, webFriendly: webFriendly)
   }
 
+  /// Rewrites the input in `format`, keeping the color the field already holds — the
+  /// notation menu under the header swatch's summary line (M25).
+  ///
+  /// Deliberately does **not** go through ``adopt(_:preferring:)``. That helper picks
+  /// a format itself when the one it prefers can't hold the value losslessly, silently
+  /// substituting `color(display-p3 …)` for whatever was asked — the right behavior for
+  /// an eyedropper sample, which arrives with no notation opinion of its own, and the
+  /// wrong one here, where the format *is* the opinion: a click on "Hex" means hex, gamut
+  /// mapping and all, not a quiet swap to a format the click never named. So this writes
+  /// exactly what ``ColorValue/formatted(as:options:)`` returns for the chosen format, or
+  /// nothing if the color can't be named in it — only `.keyword` ever answers that way.
+  /// Written at ``CSSFormatOptions/lossless``, never at display precision, for the same
+  /// reason `adopt` is: this string becomes the field's new source of truth and is
+  /// immediately re-parsed, so rounding it to four decimals would be permanent.
+  ///
+  /// Under ``webFriendly`` the color is pulled into sRGB first, the same recalibration
+  /// `adopt` performs — a perceptual function like `oklch()` is unbounded and
+  /// `.lossless` does not gamut-map on its own, so without this a wide-gamut color typed
+  /// in before the mode was switched on could still leave the field spelled outside sRGB.
+  func respell(as format: CSSOutputFormat) {
+    guard let color else { return }
+    let target = webFriendly ? color.pulledInto(.srgb) : color
+    guard let formatted = target.formatted(as: format, options: .lossless) else { return }
+    inputText = formatted.css
+  }
+
   // MARK: - Recents
 
   /// Files the current color under recents.

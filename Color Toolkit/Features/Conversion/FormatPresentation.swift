@@ -90,6 +90,17 @@ nonisolated struct FormatSection: Identifiable, Sendable {
   var id: String {
     title
   }
+
+  /// ``all`` or ``webFriendly``, chosen the one way every caller needs to choose it.
+  ///
+  /// Three call sites walk `FormatSection` under this exact condition — the
+  /// conversion panel's rows, `MenuBarPanel`'s copy menu, and `ColorInputField`'s
+  /// notation menu (M25) — and before this they each spelled the ternary out
+  /// independently. Consolidated here rather than left as three copies that could
+  /// drift the day a fourth condition joins `webFriendly`.
+  static func sections(webFriendly: Bool) -> [FormatSection] {
+    webFriendly ? Self.webFriendly : Self.all
+  }
 }
 
 /// A small pill for facts about a color that are easy to miss and expensive to get
