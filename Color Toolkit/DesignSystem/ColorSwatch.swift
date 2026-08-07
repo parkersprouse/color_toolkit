@@ -150,6 +150,8 @@ struct SwatchButton<MenuExtras: View>: View {
 
   // MARK: Private
 
+  @Environment(ColorStore.self) private var store
+
   private let color: ColorValue
   /// `nil` for a derived color; set for one with authored text of its own. The presence
   /// of this, not a separate flag, is what the two actions below branch on — one value
@@ -161,8 +163,6 @@ struct SwatchButton<MenuExtras: View>: View {
   private let identifier: String
   private let onAdopt: (() -> Void)?
   private let menuExtras: MenuExtras
-
-  @Environment(ColorStore.self) private var store
 
   /// Always spelled in hex, independent of `format` — the same split every panel's own
   /// `css(_:)` caption helper already makes: `format` decides what lands in the field on
