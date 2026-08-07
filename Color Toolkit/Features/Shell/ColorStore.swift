@@ -251,21 +251,6 @@ final class ColorStore {
   /// Hides exotic formats and keeps every value inside sRGB. See M22 in PLAN.md.
   var webFriendly = false
 
-  /// ``harmonyOptions``, with ``HarmonyOptions/gamut`` forced to `.srgb` under
-  /// ``webFriendly``.
-  ///
-  /// Read by both ``TransformPanel``'s preview and ``entries(for:)``'s export path, so
-  /// a harmony's swatches and its exported values can never disagree about whether
-  /// they left the gamut — the same reason ``ExportOptions/mappedCountFormat`` exists,
-  /// one seam rather than two copies of the same decision.
-  var effectiveHarmonyOptions: HarmonyOptions {
-    var options = harmonyOptions
-    if webFriendly {
-      options.gamut = .srgb
-    }
-    return options
-  }
-
   /// Whether the recents row is shown. Off is a legitimate preference for someone who
   /// never uses it, not a way to clear the list — ``recents`` keeps filling either way.
   var showsRecents = true
@@ -320,6 +305,21 @@ final class ColorStore {
   /// Whether the system accepted the sampling hot key. Shown in the menu bar panel,
   /// because a shortcut advertised but not registered is worse than none offered.
   private(set) var globalShortcutIsActive = false
+
+  /// ``harmonyOptions``, with ``HarmonyOptions/gamut`` forced to `.srgb` under
+  /// ``webFriendly``.
+  ///
+  /// Read by both ``TransformPanel``'s preview and ``entries(for:)``'s export path, so
+  /// a harmony's swatches and its exported values can never disagree about whether
+  /// they left the gamut — the same reason ``ExportOptions/mappedCountFormat`` exists,
+  /// one seam rather than two copies of the same decision.
+  var effectiveHarmonyOptions: HarmonyOptions {
+    var options = harmonyOptions
+    if webFriendly {
+      options.gamut = .srgb
+    }
+    return options
+  }
 
   /// The subset of the properties above (and ``formatOptions``, ``pickerMode``,
   /// ``cvdDeficiency``) that persists across a launch. See ``Preferences`` for which
@@ -583,30 +583,6 @@ final class ColorStore {
     backgroundText = Self.spelled(newColor, preferring: format, webFriendly: webFriendly)
   }
 
-  /// The lossless string ``adopt(_:preferring:)`` and ``adoptBackground(_:preferring:)``
-  /// write, shared so the two cannot spell the same color two different ways.
-  ///
-  /// Under ``webFriendly`` (M22) this does more than decline the `color(display-p3 …)`
-  /// promotion. Declining alone is not enough: `oklch()` is unbounded and `.lossless`
-  /// does not gamut-map, so a color merely spelled in its *preferred* format — the
-  /// `.oklch` path `TransformPanel` and the OKLCH picker mode both adopt through —
-  /// would still carry values past sRGB's edge even with the promotion turned off. So
-  /// the color itself is pulled inside sRGB **before** it is asked for a spelling; once
-  /// it already fits, nothing needs promoting and ``allowingWideGamut`` is there mainly
-  /// as the belt to that suspenders. This is the mode's whole promise for adopted
-  /// colors, and it is lossy on purpose — see M22 in PLAN.md.
-  private static func spelled(
-    _ color: ColorValue,
-    preferring format: CSSOutputFormat,
-    webFriendly: Bool,
-  ) -> String {
-    let color = webFriendly ? color.pulledInto(.srgb) : color
-    return color.cssStringOrHex(
-      as: color.spelling(preferring: format, allowingWideGamut: !webFriendly),
-      options: .lossless,
-    )
-  }
-
   // MARK: - Recents
 
   /// Files the current color under recents.
@@ -698,6 +674,30 @@ final class ColorStore {
   private var background: ColorField
 
   private var captureResetTask: Task<Void, Never>?
+
+  /// The lossless string ``adopt(_:preferring:)`` and ``adoptBackground(_:preferring:)``
+  /// write, shared so the two cannot spell the same color two different ways.
+  ///
+  /// Under ``webFriendly`` (M22) this does more than decline the `color(display-p3 …)`
+  /// promotion. Declining alone is not enough: `oklch()` is unbounded and `.lossless`
+  /// does not gamut-map, so a color merely spelled in its *preferred* format — the
+  /// `.oklch` path `TransformPanel` and the OKLCH picker mode both adopt through —
+  /// would still carry values past sRGB's edge even with the promotion turned off. So
+  /// the color itself is pulled inside sRGB **before** it is asked for a spelling; once
+  /// it already fits, nothing needs promoting and ``allowingWideGamut`` is there mainly
+  /// as the belt to that suspenders. This is the mode's whole promise for adopted
+  /// colors, and it is lossy on purpose — see M22 in PLAN.md.
+  private static func spelled(
+    _ color: ColorValue,
+    preferring format: CSSOutputFormat,
+    webFriendly: Bool,
+  ) -> String {
+    let color = webFriendly ? color.pulledInto(.srgb) : color
+    return color.cssStringOrHex(
+      as: color.spelling(preferring: format, allowingWideGamut: !webFriendly),
+      options: .lossless,
+    )
+  }
 
   private func acknowledgeCapture() {
     justCaptured = true

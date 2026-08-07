@@ -1204,7 +1204,13 @@ struct WebFriendlyExportTests {
   @Test("webFriendlyExportable is exportable minus every color() format")
   func webFriendlyExportableExcludesColorFamily() {
     #expect(Set(CSSOutputFormat.webFriendlyExportable).isSubset(of: Set(CSSOutputFormat.exportable)))
-    #expect(!CSSOutputFormat.webFriendlyExportable.contains { if case .color = $0 { true } else { false } })
+    #expect(!CSSOutputFormat.webFriendlyExportable.contains {
+      if case .color = $0 {
+        true
+      } else {
+        false
+      }
+    })
     // Nothing lost besides the color() family: exportable already excludes keyword.
     #expect(CSSOutputFormat.exportable.count - CSSOutputFormat.webFriendlyExportable.count == 8)
   }

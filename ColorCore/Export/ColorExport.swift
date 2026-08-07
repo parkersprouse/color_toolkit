@@ -177,30 +177,6 @@ nonisolated struct ExportOptions: Sendable, Equatable {
     shape.usesFormat ? format : Self.fallbackFormat
   }
 
-  /// `self`, with any hidden-under-``ColorStore/webFriendly`` choice replaced by a
-  /// safe one (M22).
-  ///
-  /// `shape` and `format` are persisted preferences (M19), so the mode can be turned
-  /// on with `p3WithFallback` or a `color()` format already selected from an earlier
-  /// session — before this existed, that combination was merely offered; now it is
-  /// stored. **Hiding the picker does not change the stored value underneath it**, so
-  /// ``ColorStore/exportDocument`` must read this rather than ``self`` directly, or
-  /// the document keeps writing the wide-gamut spelling the panel no longer shows a
-  /// control for. The stored preference itself is left untouched — exactly the
-  /// `mixSpace`/`mixHueMethod` precedent — so turning the mode back off restores
-  /// whatever was chosen before it went on.
-  func effective(webFriendly: Bool) -> ExportOptions {
-    guard webFriendly else { return self }
-    var options = self
-    if options.shape == .p3WithFallback {
-      options.shape = .customProperties
-    }
-    if !CSSOutputFormat.webFriendly.contains(options.format) {
-      options.format = .oklch
-    }
-    return options
-  }
-
   /// What a save panel should propose calling this document.
   ///
   /// Built from the *sanitized* ``identifier`` rather than from ``name``, so the file is
@@ -250,6 +226,30 @@ nonisolated struct ExportOptions: Sendable, Equatable {
       && !(key.first?.isNumber ?? true)
       && key.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "_" || $0 == "$") }
     return isIdentifier ? key : "'\(key)'"
+  }
+
+  /// `self`, with any hidden-under-``ColorStore/webFriendly`` choice replaced by a
+  /// safe one (M22).
+  ///
+  /// `shape` and `format` are persisted preferences (M19), so the mode can be turned
+  /// on with `p3WithFallback` or a `color()` format already selected from an earlier
+  /// session — before this existed, that combination was merely offered; now it is
+  /// stored. **Hiding the picker does not change the stored value underneath it**, so
+  /// ``ColorStore/exportDocument`` must read this rather than ``self`` directly, or
+  /// the document keeps writing the wide-gamut spelling the panel no longer shows a
+  /// control for. The stored preference itself is left untouched — exactly the
+  /// `mixSpace`/`mixHueMethod` precedent — so turning the mode back off restores
+  /// whatever was chosen before it went on.
+  func effective(webFriendly: Bool) -> ExportOptions {
+    guard webFriendly else { return self }
+    var options = self
+    if options.shape == .p3WithFallback {
+      options.shape = .customProperties
+    }
+    if !CSSOutputFormat.webFriendly.contains(options.format) {
+      options.format = .oklch
+    }
+    return options
   }
 
   /// The whole document, from one unnamed set of colors.

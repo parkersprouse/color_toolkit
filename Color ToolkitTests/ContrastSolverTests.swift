@@ -29,6 +29,14 @@ struct ContrastSolverTests {
   /// off-by-a-search-step passes and a genuinely non-minimal answer does not.
   static let probe = 1e-3
 
+  // MARK: - Web-friendly mode (M22)
+
+  /// Chroma `0.35` fits nowhere in sRGB, at any lightness or hue — sRGB's own peak is
+  /// close to `0.32`, at the most saturated blue. Chosen deliberately so
+  /// ``candidate(at:)`` needs pulling at every step of the search, not merely near
+  /// the edges of the lightness range.
+  static let unreachablyVivid = ColorValue(space: .oklch, 0.5, 0.35, 250)
+
   // MARK: - The two defining properties
 
   @Test(
@@ -556,14 +564,6 @@ struct ContrastSolverTests {
       #expect(solution.ratio >= 1)
     }
   }
-
-  // MARK: - Web-friendly mode (M22)
-
-  /// Chroma `0.35` fits nowhere in sRGB, at any lightness or hue — sRGB's own peak is
-  /// close to `0.32`, at the most saturated blue. Chosen deliberately so
-  /// ``candidate(at:)`` needs pulling at every step of the search, not merely near
-  /// the edges of the lightness range.
-  static let unreachablyVivid = ColorValue(space: .oklch, 0.5, 0.35, 250)
 
   /// Without a `gamut`, today's behavior: the solution keeps the origin's chroma
   /// exactly, wherever that leaves it relative to sRGB. Asserted first so the next
