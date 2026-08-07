@@ -128,17 +128,6 @@ struct ImportTextSheet: View {
     store.webFriendly ? CSSOutputFormat.webFriendlyExportable : CSSOutputFormat.exportable
   }
 
-  /// Takes the already-parsed outcome rather than reading ``outcome`` itself — see the
-  /// note at the top of `body` for why re-reading it is not free.
-  private func canImport(_ outcome: Result<ImportedPalette, PaletteImportError>?) -> Bool {
-    guard case let .success(palette) = outcome, !palette.groups.isEmpty else { return false }
-    guard !palette.groups.flatMap(\.entries).isEmpty else { return false }
-    if creatingNewProject {
-      return !newProjectName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-    return destinationProjectID != nil
-  }
-
   // MARK: - Chrome
 
   private var header: some View {
@@ -146,19 +135,6 @@ struct ImportTextSheet: View {
       Text("Import Colors")
         .font(.headline)
       Spacer()
-    }
-    .padding(16)
-  }
-
-  private func footer(canImport: Bool) -> some View {
-    HStack {
-      Spacer()
-      Button("Cancel") { dismiss() }
-        .accessibilityIdentifier("importSheetCancel")
-      Button("Import") { performImport() }
-        .keyboardShortcut(.defaultAction)
-        .disabled(!canImport)
-        .accessibilityIdentifier("importSheetConfirm")
     }
     .padding(16)
   }
@@ -221,6 +197,19 @@ struct ImportTextSheet: View {
         .accessibilityIdentifier("importSheetProjectPicker")
       }
     }
+  }
+
+  private func footer(canImport: Bool) -> some View {
+    HStack {
+      Spacer()
+      Button("Cancel") { dismiss() }
+        .accessibilityIdentifier("importSheetCancel")
+      Button("Import") { performImport() }
+        .keyboardShortcut(.defaultAction)
+        .disabled(!canImport)
+        .accessibilityIdentifier("importSheetConfirm")
+    }
+    .padding(16)
   }
 
   private func shapeAndNameControls(_ palette: ImportedPalette) -> some View {
@@ -303,6 +292,17 @@ struct ImportTextSheet: View {
           .accessibilityIdentifier("importSheetSkipped")
       }
     }
+  }
+
+  /// Takes the already-parsed outcome rather than reading ``outcome`` itself — see the
+  /// note at the top of `body` for why re-reading it is not free.
+  private func canImport(_ outcome: Result<ImportedPalette, PaletteImportError>?) -> Bool {
+    guard case let .success(palette) = outcome, !palette.groups.isEmpty else { return false }
+    guard !palette.groups.flatMap(\.entries).isEmpty else { return false }
+    if creatingNewProject {
+      return !newProjectName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+    return destinationProjectID != nil
   }
 
   // MARK: - Importing

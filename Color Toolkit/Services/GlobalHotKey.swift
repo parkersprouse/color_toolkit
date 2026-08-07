@@ -13,6 +13,8 @@ import Carbon.HIToolbox
 /// Named `GlobalShortcut` rather than the obvious `KeyboardShortcut` because SwiftUI
 /// already owns that name and means something different by it.
 nonisolated struct GlobalShortcut: Sendable, Hashable, Codable {
+  // MARK: Internal
+
   /// Pick a color from anywhere on screen.
   ///
   /// Three modifiers on purpose. ⇧⌘C is Digital Color Meter's own copy shortcut and
@@ -56,7 +58,9 @@ nonisolated struct GlobalShortcut: Sendable, Hashable, Codable {
   /// chord the Settings recorder captured that fails it.
   var isEligible: Bool {
     let requiresNoText = UInt32(controlKey | optionKey | cmdKey)
-    if modifiers & requiresNoText != 0 { return true }
+    if modifiers & requiresNoText != 0 {
+      return true
+    }
     return Self.functionKeyCodes.contains(keyCode)
   }
 
@@ -77,6 +81,8 @@ nonisolated struct GlobalShortcut: Sendable, Hashable, Codable {
     }
     return symbols + keyLabel
   }
+
+  // MARK: Private
 
   /// F1 through F20 — the full range Carbon names, and the only key codes
   /// ``isEligible`` accepts with no modifier at all.

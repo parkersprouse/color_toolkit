@@ -772,13 +772,6 @@ final class ColorStore {
   /// this is a computed property over a private field rather than a plain stored `var`.
   private var storedGlobalShortcut: GlobalShortcut = .sampleColor
 
-  private func registerGlobalShortcut(_ shortcut: GlobalShortcut) -> Bool {
-    GlobalHotKeyCenter.shared.register(shortcut) { [weak self] in
-      guard let self else { return }
-      Task { await self.sampleFromScreen(alsoCopy: true) }
-    }
-  }
-
   /// The color everything is about: the one being converted, sampled, and copied.
   private var foreground: ColorField
 
@@ -810,6 +803,13 @@ final class ColorStore {
       as: color.spelling(preferring: format, allowingWideGamut: !webFriendly),
       options: .lossless,
     )
+  }
+
+  private func registerGlobalShortcut(_ shortcut: GlobalShortcut) -> Bool {
+    GlobalHotKeyCenter.shared.register(shortcut) { [weak self] in
+      guard let self else { return }
+      Task { await self.sampleFromScreen(alsoCopy: true) }
+    }
   }
 
   /// The one place ``recents`` is trimmed to ``recentLimit`` — called after a new
