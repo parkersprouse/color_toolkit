@@ -38,6 +38,15 @@ struct CompactPicker: View {
     .padding(14)
     .task { seedFromStore() }
     .onChange(of: store.inputText) { state.syncing(with: store.inputText, color: store.color) }
+    // The symmetric counterpart to the same note in `PickerPanel`, kept for the same
+    // reason even though it is likely unreachable in practice: a transient `.popover`
+    // holds key-window status while shown, so clicking the Pick tab's own switcher —
+    // outside this popover, in the window behind it — dismisses this popover first
+    // rather than reaching the Pick tab while both stay open (measured; see
+    // `CompactPickerSmokeTests`'s note on why no UI test drives that path). Kept
+    // anyway as parity with `PickerPanel`'s side, which *is* reachable, and against
+    // any future writer of `store.pickerMode` this popover cannot anticipate.
+    .onChange(of: store.pickerMode) { state.setMode(store.pickerMode, carrying: store.color) }
   }
 
   // MARK: Private

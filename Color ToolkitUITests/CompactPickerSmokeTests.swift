@@ -184,6 +184,68 @@ final class CompactPickerSmokeTests: XCTestCase {
     )
   }
 
+  /// The Pick tab and the popover are two independent hosts sharing one preference,
+  /// `store.pickerMode` – and, before this test, only in one direction. Each panel's
+  /// own switcher wrote the preference *and* its own local `PickerState.mode`
+  /// together, so the two agreed as long as only one of them ever changed it. The
+  /// header swatch sitting above the tool switcher means that stopped being true the
+  /// moment the popover could open while the Pick tab is already showing: switching
+  /// axes in the popover changed `store.pickerMode` but left `PickerPanel`'s own
+  /// `state.mode` – and so its switcher, its plane, its readout – frozen on whatever
+  /// it showed before, until the tool was left and re-entered.
+  ///
+  /// Both `RadioGroup`s are labelled "Axes" with "HSV"/"OKLCH" children, so this
+  /// scopes through each group's own identifier (`app.radioGroups["pickerMode"]` /
+  /// `["compactPickerMode"]`) rather than querying `app.radioButtons["OKLCH"]`
+  /// directly – with both hosts open at once that query is ambiguous, the same
+  /// hazard the plane's per-host `identifier` exists to keep out of *that* query.
+  func testSwitchingAxesInThePopoverKeepsThePickTabInSync() {
+    setField("#3b82f6")
+    click(radioButton: "Pick", "the tool switcher")
+
+    let panelOKLCH = app.radioGroups["pickerMode"].radioButtons["OKLCH"]
+    guard panelOKLCH.waitForExistence(timeout: 15) else {
+      XCTFail("No OKLCH segment on the Pick tab's own switcher. Tree was:\n\(app.debugDescription)")
+      return
+    }
+    XCTAssertEqual("\(panelOKLCH.value ?? "")", "0", "the Pick tab should start on HSV")
+
+    let swatch = app.buttons["headerSwatch"]
+    guard waitUntilHittable(swatch) else {
+      XCTFail("Header swatch never became hittable. Tree was:\n\(app.debugDescription)")
+      return
+    }
+    swatch.click()
+
+    let popoverOKLCH = app.radioGroups["compactPickerMode"].radioButtons["OKLCH"]
+    guard waitUntilHittable(popoverOKLCH) else {
+      XCTFail("Popover's OKLCH segment never became hittable. Tree was:\n\(app.debugDescription)")
+      return
+    }
+    popoverOKLCH.click()
+
+    XCTAssertEqual(
+      "\(panelOKLCH.value ?? "")", "1",
+      "switching axes in the popover should update the Pick tab's own switcher too. Tree was:\n\(app.debugDescription)",
+    )
+  }
+
+  // No UI test drives the mirror image of the one above — switching axes on the Pick
+  // tab while the popover stays open. `CompactPicker` carries the symmetric
+  // `.onChange(of: store.pickerMode)` for it anyway (`CompactPicker.swift`), but
+  // measured directly: once the popover is open, every element in the main window
+  // behind it reports `isHittable == false` and the whole `Application`/`Window`
+  // subtree reads `Disabled` in `app.debugDescription` — reproducibly, confirmed
+  // against an otherwise-identical test that opens the popover and interacts *inside*
+  // it, which passes every time in the same run. That is the same shape of platform
+  // limitation as XCUITest's inability to drive `NSOpenPanel` or a drag session: a
+  // transient `NSPopover` takes key-window status while shown, so the window behind
+  // it is not interactable from outside — not by a synthesized click and, as far as
+  // this signature suggests, not by a real one either. A test built on clicking a
+  // background control while the popover stays open would fail whether the feature
+  // works or not, so none is written, per the standing rule against exactly that
+  // shape of test. The forward direction above is the reachable half and is covered.
+
   // MARK: Private
 
   private var app: XCUIApplication!

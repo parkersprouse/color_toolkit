@@ -2632,14 +2632,45 @@ stays in as insurance against a future OS where that stops being true, and the t
 own doc comment says plainly that nothing here can discriminate it – the same honesty
 the write-ordering finding above asked for.
 
+**A fifth finding, and the one with the widest blast radius: the Pick tab and the
+popover are two independent hosts sharing one preference, `store.pickerMode`, and
+only one direction of that sharing worked.** Each host's own mode switcher wrote
+`store.pickerMode` *and* its own local `PickerState.mode` together, so the two agreed
+as long as only one of them ever changed the preference – true for the whole app
+before M24, and false from the moment a second writer (`CompactPicker`) existed.
+Switching axes in the popover while the Pick tab was already showing changed
+`store.pickerMode` but left `PickerPanel`'s own `state.mode` frozen – its switcher, its
+plane, its readout all showing the stale mode until the tool was left and re-entered.
+Fixed with `.onChange(of: store.pickerMode)` on both hosts, each re-running
+`state.setMode(store.pickerMode, carrying: store.color)` – safe to fire on a host's own
+write too, since `setMode` no-ops when the mode already matches. Confirmed by mutation:
+removing `PickerPanel`'s `onChange` fails
+`CompactPickerSmokeTests.testSwitchingAxesInThePopoverKeepsThePickTabInSync`.
+**The mirror-image test does not exist, and not for lack of trying.**
+`testSwitchingAxesOnThePickTabKeepsTheOpenPopoverInSync` was written, and failed
+consistently and reproducibly – not with a mismatched value, but with every element in
+the window behind the popover reporting `isHittable == false` and the whole
+`Application`/`Window` subtree reading `Disabled`, confirmed against an
+otherwise-identical, passing test that interacts *inside* the popover instead. A
+transient `.popover` holds key-window status while shown, so the window behind it is
+not interactable from outside – the same shape of platform limitation as XCUITest's
+inability to drive `NSOpenPanel` or a drag session, and the test was deleted rather
+than kept red, per the standing rule against a test that fails whether the feature
+works or not. `CompactPicker`'s own `.onChange(of: store.pickerMode)` stays in anyway,
+as parity with `PickerPanel`'s reachable side and against any future writer of the
+preference this popover cannot anticipate – see the code comment for why it is likely
+unreachable via this exact path today.
+
 **Testing, final.** Two new `PickerStateTests` cases pin the clamp (on and off); a third
 was rewritten mid-milestone once its original claim did not survive scrutiny – see
-above. One new UI file, `CompactPickerSmokeTests`: the popover opens and a drag inside
-it reaches the field; the plane and its popover copy coexist without an ambiguous query;
-the empty-state swatch is clickable; and reopening the popover reseeds from whatever is
-currently in the field. 477 unit tests (474 before M24, 3 new – two clamp cases plus the
-rewritten round-trip case, same count as the original three), 59 CLI tests unchanged, 41
-XCUITests (37 before M24, 4 new) – all passing in one `** TEST SUCCEEDED **` run, 577
+above. One new UI file, `CompactPickerSmokeTests`, five cases: the popover opens and a
+drag inside it reaches the field; the plane and its popover copy coexist without an
+ambiguous query; the empty-state swatch is clickable; reopening the popover reseeds
+from whatever is currently in the field; and switching axes in the popover updates the
+Pick tab's own switcher underneath. 477 unit tests (474 before M24, 3 new – two clamp
+cases plus the rewritten round-trip case, same count as the original three), 59 CLI
+tests unchanged, 42 XCUITests (37 before M24, 5 new) – all passing in one
+`** TEST SUCCEEDED **` run, 578
 tests total.
 
 ### ⬜ M25 – Click the notation to re-spell the active color
@@ -2863,7 +2894,14 @@ Per milestone:
   was rewritten to pin the real, narrower claim it can actually observe. Same
   discipline applied to `.id(pickerSession)`: measured with it removed rather than
   assumed necessary, and the reopen-reseed test passes either way, because macOS
-  already tears a popover's content down on dismiss.
+  already tears a popover's content down on dismiss. A fifth check found a real,
+  previously-untested divergence rather than confirming one already guarded against:
+  the Pick tab and the popover disagreeing about `PickerMode` once both could write
+  `store.pickerMode`, fixed with `.onChange(of: store.pickerMode)` on both hosts and
+  confirmed by mutation on the reachable direction; the unreachable direction was
+  written, found to fail on a platform limitation (a transient popover holds
+  key-window status, so the window behind it cannot be clicked into while it is
+  shown), and deleted rather than left red.
 - **M25–M26 (planned):** neither has landed yet, so nothing below is a finding – it is
   the standard of proof each milestone must meet before its commit lands, stated in
   advance so the mutation run has a target. **M25:** every exportable format round-trips

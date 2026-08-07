@@ -39,6 +39,15 @@ struct PickerPanel: View {
     }
     .task { seedFromStore() }
     .onChange(of: store.inputText) { state.syncing(with: store.inputText, color: store.color) }
+    // The popover's own mode switcher (M24, `CompactPicker`) can change
+    // `store.pickerMode` while this panel is already mounted — the header swatch
+    // sits above the tool switcher, so nothing stops opening the popover while on
+    // the Pick tab. Without this, this panel's local `state.mode` would only ever
+    // follow *its own* switcher, and the two would silently disagree about which
+    // axes are showing until the tool was left and re-entered. `setMode` no-ops
+    // when the mode already matches, so this is also safe to fire on the write
+    // this panel's own switcher just made.
+    .onChange(of: store.pickerMode) { state.setMode(store.pickerMode, carrying: store.color) }
   }
 
   // MARK: Private

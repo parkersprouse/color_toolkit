@@ -1026,6 +1026,28 @@ the accessibility-tree conventions before writing UI tests.
   tests: driving that panel from outside needs assistive access, which `osascript` does
   not have here, and `screencapture` is likewise blocked — so an agent cannot verify this
   one either, and should say so rather than infer it from a green suite.
+- **A third shape in the same family: XCUITest cannot click into the window behind an
+  open `.popover`.** A transient popover holds key-window status while shown, so every
+  element in the main window reports `isHittable == false` and the whole
+  `Application`/`Window` subtree reads `Disabled` in `app.debugDescription` — measured
+  (M24), not assumed: a test driving that click failed consistently and reproducibly
+  with exactly that signature, while an otherwise-identical test interacting *inside*
+  the same popover passed every time in the same run, which is what tells this apart
+  from the ordinary "host not frontmost" flake two bullets below. A test built on that
+  click would fail whether the feature works or not, so
+  `CompactPickerSmokeTests`'s coverage of `PickerPanel` and `CompactPicker` staying in
+  sync on `PickerMode` is one-directional (popover → panel) for this reason, not
+  because the other direction goes untested by oversight — see the code comment on
+  `CompactPicker`'s `.onChange(of: store.pickerMode)`.
+- **`PickerPanel` and `CompactPicker` both write `store.pickerMode`, so both need
+  `.onChange(of: store.pickerMode)`, not just one.** Before a second writer existed,
+  each panel's own switcher kept its local `PickerState.mode` and the shared
+  preference in lockstep by construction — the same setter changed both. M24 gave
+  `store.pickerMode` a second writer, and without this, switching axes in the popover
+  while the Pick tab was already showing changed the preference but left
+  `PickerPanel`'s own `state.mode` frozen, stale until the tool was left and
+  re-entered. `setMode` no-ops when the mode already matches, so the `onChange` is
+  safe to fire on a panel's own write too.
 - **The CLI has no `mix` command on purpose, and a test holds the argument up.** The
   parser already accepts `color-mix(…)` and `rgb(from …)` as *input* to `convert`, so a
   subcommand would be a second door into one room. `theParserIsTheMixCommand` fails if
