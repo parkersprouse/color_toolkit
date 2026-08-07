@@ -112,6 +112,12 @@ struct ProjectsPanel: View {
   @State private var isImporting = false
   @State private var importSummary: String?
 
+  /// Whether the M26 paste-a-document sheet is up. Shares ``importSummary`` with the
+  /// token-file import above it — both are "the last thing Import did", and a user
+  /// switching between the two menu items should not need two different places to look
+  /// for what happened.
+  @State private var isImportingText = false
+
   /// Which saved color's notes are open. A `@Model` is `Identifiable`, so this drives
   /// `.popover(item:)` directly.
   @State private var noteTarget: SavedColor?
@@ -270,8 +276,21 @@ struct ProjectsPanel: View {
         // from another of its tools. Beside the save buttons because it answers the same
         // question they do — what ends up in this project — and because an import lands
         // as a palette, which is what the two buttons to its left produce.
-        Button("Import Tokens…") { isImporting = true }
-          .accessibilityIdentifier("importTokens")
+        //
+        // A `Menu` rather than the plain `Button` this was before M26, because the row
+        // stays at four controls that way — the tool switcher's own lesson: an eighth
+        // segment there is what swept it into an overflow menu, not one more choice
+        // behind an existing control. `Menu`'s own accessibility identifier is what a
+        // test opens the menu through, matching every other `menuButton` query in
+        // ``ProjectsSmokeTests``.
+        Menu("Import") {
+          Button("From Text…") { isImportingText = true }
+            .accessibilityIdentifier("importFromText")
+          Button("From Token File…") { isImporting = true }
+            .accessibilityIdentifier("importTokens")
+        }
+        .fixedSize()
+        .accessibilityIdentifier("importMenu")
       }
 
       if let summary = importSummary {
@@ -300,6 +319,12 @@ struct ProjectsPanel: View {
       allowedContentTypes: [.json] + (UTType(filenameExtension: "tokens").map { [$0] } ?? []),
     ) { result in
       importTokens(result, into: project)
+    }
+    .sheet(isPresented: $isImportingText) {
+      ImportTextSheet(initialProjectID: project.uuid) { importedProjectID, summary in
+        store.selectedProjectID = importedProjectID
+        importSummary = summary
+      }
     }
   }
 

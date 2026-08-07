@@ -320,28 +320,81 @@ final class ProjectsSmokeTests: XCTestCase {
     )
   }
 
-  /// **The import's affordance, and deliberately not the import.**
+  /// **The token-file path's affordance, and deliberately not the import.**
   ///
-  /// Clicking this raises `NSOpenPanel`, which XCUITest cannot drive — the same shape as
-  /// the drag-and-drop this suite declines to test, and for the same reason: a test that
-  /// tried would fail whether the feature worked or not. So the assertion stops at what a
-  /// running app can honestly be asked, which is that the control reached the panel and is
-  /// usable. What happens after a file is chosen is covered by ``DesignTokenImportTests``
-  /// and ``ProjectStoreTests`` between them, and the *file read itself* — the sandbox, the
-  /// security-scoped URL — is covered by neither and wants a human once. See PLAN.md.
-  func testTheImportControlIsThereToBeUsed() {
+  /// M26 moved the old plain `Button` behind `Menu("Import")` — the tool switcher's own
+  /// lesson, so the save-controls row stays at four controls rather than growing a fifth.
+  /// Clicking "From Token File…" raises `NSOpenPanel`, which XCUITest cannot drive — the
+  /// same shape as the drag-and-drop this suite declines to test, and for the same
+  /// reason: a test that tried would fail whether the feature worked or not. So the
+  /// assertion stops at what a running app can honestly be asked: the menu opens and
+  /// both items are there, and neither is clicked. What happens after a file is chosen is
+  /// covered by ``DesignTokenImportTests`` and ``ProjectStoreTests`` between them, and
+  /// the *file read itself* — the sandbox, the security-scoped URL — is covered by
+  /// neither and wants a human once. See PLAN.md. "From Text…" is drivable and gets its
+  /// own test below, since it opens a sheet rather than a system panel.
+  func testTheImportMenuOffersBothImportPaths() {
     click(radioButton: "Projects", "the tool switcher")
     createProject()
 
-    let button = app.buttons["importTokens"]
+    let menu = app.menuButtons["importMenu"]
     XCTAssertTrue(
-      button.waitForExistence(timeout: 15),
-      "No import button in the projects panel. Tree was:\n\(app.debugDescription)",
+      menu.waitForExistence(timeout: 15),
+      "No import menu in the projects panel. Tree was:\n\(app.debugDescription)",
     )
     XCTAssertTrue(
-      waitUntilHittable(button),
-      "The import button never became hittable. Tree was:\n\(app.debugDescription)",
+      waitUntilHittable(menu),
+      "The import menu never became hittable. Tree was:\n\(app.debugDescription)",
     )
+    menu.click()
+
+    XCTAssertTrue(
+      app.menuItems["From Text…"].waitForExistence(timeout: 15),
+      "No “From Text…” item. Tree was:\n\(app.debugDescription)",
+    )
+    XCTAssertTrue(
+      app.menuItems["From Token File…"].waitForExistence(timeout: 15),
+      "No “From Token File…” item. Tree was:\n\(app.debugDescription)",
+    )
+    app.typeKey(.escape, modifierFlags: [])
+  }
+
+  /// The end-to-end path a system panel can never give this suite: paste, confirm, and a
+  /// palette exists. `:root` with two properties sharing the `brand-` prefix exercises
+  /// the same segment-wise family inference `PaletteImportTests` checks in isolation —
+  /// this is the one place it is checked reaching an actual saved `Palette`.
+  func testImportingPastedCustomPropertiesCreatesAPalette() {
+    click(radioButton: "Projects", "the tool switcher")
+    createProject()
+
+    select(menuItem: "From Text…", fromMenu: "importMenu", "the import menu")
+
+    let sheet = app.sheets.firstMatch
+    XCTAssertTrue(
+      sheet.waitForExistence(timeout: 15),
+      "No import sheet appeared. Tree was:\n\(app.debugDescription)",
+    )
+
+    let textBox = sheet.textViews["importSheetText"]
+    XCTAssertTrue(
+      textBox.waitForExistence(timeout: 15),
+      "No paste box in the import sheet. Tree was:\n\(app.debugDescription)",
+    )
+    textBox.click()
+    textBox.typeText(":root {\n  --brand-500: #3b82f6;\n  --brand-600: #ef4444;\n}")
+
+    let confirm = sheet.buttons["importSheetConfirm"]
+    XCTAssertTrue(
+      waitUntilHittable(confirm),
+      "The Import button never became hittable. Tree was:\n\(app.debugDescription)",
+    )
+    confirm.click()
+
+    XCTAssertTrue(
+      app.buttons["paletteExport-0"].waitForExistence(timeout: 15),
+      "No palette row appeared after import. Tree was:\n\(app.debugDescription)",
+    )
+    XCTAssertTrue(readout("importSummary").hasPrefix("Imported 2 colors"))
   }
 
   // MARK: Private
