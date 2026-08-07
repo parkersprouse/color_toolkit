@@ -26,7 +26,13 @@ an accessibility label, not a dumb rectangle.
 hand-authorable sRGB and recalibrates every tool that can honestly stay inside it —
 harmony, adjustment, the contrast solver, the picker — while `color-mix()` is hidden
 outright, because CSS Color 4 §12 has no gamut-mapping step to recalibrate it with.
-**M23–M26 are planned and not yet built**; see PLAN.md.
+**M23 is done too**: a `RecentsRow` above the tool switcher, gated on `showsRecents`
+and always rendered once it is on (an empty-state line rather than materializing on
+the first remembered color, so nothing resizes out from under a click), plus
+commit-on-release in the picker — each of the plane, hue-strip and alpha-slider drags
+now calls `store.remember()` directly in its own `onEnded`, replacing a shared
+1-second debounce that used to drop the first of two picks made close together.
+**M24–M26 are planned and not yet built**; see PLAN.md.
 
 **[PLAN.md](PLAN.md) is the source of truth** for milestone status, what is deferred
 and why, and the reasoning behind every decision recorded below. This file is the
@@ -831,6 +837,38 @@ Layered so the numeric core stays independently testable and UI-free:
   `ColorToolkitCLI/Names.swift`'s `--format` vocabulary — the same fact transcribed
   twice because the two targets cannot import one another, not two independent
   decisions that happen to agree.
+- **`recentLimit`'s truncation lives in one private `trimRecents()`, called from both
+  its own `didSet` and `remember()`.** Before M23 the property was a plain `var`, so
+  lowering it in Settings did nothing until the next remembered color happened to
+  trim the list — the Stepper's own label would read a count `recents` hadn't caught
+  up to yet. `trimRecents()` clamps with `max(recentLimit, 0)` before computing how
+  much to drop, because a `didSet` fires for *any* assignment, including one that
+  reaches the property directly rather than through `preferences`'s own `max(1, …)`
+  clamp — without the second clamp a negative limit asks `removeLast` for more
+  elements than the array holds and crashes at the point of assignment instead of at
+  the next `remember()`. A property observer on an `@Observable` stored property is
+  also a sharper edge than it looks: the macro rewrites stored properties into
+  accessor pairs, and the failure mode is not always a compile error — it can be the
+  property silently dropping out of observation. `PreferencesTests
+  .preferencesObservesEveryPersistedField` carries a `recentLimit` mutation for
+  exactly that reason; the other three mutations in that test cannot catch it.
+- **`RecentsRow` renders unconditionally once `ColorStore/showsRecents` is on, never
+  additionally gated on `recents` being non-empty.** An empty list shows
+  `MenuBarPanel`'s own line, `"Colors you copy or submit collect here."`, in place of
+  swatches — fixed footprint, on purpose. A row that only appears once the first
+  color is remembered would push the tool switcher and every panel beneath it down a
+  frame *after* the click that filled it, which is the same shape of bug as the
+  `GeometryReader`-inside-`ScrollView` resize above, just triggered from the opposite
+  direction (content appearing rather than a proposal changing).
+- **Commit-on-release (M23) can file up to three recents for one settled pick, and
+  that is intended, not a missed dedupe.** `PickerPanel`'s plane, hue-strip and alpha
+  gestures each call `store.remember()` directly from their own `onEnded` — replacing
+  a single 1-second debounce the three used to share, which dropped the first of two
+  picks made within a second of each other. `remember()`'s exact-value dedupe still
+  collapses the case that is actually noise (a release that lands where the drag
+  began, or two releases in a row on the same pixel); it has nothing to collapse
+  across plane → hue → alpha, because each release genuinely does leave a different
+  `ColorValue` behind until the last one repeats what came before.
 - New tool panels: add a `Tool` case, a folder under `Features/`, and a branch in
   `ContentView`. Keep spec facts in ColorCore and wording in the panel — see
   `RequirementPresentation`.

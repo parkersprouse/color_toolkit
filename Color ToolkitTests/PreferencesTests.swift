@@ -130,6 +130,12 @@ struct PreferencesTests {
       ("webFriendly", { $0.webFriendly = true }),
       ("formatOptions.legacy", { $0.formatOptions.legacy = true }),
       ("exportOptions.shape", { $0.exportOptions.shape = .json }),
+      // `recentLimit` gained a `didSet` in M23 (to trim `recents` immediately on a
+      // lowered limit) — property observers on an `@Observable` stored property are
+      // exactly the kind of thing that can compile clean and silently stop being
+      // observed, so this is the same "does it actually fire" check the other three
+      // fields already get.
+      ("recentLimit", { $0.recentLimit = 3 }),
     ]
 
     for (name, mutate) in mutations {

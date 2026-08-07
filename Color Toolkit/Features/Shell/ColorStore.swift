@@ -259,7 +259,15 @@ final class ColorStore {
   /// = 12` — because M19 makes it a preference like the rest of this group rather than
   /// a constant. "Enough to be useful, few enough to stay scannable" no longer fixes the
   /// number at 12, only supplies the default.
-  var recentLimit = 12
+  ///
+  /// A `didSet` (M23) so lowering this in Settings trims an already-full list right
+  /// away, rather than waiting for the next ``remember()`` to notice — the Stepper's
+  /// label would otherwise keep reading a count the list hasn't caught up to yet.
+  /// Skipped during `init` the same way ``ColorField/text`` skips its first `reparse`
+  /// — ``recents`` is always empty then, so there is nothing to trim.
+  var recentLimit = 12 {
+    didSet { trimRecents() }
+  }
 
   /// Which project the Projects panel is showing.
   ///
@@ -602,9 +610,7 @@ final class ColorStore {
     // refuses to throw away.
     recents.removeAll { $0.color == color }
     recents.insert(RecentColor(color: color, text: text), at: 0)
-    if recents.count > recentLimit {
-      recents.removeLast(recents.count - recentLimit)
-    }
+    trimRecents()
   }
 
   func clearRecents() {
@@ -697,6 +703,21 @@ final class ColorStore {
       as: color.spelling(preferring: format, allowingWideGamut: !webFriendly),
       options: .lossless,
     )
+  }
+
+  /// The one place ``recents`` is trimmed to ``recentLimit`` — called after a new
+  /// entry is filed and from ``recentLimit``'s `didSet`, so a lowered limit and a
+  /// freshly-remembered color can never disagree about how the list is cut down.
+  ///
+  /// `max(recentLimit, 0)` rather than trusting the property outright: this runs from
+  /// a `didSet`, which fires for *any* assignment, including one that reaches
+  /// `recentLimit` directly rather than through ``preferences``'s own clamp. Without
+  /// it a negative limit would ask `removeLast` for more elements than the array
+  /// holds and crash at the point of assignment instead of at the next `remember()`.
+  private func trimRecents() {
+    let limit = max(recentLimit, 0)
+    guard recents.count > limit else { return }
+    recents.removeLast(recents.count - limit)
   }
 
   private func acknowledgeCapture() {

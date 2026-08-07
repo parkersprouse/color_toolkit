@@ -71,7 +71,6 @@ struct PickerPanel: View {
   @State private var planeSide: CGFloat = 320
   @State private var planeRender: Task<PickerPlane?, Never>?
   @State private var stripRender: Task<CGImage?, Never>?
-  @State private var rememberSoon: Task<Void, Never>?
 
   private var planeKey: PlaneKey {
     PlaneKey(
@@ -183,10 +182,19 @@ struct PickerPanel: View {
       .gesture(
         DragGesture(minimumDistance: 0)
           .onChanged { moveCursor(to: $0.location, in: size) }
-          // Never mid-drag, and not even on release — see
-          // `rememberWhenSettled()`. A drag crosses hundreds of colors on the
-          // way to the one that was wanted.
-          .onEnded { _ in rememberWhenSettled() },
+          // Never mid-drag — a drag crosses hundreds of colors on the way to
+          // the one that was wanted — but directly on release (M23), replacing
+          // the 1-second debounce this used to share with the hue and alpha
+          // gestures below. The debounce dropped the first of two picks made
+          // within a second of each other; committing on every release fixes
+          // that. It also means dialing in one color across plane, hue and
+          // alpha in turn now files three entries rather than one — each
+          // release genuinely does leave a different `ColorValue` behind, so
+          // `store.remember()`'s exact-value dedupe has nothing to collapse
+          // there. It still collapses the case that actually is noise: a
+          // release that ends where the drag began, or two releases in a row
+          // that land on the same pixel.
+          .onEnded { _ in store.remember() },
       )
     }
     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -238,7 +246,7 @@ struct PickerPanel: View {
               }
             }
           }
-          .onEnded { _ in rememberWhenSettled() },
+          .onEnded { _ in store.remember() },
       )
     }
     .frame(width: 28)
@@ -289,7 +297,7 @@ struct PickerPanel: View {
             let fraction = clampedFraction(value.location.x, over: size.width)
             apply { $0.alpha = fraction }
           }
-          .onEnded { _ in rememberWhenSettled() },
+          .onEnded { _ in store.remember() },
       )
     }
     .frame(height: 24)
@@ -535,22 +543,6 @@ struct PickerPanel: View {
     let rendered = await render.value
     guard !Task.isCancelled, let rendered else { return }
     strip = rendered
-  }
-
-  /// Files the current color under recents once the user has stopped moving.
-  ///
-  /// Three controls feed this — plane, strip, alpha — and dialing in one color
-  /// touches all three. Filing on each release would deposit three *different*
-  /// way-points, which is the same noise the store avoids by not remembering on every
-  /// keystroke: the colors between `#f` and `#f0a` are not colors anyone chose.
-  /// Waiting for the movement to stop files the one that was.
-  private func rememberWhenSettled() {
-    rememberSoon?.cancel()
-    rememberSoon = Task {
-      try? await Task.sleep(for: .seconds(1))
-      guard !Task.isCancelled else { return }
-      store.remember()
-    }
   }
 }
 

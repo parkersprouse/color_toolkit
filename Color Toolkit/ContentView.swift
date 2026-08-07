@@ -21,6 +21,11 @@ struct ContentView: View {
         .padding(.horizontal, 16)
         .padding(.top, 16)
 
+      // Also above the switcher, and for the identical reason — a recent belongs
+      // to no tool either. See `RecentsRow` for why it renders unconditionally
+      // once `showsRecents` is on, rather than only once something is in the list.
+      RecentsRow()
+
       // In the window rather than the toolbar, which is where it used to live.
       // `ToolbarItem(placement: .principal)` is *centered*, so its width budget is
       // not what the toolbar has spare but `width - 2 × max(leading, trailing)` —

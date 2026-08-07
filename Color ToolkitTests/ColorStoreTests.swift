@@ -107,6 +107,26 @@ struct ColorStoreTests {
     #expect(store.recents.first?.text == "rgb(39 0 0)")
   }
 
+  /// M23: lowering the limit trims an already-full list immediately, rather than
+  /// waiting for the next ``ColorStore/remember()`` to notice — the Settings
+  /// Stepper's own label reads `store.recentLimit`, and it would otherwise say a
+  /// number the list hasn't caught up to yet.
+  @Test("Lowering recentLimit truncates an already-full list")
+  func loweringRecentLimitTruncates() {
+    let store = ColorStore(initialInput: "red")
+    for value in 0 ..< 5 {
+      store.inputText = "rgb(\(value) 0 0)"
+      store.remember()
+    }
+    #expect(store.recents.count == 5)
+
+    store.recentLimit = 3
+
+    #expect(store.recents.count == 3)
+    // Newest first, so trimming drops the oldest three, not the newest.
+    #expect(store.recents.map(\.text) == ["rgb(4 0 0)", "rgb(3 0 0)", "rgb(2 0 0)"])
+  }
+
   @Test("Nothing invalid reaches recents")
   func invalidInputIsNotRemembered() {
     let store = ColorStore(initialInput: "not-a-color")

@@ -103,6 +103,34 @@ final class PickerSmokeTests: XCTestCase {
     capture("picker-after-drag")
   }
 
+  /// Commit-on-release (M23): releasing the plane drag has to file a recent right
+  /// away, not after the second-long debounce this gesture used to share with the
+  /// hue and alpha strips. A short wait is what actually discriminates the two —
+  /// the old debounce would still be asleep at this point, so nothing would have
+  /// appeared yet, where a direct `store.remember()` shows up within one render
+  /// pass. `RecentsRow` is the surface this is checked through; the store-side half
+  /// (dedupe, the authored-text round trip) is `ColorStoreTests`'s job.
+  func testReleasingTheDragFilesARecentWithoutTheOldDebounceDelay() {
+    setField("#3b82f6")
+    click(radioButton: "Pick", "the tool switcher")
+
+    let plane = app.otherElements["pickerPlane"]
+    guard plane.waitForExistence(timeout: 15) else {
+      XCTFail("No picker plane. Tree was:\n\(app.debugDescription)")
+      return
+    }
+
+    plane.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.35))
+      .press(forDuration: 0.1,
+             thenDragTo: plane.coordinate(withNormalizedOffset: CGVector(dx: 0.6, dy: 0.7)))
+
+    let recents = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'recentColor-'"))
+    XCTAssertTrue(
+      recents.firstMatch.waitForExistence(timeout: 0.6),
+      "No recent appeared shortly after release — commit-on-release regressed to a delay. Tree was:\n\(app.debugDescription)",
+    )
+  }
+
   // MARK: Private
 
   private var app: XCUIApplication!

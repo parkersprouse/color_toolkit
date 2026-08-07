@@ -2435,7 +2435,7 @@ window from here and should say so rather than infer it from a green suite. 473 
 tests (443 before M22, 30 new), 59 CLI tests, and the full XCUITest suite (33 before
 M22, plus `WebFriendlyModeSmokeTests`) pass.
 
-### ⬜ M23 – Recents row, and committing a pick on release
+### ✅ M23 – Recents row, and committing a pick on release
 
 Two small changes that share a subject.
 
@@ -2462,6 +2462,72 @@ already-full list. UI: `PickerSmokeTests` needs a look – anything timing-coupl
 old debounce goes. A UI test that a recent appears in the window's row after a submit,
 and that clicking it restores the authored spelling (the store-side half is already
 covered by `ColorStoreTests`).
+
+Built as planned, with two things the plan note above did not spell out.
+
+**The row is gated on `showsRecents` alone, never additionally on `recents` being
+non-empty.** The plan cited `MenuBarPanel:115`'s "Clear" affordance as the pattern to
+match but did not say whether to match its always-rendered shape too. Read literally,
+"a recent appears in the window's row after a submit" is equally true of a row that
+materializes on the first remembered color – but that row would push the tool switcher
+and every panel beneath it down a frame *after* the click that filled it, and this app
+already has a scar at exactly this shape (`GeometryReader` inside a `ScrollView`
+resizing out from under a click in flight, in the findings above). `RecentsRow`
+therefore always renders once the preference is on, with
+`MenuBarPanel`'s own empty-state line, `"Colors you copy or submit collect here."`, in
+place of swatches – fixed footprint, and one fewer thing for this codebase's
+short list of layout-shift bugs to grow by one.
+
+**`recentLimit` needed a `didSet`, which the plan's prose implied without naming.**
+Before this milestone the property was a plain `var`, so lowering it in Settings did
+nothing until the next `remember()` happened to trim the list – "lowering it truncates
+an already-full list" was the *test* the plan wrote in advance, and it fails against
+that code, which is what confirmed the gap was real rather than already covered.
+`recents.removeLast(recents.count - recentLimit)` moved into one private
+`trimRecents()`, called from both the `didSet` and `remember()`, so the truncation rule
+exists in exactly one place. `trimRecents()` clamps with `max(recentLimit, 0)` before
+computing the count to remove – a `didSet` fires for *any* assignment to the property,
+including one that reaches it directly rather than through `preferences`'s own
+`max(1, …)` clamp, and without the second clamp a negative limit would ask
+`removeLast` for more elements than the array holds and crash at the point of
+assignment instead of at the next `remember()`. Property observers on an `@Observable`
+stored property are also a sharper edge than they look – the macro rewrites stored
+properties into accessor pairs, and the failure mode is not always a compile error;
+it can be the property silently dropping out of observation. Confirmed both ways:
+the app target builds, and `PreferencesTests.preferencesObservesEveryPersistedField`
+gained a fourth mutation, `("recentLimit", { $0.recentLimit = 3 })`, to prove a change
+still invalidates a read of `store.preferences`.
+
+**Commit-on-release turns one settled pick into up to three recents, not one.** The
+plan's "`remember()` already dedupes … a click that does not move the cursor files one
+entry, not two" is true and stayed true, but only covers the no-move case. Dialing in
+one color across the plane, then the hue strip, then the alpha slider now files three
+distinct entries on the way there, because each release genuinely does leave a
+different `ColorValue` behind – the exact-value dedupe has nothing to collapse until
+the *last* release repeats what came before. That is the correct trade the plan asked
+for (never dropping the first of two deliberate picks made close together), and it is
+recorded here rather than left implicit, per this file's own standard for a decision
+that reads as obvious and is not.
+
+**`testReleasingTheDragFilesARecentWithoutTheOldDebounceDelay`, in `PickerSmokeTests`,
+is a timing assertion, and it earns that risk rather than merely accepting it.** It
+waits at most 0.6s after a plane release for a `recentColor-*` button to exist –
+tight enough that the deleted 1-second debounce cannot pass it by accident, wide
+enough for an ordinary SwiftUI render pass. Confirmed to actually discriminate the
+two, not just read like it does: reintroducing a 1-second `Task.sleep` before
+`store.remember()` in `planeView`'s `onEnded` and re-running only this test fails it
+– `PickerSmokeTests` was otherwise clean beforehand, so this is the one case that
+needed the debounce gone to pass.
+
+**Testing, final.** One new `ColorStoreTests` case (truncation-on-lower) plus a fourth
+mutation added to `PreferencesTests`'s existing observation test; one new UI test
+file, `RecentsSmokeTests` (submit-then-click restores authored text; Clear empties the
+row and hides itself), plus one new case in the existing `PickerSmokeTests`. Both new
+regression tests were confirmed to fail against the unfixed code before the fix
+landed: the truncation unit test against the plain `var`, the picker UI test against
+a reintroduced debounce. 474 unit tests (473 before M23, 1 new), 59 CLI tests
+unchanged, and the full XCUITest suite (34 before M23, 37 after) all pass in one
+`** TEST SUCCEEDED **` run.
 
 ### ⬜ M24 – A popover picker on the header swatch
 
@@ -2681,7 +2747,17 @@ Per milestone:
   built around a chroma (`0.35`) no sRGB lightness can hold, specifically so an
   after-the-fact clamp cannot pass by accident. The P3-display sample and the
   Settings Toggle round trip are recorded manual checks – see the M22 retrospective.
-- **M23–M26 (planned):** none of the four has landed yet, so nothing below is a finding – it is the standard of proof each milestone must meet before its commit lands, stated in advance so the mutation run has a target. **M23:** `recentLimit` honoured and truncating when lowered; a UI test that a recent appears after a submit and restores the authored spelling on click. **M24:** the header swatch hittable, the popover revealing `pickerPlane`, dragging changing `colorInput` – waited on hittability, not existence. **M25:** every exportable format round-trips the active color when chosen from the menu (or gamut-maps where `cannotRepresentOutOfGamut`); the control queried as a `menuButton`. **M26:** shape detection for every shape and ambiguous inputs, the `primary`/`primar` segment-wise extraction case, the export round trip at both cardinalities, a malformed value skipped without losing its neighbours, the fourth `savePalette` overload's pasted text surviving a re-parse, and the sheet's controls queried through `app.sheets`.
+- **M23 (done):** `loweringRecentLimitTruncates` fails against the pre-M23 plain `var`
+  (confirmed by reverting the `didSet` and re-running just that test) and passes with
+  it; `preferencesObservesEveryPersistedField`'s new `recentLimit` mutation confirms
+  the property observer didn't drop the field out of `@Observable` tracking, a
+  compile-clean failure mode the other three mutations in that test can't catch.
+  `testReleasingTheDragFilesARecentWithoutTheOldDebounceDelay` fails when a 1-second
+  `Task.sleep` is reintroduced before `store.remember()` in the plane's `onEnded`
+  (confirmed the same way), and passes at the real fix. `RecentsSmokeTests` covers the
+  row itself: a submit-then-click round trip through the authored text, and Clear
+  emptying the list and hiding itself.
+- **M24–M26 (planned):** none of the three has landed yet, so nothing below is a finding – it is the standard of proof each milestone must meet before its commit lands, stated in advance so the mutation run has a target. **M24:** the header swatch hittable, the popover revealing `pickerPlane`, dragging changing `colorInput` – waited on hittability, not existence. **M25:** every exportable format round-trips the active color when chosen from the menu (or gamut-maps where `cannotRepresentOutOfGamut`); the control queried as a `menuButton`. **M26:** shape detection for every shape and ambiguous inputs, the `primary`/`primar` segment-wise extraction case, the export round trip at both cardinalities, a malformed value skipped without losing its neighbours, the fourth `savePalette` overload's pasted text surviving a re-parse, and the sheet's controls queried through `app.sheets`.
 - **M3/M4 (UI):** run the app and verify interactively. Spot-check conversions against a browser's DevTools color picker, which implements the same spec – a fast, honest end-to-end sanity check.
 
 The scheme is shared and works from the command line:
