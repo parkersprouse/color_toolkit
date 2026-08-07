@@ -127,9 +127,19 @@ struct TransformPanel: View {
       )
 
       HStack(alignment: .center, spacing: 14) {
-        labeledSwatch(color, caption: "Now")
+        labeledSwatch(color, caption: "Now", identifier: "transformNow") {
+          adjustment = .identity
+          curve = .identity
+        }
         Image(systemName: "arrow.right").foregroundStyle(.secondary)
-        labeledSwatch(result, caption: isPending ? "Adjusted" : "Unchanged")
+        labeledSwatch(
+          result,
+          caption: isPending ? "Adjusted" : "Unchanged",
+          identifier: "transformAdjustedSwatch",
+        ) {
+          adjustment = .identity
+          curve = .identity
+        }
 
         VStack(alignment: .leading, spacing: 6) {
           Text(css(result))
@@ -319,8 +329,16 @@ struct TransformPanel: View {
 
     return VStack(alignment: .leading, spacing: 12) {
       HStack(spacing: 8) {
-        ColorSwatch(color: background, cornerRadius: 6)
-          .frame(width: 24, height: 24)
+        // The text initializer: this is `store.backgroundColor` rendered, and it has
+        // an authored spelling of its own — see the identical reasoning at
+        // `ContrastPanel`'s background swatch.
+        SwatchButton(
+          color: background,
+          text: store.backgroundText,
+          cornerRadius: 6,
+          accessibilityIdentifier: "transformMixBackground",
+        )
+        .frame(width: 24, height: 24)
         Text("with \(css(background))")
           .font(.system(.caption, design: .monospaced))
           .foregroundStyle(.secondary)
@@ -342,7 +360,9 @@ struct TransformPanel: View {
 
       if mixAmount != 0 {
         HStack(alignment: .center, spacing: 14) {
-          labeledSwatch(mixed, caption: "Mixed")
+          labeledSwatch(mixed, caption: "Mixed", identifier: "transformMixedSwatch") {
+            mixAmount = 0
+          }
 
           VStack(alignment: .leading, spacing: 6) {
             Text(css(mixed))
@@ -410,8 +430,13 @@ struct TransformPanel: View {
 
     return VStack(alignment: .leading, spacing: 12) {
       HStack(spacing: 8) {
-        ColorSwatch(color: background, cornerRadius: 6)
-          .frame(width: 24, height: 24)
+        SwatchButton(
+          color: background,
+          text: store.backgroundText,
+          cornerRadius: 6,
+          accessibilityIdentifier: "transformSolverBackground",
+        )
+        .frame(width: 24, height: 24)
         Text("on \(css(background))")
           .font(.system(.caption, design: .monospaced))
           .foregroundStyle(.secondary)
@@ -636,22 +661,27 @@ struct TransformPanel: View {
         ForEach(Array(colors.enumerated()), id: \.offset) { index, color in
           let isBase = index == baseIndex
           VStack(spacing: 5) {
-            Button {
-              apply(color)
-            } label: {
-              ColorSwatch(color: color, cornerRadius: 7)
-                .frame(width: 46, height: 52)
-                .overlay {
-                  if isBase {
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                      .strokeBorder(Color.accentColor, lineWidth: 2)
-                  }
-                }
+            // The accent ring is a *sibling* in this ZStack, not an overlay on the
+            // button inside `SwatchButton` — the same accessibility trap
+            // `ProjectsPanel.savedColorTile` documents. Decorative chrome layered
+            // directly on a `Button` vanishes from the tree; a sibling stays visible.
+            ZStack {
+              SwatchButton(
+                color: color,
+                preferring: .oklch,
+                cornerRadius: 7,
+                accessibilityIdentifier: "\(identifier)-\(index)",
+              )
+              .frame(width: 46, height: 52)
+              .help("Use \(css(color))")
+
+              if isBase {
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                  .strokeBorder(Color.accentColor, lineWidth: 2)
+                  .allowsHitTesting(false)
+              }
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel(css(color))
-            .accessibilityIdentifier("\(identifier)-\(index)")
-            .help("Use \(css(color))")
+            .frame(width: 46, height: 52)
 
             if isBase {
               Text("yours")
@@ -670,10 +700,25 @@ struct TransformPanel: View {
     }
   }
 
-  private func labeledSwatch(_ color: ColorValue, caption: String) -> some View {
+  /// `onAdopt` is required, not defaulted, because every call site here shows a
+  /// *pending, relative* result — adopting one without also clearing whatever produced
+  /// it would let the next click through "Apply" or "Use it" compound the same nudge a
+  /// second time. See the note on ``SwatchButton``.
+  private func labeledSwatch(
+    _ color: ColorValue,
+    caption: String,
+    identifier: String,
+    onAdopt: @escaping () -> Void,
+  ) -> some View {
     VStack(spacing: 6) {
-      ColorSwatch(color: color, cornerRadius: 10)
-        .frame(width: 76, height: 54)
+      SwatchButton(
+        color: color,
+        preferring: .oklch,
+        cornerRadius: 10,
+        accessibilityIdentifier: identifier,
+        onAdopt: onAdopt,
+      )
+      .frame(width: 76, height: 54)
       Text(caption)
         .font(.caption)
         .foregroundStyle(.secondary)

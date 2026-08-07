@@ -19,7 +19,10 @@ saved to a file as well as copied. Swift 6, SwiftUI, no third-party runtime depe
 outside SwiftData — see the invariant below on where loading and saving live.
 **M20 is done too**: a grouped export renderer, so a whole project — every saved palette
 plus every loose color — writes as one document instead of one palette at a time.
-**M21–M26 are planned and not yet built**; see PLAN.md.
+**M21 is done too**: `SwatchButton`, so every color-producing swatch in the app — not
+only the ones already wrapped in a `Button` — is a live handle with a context menu and
+an accessibility label, not a dumb rectangle.
+**M22–M26 are planned and not yet built**; see PLAN.md.
 
 **[PLAN.md](PLAN.md) is the source of truth** for milestone status, what is deferred
 and why, and the reasoning behind every decision recorded below. This file is the
@@ -883,9 +886,15 @@ the accessibility-tree conventions before writing UI tests.
   a `#` run, or a **color function** name immediately followed by a balanced paren
   group. The "color function" qualifier is load-bearing — `tailwind-config` opens with
   `/** @type {import('tailwindcss').Config} */` and `import(…)` satisfies everything else.
-- A palette swatch is `app.otherElements[…]`; a saved color is `app.buttons[…]`. Both
-  publish their label, but they are different element kinds and the wrong query never
-  matches. A palette swatch's label is its **key**, not its CSS.
+- **Every swatch is `app.buttons[…]` now, and every swatch's label is its CSS.** Before
+  M21 a palette swatch was a plain `ColorSwatch` queried through `app.otherElements[…]`
+  and labelled with its **key** rather than its color, on purpose — `SwatchButton`
+  changed both halves of that: it is always a real `Button`, and its accessibility label
+  is always the color's own CSS, never a caller-chosen name, because that is what makes a
+  row of these testable at all (a palette that silently repeated a color would fail a
+  distinctness check on the label; a label that read the key could not catch that). A
+  key that used to be the only place a name like `brand` or `sky` was visible now shows
+  as a caption *under* the swatch instead — see `ProjectsPanel.paletteRow`.
 - **Query the right element kind, and scope dialogs.** A SwiftUI `Picker` is a
   `popUpButton`; a `Menu` is a `menuButton` — the wrong one simply never matches. A
   `confirmationDialog`'s buttons appear more than once app-wide, so query them through

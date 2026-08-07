@@ -63,6 +63,24 @@ final class CVDSmokeTests: XCTestCase {
     capture("cvd-protanomaly")
   }
 
+  /// M21: every swatch here is a live handle, and the simulated one is the swatch a
+  /// person actually wants to adopt — the color everything else on the panel exists to
+  /// show them. Pure red simulated at full severity is never `#ff0000` again (the same
+  /// fact the test above pins), so a changed field proves the click actually reached
+  /// `SwatchButton`'s adopt path rather than doing nothing.
+  func testClickingTheSimulatedSwatchAdoptsIt() {
+    setField("#ff0000")
+    click(radioButton: "CVD", "the tool switcher")
+
+    click(button: "cvdSimulatedSwatch", "the simulated swatch")
+
+    let adopted = fieldValue()
+    XCTAssertNotEqual(
+      adopted.lowercased(), "#ff0000",
+      "Clicking the simulated swatch did not change the input field",
+    )
+  }
+
   // MARK: Private
 
   private var app: XCUIApplication!
@@ -85,6 +103,19 @@ final class CVDSmokeTests: XCTestCase {
     button.click()
   }
 
+  private func click(button identifier: String, _ description: String) {
+    let button = app.buttons[identifier]
+    guard button.waitForExistence(timeout: 15) else {
+      XCTFail("No button \(identifier) (\(description)). Tree was:\n\(app.debugDescription)")
+      return
+    }
+    guard waitUntilHittable(button) else {
+      XCTFail("\(identifier) never became hittable (\(description)). Tree was:\n\(app.debugDescription)")
+      return
+    }
+    button.click()
+  }
+
   private func waitUntilHittable(_ element: XCUIElement, timeout: TimeInterval = 15) -> Bool {
     let deadline = Date().addingTimeInterval(timeout)
     while Date() < deadline {
@@ -102,6 +133,15 @@ final class CVDSmokeTests: XCTestCase {
     field.click()
     field.typeKey("a", modifierFlags: .command)
     field.typeText(text)
+  }
+
+  private func fieldValue() -> String {
+    let field = app.textFields["colorInput"]
+    guard field.waitForExistence(timeout: 15) else {
+      XCTFail("No colorInput field. Tree was:\n\(app.debugDescription)")
+      return ""
+    }
+    return field.value as? String ?? ""
   }
 
   /// Reads a readout's `value`, not its `label` — `.accessibilityIdentifier` on a

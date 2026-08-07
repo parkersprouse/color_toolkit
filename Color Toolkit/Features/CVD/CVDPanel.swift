@@ -113,14 +113,23 @@ struct CVDPanel: View {
       ScrollView(.horizontal, showsIndicators: false) {
         HStack(spacing: 8) {
           ForEach(store.recents) { recent in
+            let simulated = recent.color.simulating(
+              store.cvdDeficiency, severity: store.cvdSeverity,
+            )
             VStack(spacing: 3) {
-              ColorSwatch(color: recent.color, cornerRadius: 6)
-                .frame(width: 34, height: 22)
-              ColorSwatch(
-                color: recent.color.simulating(
-                  store.cvdDeficiency, severity: store.cvdSeverity,
-                ),
+              SwatchButton(
+                color: recent.color,
+                text: recent.text,
                 cornerRadius: 6,
+                accessibilityIdentifier: "cvdRecent-\(recent.id)",
+              )
+              .frame(width: 34, height: 22)
+              // The simulated color, not the recent's own — it has no authored text
+              // of its own, so it adopts through the value initializer instead.
+              SwatchButton(
+                color: simulated,
+                cornerRadius: 6,
+                accessibilityIdentifier: "cvdRecentSimulated-\(recent.id)",
               )
               .frame(width: 34, height: 22)
             }
@@ -138,10 +147,10 @@ struct CVDPanel: View {
 
     return VStack(alignment: .leading, spacing: 8) {
       HStack(alignment: .center, spacing: 14) {
-        labeledSwatch(color, caption: "Normal vision")
+        labeledSwatch(color, caption: "Normal vision", identifier: "cvdOriginal")
         Image(systemName: "arrow.right")
           .foregroundStyle(.secondary)
-        labeledSwatch(simulated, caption: presentation.title)
+        labeledSwatch(simulated, caption: presentation.title, identifier: "cvdSimulatedSwatch")
         Spacer()
       }
 
@@ -155,9 +164,9 @@ struct CVDPanel: View {
     }
   }
 
-  private func labeledSwatch(_ color: ColorValue, caption: String) -> some View {
+  private func labeledSwatch(_ color: ColorValue, caption: String, identifier: String) -> some View {
     VStack(spacing: 6) {
-      ColorSwatch(color: color, cornerRadius: 10)
+      SwatchButton(color: color, cornerRadius: 10, accessibilityIdentifier: identifier)
         .frame(width: 88, height: 66)
       Text(caption)
         .font(.caption)
@@ -175,8 +184,12 @@ struct CVDPanel: View {
         ForEach(ColorVisionDeficiency.allCases, id: \.self) { deficiency in
           let simulated = color.simulating(deficiency, severity: store.cvdSeverity)
           VStack(spacing: 6) {
-            ColorSwatch(color: simulated, cornerRadius: 8)
-              .frame(height: 44)
+            SwatchButton(
+              color: simulated,
+              cornerRadius: 8,
+              accessibilityIdentifier: "cvdEvery-\(deficiency.rawValue)",
+            )
+            .frame(height: 44)
             Text(CVDPresentation.of(deficiency).title)
               .font(.caption2)
               .foregroundStyle(.secondary)

@@ -554,6 +554,16 @@ final class ColorStore {
     )
   }
 
+  /// The same derivation ``adopt(_:preferring:)`` makes, aimed at the background field
+  /// instead of the input — a `SwatchButton`'s "Use as background" menu item needs a
+  /// value-only color spelled the same lossless way an eyedropper sample is.
+  func adoptBackground(_ newColor: ColorValue, preferring format: CSSOutputFormat = .hex) {
+    backgroundText = newColor.cssStringOrHex(
+      as: newColor.spelling(preferring: format),
+      options: .lossless,
+    )
+  }
+
   // MARK: - Recents
 
   /// Files the current color under recents.

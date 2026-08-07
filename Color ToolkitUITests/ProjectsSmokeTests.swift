@@ -103,7 +103,7 @@ final class ProjectsSmokeTests: XCTestCase {
     select(menuItem: "Ramp", fromMenu: "saveSet", "the save-set menu")
 
     XCTAssertTrue(
-      app.otherElements["palette-0-swatch-10"].waitForExistence(timeout: 15),
+      app.buttons["palette-0-swatch-10"].waitForExistence(timeout: 15),
       "Expected eleven saved ramp stops. Tree was:\n\(app.debugDescription)",
     )
     capture("projects-saved-ramp")
@@ -137,7 +137,7 @@ final class ProjectsSmokeTests: XCTestCase {
     typeInto("saveName", "brand")
     select(menuItem: "Ramp", fromMenu: "saveSet", "the save-set menu")
     XCTAssertTrue(
-      app.otherElements["palette-0-swatch-10"].waitForExistence(timeout: 15),
+      app.buttons["palette-0-swatch-10"].waitForExistence(timeout: 15),
       "Expected eleven saved ramp stops. Tree was:\n\(app.debugDescription)",
     )
 
@@ -267,9 +267,6 @@ final class ProjectsSmokeTests: XCTestCase {
   func testSavingASelectionMakesAPalette() {
     click(radioButton: "Projects", "the tool switcher")
     createProject()
-    // Named, because a palette swatch publishes its *key* as its label and a hand-picked
-    // set takes its keys from the colors' names. That turns the labels into a statement
-    // about which colors were picked, rather than just how many.
     saveColors(["rebeccapurple": "brand", "#00ff00": "leaf", "#0000ff": "sky"],
                order: ["rebeccapurple", "#00ff00", "#0000ff"])
 
@@ -278,18 +275,48 @@ final class ProjectsSmokeTests: XCTestCase {
     clickButton("selectColor-2", "the third color's tick")
     clickButton("saveSelection", "the save-selection button")
 
-    // `otherElements`, not `buttons` — a palette swatch is a plain `ColorSwatch` with a
-    // label, where a saved color is a Button. The wrong query simply never matches.
-    let firstEntry = app.otherElements["palette-0-swatch-0"]
+    // `buttons`, not `otherElements` — M21 makes a palette swatch a `SwatchButton`, the
+    // same live handle a saved color already is. Its accessibility label is always the
+    // color's own CSS now (never the key, which would let two identical colors pass a
+    // distinctness check they should fail), so this checks slot order by color instead.
+    let firstEntry = app.buttons["palette-0-swatch-0"]
     XCTAssertTrue(
       firstEntry.waitForExistence(timeout: 15),
       "No palette was saved. Tree was:\n\(app.debugDescription)",
     )
-    XCTAssertEqual(firstEntry.label, "brand")
-    XCTAssertEqual(app.otherElements["palette-0-swatch-1"].label, "sky")
+    XCTAssertEqual(
+      firstEntry.label.lowercased(), "#663399",
+      "The first slot should be rebeccapurple, ticked first",
+    )
+    XCTAssertEqual(
+      app.buttons["palette-0-swatch-1"].label.lowercased(), "#0000ff",
+      "The second slot should be the third color ticked (#0000ff), skipping the untitled #00ff00",
+    )
     XCTAssertFalse(
-      app.otherElements["palette-0-swatch-2"].exists,
+      app.buttons["palette-0-swatch-2"].exists,
       "Only the two ticked colors belong in the palette. Tree was:\n\(app.debugDescription)",
+    )
+
+    // The keys survive too, as the caption under each swatch now rather than as the
+    // swatch's own label — see `ProjectsPanel.paletteRow`.
+    XCTAssertTrue(
+      app.staticTexts["brand"].exists,
+      "The first entry's key should still be shown as a caption",
+    )
+    XCTAssertTrue(
+      app.staticTexts["sky"].exists,
+      "The second entry's key should still be shown as a caption",
+    )
+
+    // M21: a palette swatch is a live handle too, not just a labeled rectangle. Moving
+    // the field elsewhere first is what makes the click provably the cause of the change,
+    // the same shape ``testARecalledColorKeepsTheSpellingItWasSavedWith`` uses.
+    setField("#111111")
+    XCTAssertTrue(waitUntilHittable(firstEntry), "The palette swatch never became clickable")
+    firstEntry.click()
+    XCTAssertEqual(
+      fieldValue().lowercased(), "#663399",
+      "Clicking the palette swatch did not adopt rebeccapurple into the field",
     )
   }
 

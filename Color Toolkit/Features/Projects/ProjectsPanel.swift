@@ -367,33 +367,46 @@ struct ProjectsPanel: View {
       // the tick vanished from the tree entirely, and `savedColor-N` began matching two
       // elements at once and broke a test that had nothing to do with any of this.
       ZStack(alignment: .topTrailing) {
-        Button {
-          // The stored text, not a re-serialization: this is the entire reason the
-          // spelling was kept. `rebeccapurple` goes back in as `rebeccapurple`.
-          store.inputText = saved.text
-        } label: {
+        if let color = saved.colorValue {
+          // The selection ring is a sibling in this ZStack, not an overlay on the
+          // button `SwatchButton` wraps — the trap noted just above this function.
           ZStack {
-            if let color = saved.colorValue {
-              ColorSwatch(color: color, cornerRadius: 6)
-            } else {
-              // A row this build cannot read. Shown rather than hidden, because a color
-              // silently missing from a project is worse than one that says it is.
-              RoundedRectangle(cornerRadius: 6).fill(.quaternary)
-              Image(systemName: "questionmark").foregroundStyle(.secondary)
+            SwatchButton(
+              color: color,
+              text: saved.text,
+              cornerRadius: 6,
+              accessibilityIdentifier: "savedColor-\(index)",
+            ) {
+              savedColorMenu(saved, index: index)
             }
-          }
-          .frame(width: 44, height: 44)
-          // Decorative, so it can stay inside the label.
-          .overlay {
             RoundedRectangle(cornerRadius: 6)
               .strokeBorder(.tint, lineWidth: 2)
               .opacity(selection.contains(saved.persistentModelID) ? 1 : 0)
+              .allowsHitTesting(false)
           }
+          .frame(width: 44, height: 44)
+          .help(tooltip(saved))
+        } else {
+          // A row this build cannot read. Shown rather than hidden, because a color
+          // silently missing from a project is worse than one that says it is — still
+          // a plain `Button`, not a `SwatchButton`, since there is no `ColorValue` to
+          // hand one; the stored text is still worth recalling, so the tap survives.
+          Button {
+            store.inputText = saved.text
+            store.remember()
+          } label: {
+            ZStack {
+              RoundedRectangle(cornerRadius: 6).fill(.quaternary)
+              Image(systemName: "questionmark").foregroundStyle(.secondary)
+            }
+            .frame(width: 44, height: 44)
+          }
+          .buttonStyle(.plain)
+          .accessibilityLabel(saved.text)
+          .accessibilityIdentifier("savedColor-\(index)")
+          .help(tooltip(saved))
+          .contextMenu { savedColorMenu(saved, index: index) }
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel(saved.text)
-        .accessibilityIdentifier("savedColor-\(index)")
-        .help(tooltip(saved))
 
         selectionBadge(saved, index: index)
       }
@@ -412,30 +425,6 @@ struct ProjectsPanel: View {
         move(from: dragged.position, to: index, in: project)
         return true
       }
-      .contextMenu {
-        Button(selection.contains(saved.persistentModelID) ? "Deselect" : "Select") {
-          toggleSelection(saved)
-        }
-
-        // The same move the drag performs, reachable without one. A drag is the only
-        // affordance a pointer wants and the only one a keyboard or VoiceOver user
-        // cannot use at all, which would make reordering the one thing in this panel
-        // that some people simply could not do. Both paths call `move(from:to:)`.
-        Button("Move Left") { moveTile(saved, from: index, by: -1) }
-          .disabled(index == 0)
-        Button("Move Right") { moveTile(saved, from: index, by: 1) }
-          .disabled(index == (saved.project?.colors.count ?? 0) - 1)
-
-        Button("Notes…") { noteTarget = saved }
-        Button("Delete", role: .destructive) {
-          // Cleared first: the popover holds this object, and leaving it pointed at a
-          // deleted model is a reference to a row that no longer exists.
-          if noteTarget?.persistentModelID == saved.persistentModelID {
-            noteTarget = nil
-          }
-          perform { try library.delete(saved) }
-        }
-      }
 
       Text(saved.name.isEmpty ? saved.text : saved.name)
         .font(.caption2)
@@ -443,6 +432,35 @@ struct ProjectsPanel: View {
         .lineLimit(1)
         .truncationMode(.middle)
         .frame(maxWidth: 62)
+    }
+  }
+
+  /// The saved-color-specific commands, shared by both branches of `savedColorTile` — the
+  /// readable one, where they extend `SwatchButton`'s own menu, and the unreadable
+  /// fallback, which has no `SwatchButton` to extend and attaches this directly.
+  @ViewBuilder
+  private func savedColorMenu(_ saved: SavedColor, index: Int) -> some View {
+    Button(selection.contains(saved.persistentModelID) ? "Deselect" : "Select") {
+      toggleSelection(saved)
+    }
+
+    // The same move the drag performs, reachable without one. A drag is the only
+    // affordance a pointer wants and the only one a keyboard or VoiceOver user cannot
+    // use at all, which would make reordering the one thing in this panel that some
+    // people simply could not do. Both paths call `move(from:to:)`.
+    Button("Move Left") { moveTile(saved, from: index, by: -1) }
+      .disabled(index == 0)
+    Button("Move Right") { moveTile(saved, from: index, by: 1) }
+      .disabled(index == (saved.project?.colors.count ?? 0) - 1)
+
+    Button("Notes…") { noteTarget = saved }
+    Button("Delete", role: .destructive) {
+      // Cleared first: the popover holds this object, and leaving it pointed at a
+      // deleted model is a reference to a row that no longer exists.
+      if noteTarget?.persistentModelID == saved.persistentModelID {
+        noteTarget = nil
+      }
+      perform { try library.delete(saved) }
     }
   }
 
@@ -505,12 +523,26 @@ struct ProjectsPanel: View {
           .accessibilityIdentifier("paletteDelete-\(index)")
       }
 
-      HStack(spacing: 4) {
+      HStack(alignment: .top, spacing: 4) {
         ForEach(Array(entries.enumerated()), id: \.offset) { entryIndex, entry in
-          ColorSwatch(color: entry.color, cornerRadius: 4)
+          // The key moves to a caption underneath, matching `ExportPanel.swatches` —
+          // `SwatchButton`'s accessibility label is always the color's own CSS, never
+          // a caller-chosen name, which is what makes a row of these testable at all:
+          // a ramp that silently repeated a stop would fail a distinctness check on
+          // the label, and a label that instead read the key could not catch that.
+          VStack(spacing: 2) {
+            SwatchButton(
+              color: entry.color,
+              cornerRadius: 4,
+              accessibilityIdentifier: "palette-\(index)-swatch-\(entryIndex)",
+            )
             .frame(width: 24, height: 24)
-            .accessibilityLabel(entry.key)
-            .accessibilityIdentifier("palette-\(index)-swatch-\(entryIndex)")
+            if !entry.key.isEmpty {
+              Text(entry.key)
+                .font(.system(size: 8))
+                .foregroundStyle(.secondary)
+            }
+          }
         }
       }
     }

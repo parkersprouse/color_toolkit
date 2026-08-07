@@ -50,8 +50,18 @@ struct ContrastPanel: View {
 
       HStack(spacing: 12) {
         if let background = store.backgroundColor {
-          ColorSwatch(color: background, cornerRadius: 6)
-            .frame(width: 34, height: 34)
+          // The text initializer, not the value one: this swatch renders
+          // `store.backgroundText` itself, so re-deriving through `adopt` would
+          // canonicalize a typed `rebeccapurple` to `#663399` the moment "Use as
+          // color" or "Copy" is reached for — the exact loss this app's text-is-truth
+          // doctrine exists to prevent.
+          SwatchButton(
+            color: background,
+            text: store.backgroundText,
+            cornerRadius: 6,
+            accessibilityIdentifier: "contrastBackgroundSwatch",
+          )
+          .frame(width: 34, height: 34)
         } else {
           RoundedRectangle(cornerRadius: 6, style: .continuous)
             .strokeBorder(.separator, style: StrokeStyle(lineWidth: 1, dash: [3, 2]))

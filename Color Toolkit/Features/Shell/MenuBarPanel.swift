@@ -56,8 +56,18 @@ struct MenuBarPanel: View {
   private var current: some View {
     HStack(spacing: 10) {
       if let color = store.color {
-        ColorSwatch(color: color, cornerRadius: 6)
-          .frame(width: 40, height: 40)
+        // The default tap is inherently a no-op here — the color already *is* the
+        // field — so this swatch earns its place through the menu instead: "Use as
+        // background" and "Copy" are real actions even when "Use as color" is not.
+        // `store.inputText` rather than the resolved hex, so a typed `rebeccapurple`
+        // stays `rebeccapurple` if the menu's Copy is used.
+        SwatchButton(
+          color: color,
+          text: store.inputText,
+          cornerRadius: 6,
+          accessibilityIdentifier: "menuBarCurrent",
+        )
+        .frame(width: 40, height: 40)
       } else {
         RoundedRectangle(cornerRadius: 6, style: .continuous)
           .strokeBorder(.separator, style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
@@ -130,11 +140,14 @@ struct MenuBarPanel: View {
           spacing: 6,
         ) {
           ForEach(store.recents) { recent in
-            Button { store.use(recent) } label: {
-              ColorSwatch(color: recent.color, cornerRadius: 5, checkerSize: 4)
-                .frame(height: 30)
-            }
-            .buttonStyle(.plain)
+            SwatchButton(
+              color: recent.color,
+              text: recent.text,
+              cornerRadius: 5,
+              checkerSize: 4,
+              accessibilityIdentifier: "menuBarRecent-\(recent.id)",
+            )
+            .frame(height: 30)
             .help(recent.text)
           }
         }

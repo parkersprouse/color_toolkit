@@ -258,17 +258,22 @@ struct ExportPanel: View {
       HStack(spacing: 6) {
         ForEach(Array(entries.enumerated()), id: \.offset) { index, entry in
           VStack(spacing: 4) {
-            ColorSwatch(color: entry.color, cornerRadius: 6)
-              .frame(width: 38, height: 38)
+            // The label and identifier now live on the button itself — wrapping it in
+            // an `.accessibilityElement(children: .ignore)` container the way the
+            // pre-M21 version did would swallow the Button into a second element and
+            // make `exportSwatch-N` match twice, the trap `ProjectsPanel` documents.
+            SwatchButton(
+              color: entry.color,
+              cornerRadius: 6,
+              accessibilityIdentifier: "exportSwatch-\(index)",
+            )
+            .frame(width: 38, height: 38)
             if !entry.key.isEmpty {
               Text(entry.key)
                 .font(.caption2)
                 .foregroundStyle(.secondary)
             }
           }
-          .accessibilityElement(children: .ignore)
-          .accessibilityLabel(css(entry.color))
-          .accessibilityIdentifier("exportSwatch-\(index)")
         }
       }
       .padding(.vertical, 2)
@@ -306,15 +311,6 @@ struct ExportPanel: View {
       guard !Task.isCancelled else { return }
       justCopied = false
     }
-  }
-
-  /// The swatch label, which is a caption and so uses display precision — the document
-  /// itself goes through ``ColorStore/exportDocument``.
-  private func css(_ color: ColorValue) -> String {
-    color.cssStringOrHex(
-      as: color.spelling(preferring: .hex),
-      options: store.formatOptions,
-    )
   }
 }
 

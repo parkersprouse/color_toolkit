@@ -232,6 +232,19 @@ struct ColorStoreTests {
     #expect(store.backgroundColor == ColorValue.srgb8(102, 51, 153))
   }
 
+  /// The background counterpart to ``adoptWritesInput`` — a `SwatchButton`'s "Use as
+  /// background" menu item needs exactly this seam for a color with no authored text of
+  /// its own, and it must not touch the foreground field.
+  @Test("Adopting a color into the background writes it there and nowhere else")
+  func adoptBackgroundWritesBackground() {
+    let store = ColorStore(initialInput: "red")
+    store.adoptBackground(.srgb8(59, 130, 246))
+
+    #expect(store.backgroundText == "#3b82f6")
+    #expect(store.backgroundColor == ColorValue.srgb8(59, 130, 246))
+    #expect(store.inputText == "red", "adopting into the background moved the foreground")
+  }
+
   @Test("Swapping twice is the identity")
   func swapIsItsOwnInverse() {
     let store = ColorStore(initialInput: "oklch(0.7 0.15 250)", initialBackground: "#fef08a")

@@ -2074,7 +2074,7 @@ whether or not a sixth segment rendered usably, and the new test's own first pas
 the document through `store.stage(project:)` programmatically without ever touching the
 control it was meant to prove.
 
-### ⬜ M21 – Every swatch is a live handle
+### ✅ M21 – Every swatch is a live handle
 
 `ColorSwatch` (`DesignSystem/ColorSwatch.swift`) stays exactly what it is: a dumb
 rectangle with no gesture and no accessibility of its own. Add a sibling in the same
@@ -2127,6 +2127,84 @@ already copy. Adding a swatch per row is a visual change M25 subsumes.
 pattern. Add UI coverage that clicking a CVD simulated swatch and a palette tile changes
 the field. Unit-test the "authored text survives" claim on the store side, since that is
 the half a rendered test cannot see.
+
+Built as planned – `SwatchButton` in `DesignSystem/ColorSwatch.swift`, two initializers,
+one adopt path, one context menu – with two things measured against the running app that
+the plan had no way to anticipate from reading the source, and one deliberate deviation
+from the call-site table.
+
+**A `.contextMenu` on a `Button`'s ancestor is shadowed, not merged, by one on the
+`Button` itself – measured, not guessed.** The first cut of `ProjectsPanel.savedColorTile`
+left its existing five-item menu (Select/Deselect, Move Left/Right, Notes…, Delete) on the
+outer `ZStack`, one level above the `Button` `SwatchButton` now owns, on the theory that an
+ancestor's `.contextMenu` would still fire the way it had before the button inside it grew
+one of its own. `testMoveCommandsReorderTheGrid` and `testAReorderSurvivesLeavingThePanel`
+both failed against the real app with "No item Move Left on savedColor-0" – the ancestor's
+menu never appeared at all. `SwatchButton` therefore takes a `menuExtras` builder appended
+after its own three items, and `savedColorTile`'s five move there as a `@ViewBuilder`
+helper shared by its readable and unreadable-row branches.
+
+**`menuExtras` had to become a generic parameter, not an `AnyView`-erased closure – also
+measured.** The first attempt at the hook above type-erased the extras with `AnyView` so
+`SwatchButton` itself could stay a plain, non-generic `View`. It compiled cleanly and
+still failed the same two tests, with the menu now showing exactly the built-in three
+items and none of the five extras – `.contextMenu` walks the literal `@ViewBuilder` result
+to build native `NSMenuItem`s, and erasing that result to `AnyView` defeats the walk.
+`SwatchButton<MenuExtras: View>` fixed it; a `where MenuExtras == EmptyView` extension
+supplies the two three-parameter initializers every other call site uses unchanged, so
+nothing about the fourteen non-`ProjectsPanel` sites had to know the type ever changed.
+
+**One deliberate deviation from the call-site table:** `ContrastPanel`'s background swatch
+and `TransformPanel`'s two background chips (mix and solver) are wired to the *text*
+initializer, not `value` as sketched. All three render `store.backgroundText`, which has
+an authored spelling of its own sitting right there – wiring them to `adopt` instead would
+have meant "Use as color" or "Copy" on the background's own swatch silently canonicalizing
+a typed `rebeccapurple` to `#663399`, on the same field, from a menu whose other two items
+do nothing to it. That is exactly the loss the text-is-truth doctrine exists to prevent
+everywhere else in this app; the table's "value" reads as shorthand for "adopts a color"
+rather than a considered choice between the two initializers on these three sites
+specifically, the same way `:53`'s "preview" turned out to name the background swatch
+rather than the text-sample box beside it.
+
+**The `onAdopt` hook exists because of a correctness question the plan's table did not
+raise.** `TransformPanel.labeledSwatch` backs three swatches – Adjust's "Now" and
+"Adjusted", and Mix's "Mixed" – and two of those three show a *pending, relative* result
+that `apply(_:)`'s own reset exists to stop from compounding. Wiring them to
+`SwatchButton`'s bare adopt-and-remember would let two clicks on "Adjusted" apply the same
+lightness delta twice, since nothing would clear `adjustment`/`curve` between them – the
+exact bug the reset in `apply(_:)` was written to prevent, reachable through a second
+control that does not call it. `onAdopt` runs the same clearing closure `apply(_:)` uses,
+scoped to what each section actually holds pending (`adjustment`/`curve` for Adjust,
+`mixAmount` for Mix); `TransformPanel.swatchRow`'s harmony/ramp/mix-strip swatches pass no
+closure at all, since nothing pending is theirs to clear.
+
+**The palette-row swatch conversion is a real behavior change the plan called for and
+CLAUDE.md's pre-M21 testing notes had to catch up to.** `ProjectsPanel.paletteRow` used to
+be the one swatch in the app that was not a button and was not labelled by its color –
+`app.otherElements[…]`, label = the entry's key – documented as a deliberate distinction
+from a saved color's `app.buttons[…]`/CSS pairing. `SwatchButton`'s accessibility label is
+always CSS, with no per-call override, for the same reason `TransformPanel.swatchRow`
+already relied on: a palette that silently repeated a color needs to fail a distinctness
+check, and a label reading the key could not do that. The key did not just disappear –
+it moved to a caption underneath each swatch, the same shape `ExportPanel.swatches` and
+`savedColorTile` already use – but the three tests built around the old convention
+(`testASavedRampExportsUnderItsOwnName`, `testExportProjectCombinesEveryPaletteAndLooseColor`,
+`testSavingASelectionMakesAPalette`) needed updating to `app.buttons[…]` and, for the last
+one, to assert CSS in slot order instead of keys – which is strictly stronger, since it now
+also proves the colors themselves are right rather than only their names. The CLAUDE.md
+paragraph documenting the old convention is rewritten alongside this entry.
+
+**Testing.** `SwatchButtonTests` were not needed as a separate unit suite – nothing in the
+component is reachable without a rendered `Button`, and `ColorStoreTests` already covers
+the store-side seams it calls: `usingARecentRestoresItsText` is the "authored text
+survives" claim the plan asked for (`store.use(_:)`, unchanged by this milestone), and the
+new `adoptBackgroundWritesBackground` covers `ColorStore.adoptBackground(_:preferring:)`,
+added for "Use as background" on a derived color. New UI coverage:
+`CVDSmokeTests.testClickingTheSimulatedSwatchAdoptsIt` and an extension to
+`ProjectsSmokeTests.testSavingASelectionMakesAPalette` that moves the field away and clicks
+a palette swatch back, both against the specific claim the plan named. 443 unit tests, 59
+CLI tests, and all 33 XCUITests (two panel-menu regressions caught and fixed against the
+running app before either shipped, as recorded above) pass.
 
 ### ⬜ M22 – Web-friendly mode
 
@@ -2500,7 +2578,8 @@ Per milestone:
 - **M18:** [ColorToolkitCLITests](ColorToolkitCLITests/CommandTests.swift), and **the oracle is this app's own parser** – the same standard `Export/` is held to and for the same reason: the CLI's output is text a machine will read back. So the discriminating assertion is that a printed value survives `CSSColorParser`, applied to all six document shapes at both cardinalities and to every listing; exact strings are kept for *syntax* (exit codes, which stream a message lands on, `:root {`) and are wrong for anything editorial. Three claims are asserted as totality over an `allCases` rather than by example, because each is a table that a change in ColorCore can silently outgrow: every catalog format has a CLI name and the name inverts, every export shape has one that is lowercase and round-trips, and every command in the `--help` listing dispatches to something. **Twelve mutations, all twelve killed, and every failure set is tight** – collapsing the usage and failure exit codes fails one test, routing diagnostics to stdout five, accepting an unknown option as a positional one, accepting an inert `--format` one, uniquing export keys on the raw path instead of the sanitized key one, ignoring `mappedCountFormat` one, dropping `solve`'s read-back check two, canonicalizing the token listing's spelling one, short-circuiting `--help` before argument scanning one, deriving shape names from raw values three, dropping the listing's mapped note three, and dropping the `convert` table's mapped marker one. **The value extractor took two attempts and the first one is the lesson**: reading "everything after the first space" agreed with three output shapes and silently handed the other five a value with punctuation attached, which reads exactly like a broken serializer – so it now matches structurally, on a `#` run or a *color* function name followed by a balanced paren group. That last qualifier is not decoration: `tailwind-config` opens with `/** @type {import('tailwindcss').Config} */`, and `import(…)` satisfies every part of the shape rule but the name. **Three findings came out of the suite failing first.** The ramp's in-gamut assertion has to read the value at full precision, because a stop on the boundary rounds outward at four decimals and the test would otherwise be measuring the serializer; the mapped-note test had to move from `ramp` to `harmony`, because every ramp stop is already in gamut and asking a ramp for a mapped value tests nothing; and `solve`'s guarantee turned out not to survive serialization at all, which is the milestone note above.
 - **M19:** [PreferencesTests](Color%20ToolkitTests/PreferencesTests.swift) – every field round-trips through encode/decode with each field changed from its default (including `exportFormat: .color(.displayP3)`, the one case that exercises `CSSOutputFormat`'s hand-written conformance rather than a plain raw value), decoding garbage yields defaults, and the negative-`recentLimit` crash is pinned as a regression after being reproduced directly (`Fatal error: Can't remove more items from a collection than it contains`, with the clamp removed). `withObservationTracking` confirms `ColorStore.preferences`'s getter reaches through both `formatOptions` and `exportOptions` rather than only the top level. **Confirmed the mutation directly**: dropping `webFriendly` from `CodingKeys` failed exactly the two tests that could tell. The quit-and-relaunch check is manual, in the shape of M8b's write and M17's read – see the M19 section above for what was found.
 - **M20:** [GroupedExportTests](Color%20ToolkitTests/ExportTests.swift) and [StagedProjectTests](Color%20ToolkitTests/ExportStoreTests.swift). The single-group case is not re-pinned as a new assertion – it would be true by construction, since the one-list `render` is now a one-line call into the grouped renderer – so the discriminating check is that every exact string in the *pre-existing* `ExportShapeTests` and `ExportRoundTripTests` still passes unchanged. **That check turned out to be uneven across shapes**: `declaration` and the three shapes sharing `groupedPropertyLines` each guard their own header independently, and `tailwindTheme`'s pre-existing test (`.contains`/`.hasPrefix`/`.hasSuffix`) does not notice an extra comment appearing, so a dedicated single-group `tailwindTheme` test was added before that shape's byte-identity claim had anywhere to fail. Two-group documents are pinned exactly for `declaration`, `customProperties`, `tailwindTheme`, `json` and `tailwindConfig` (the latter two at both per-group cardinalities in one document – a lone-color group beside a scale), plus a multi-group round trip through `CSSColorParser`, `p3WithFallback` covering every group in both blocks, and a test that `options.name` moves a grouped document's filename and never its content. **Six mutations, all six caught by the intended test and no other**: uniquing against the raw name instead of the sanitized one fails `collidingGroupNamesStaySeparate`; deleting the suffix loop's `while` (always appending a bare `-2`) fails only `thirdCollisionSkipsTakenSuffix`, not the simpler two-way collision test – proof the loop itself is exercised, not just the branch that enters it; truncating `p3WithFallback`'s wide block to the first group fails `p3WithFallbackCoversEveryGroup`; forcing `groupedPropertyLines`'s header unconditionally fails three pre-existing tests and the new single-group `tailwindTheme` one, none of the new two-group ones; and both directions of `declaration`'s separate header guard were checked, one against a new two-group test and the other against two pre-existing single-group ones. [ProjectsSmokeTests](Color%20ToolkitUITests/ProjectsSmokeTests.swift) adds the end-to-end run – a ramp and a loose color, saved separately, exported together under the project's own groups – **and asserts the Source picker's "Project" segment is itself hittable**, not merely that the right document reached the field; the pre-existing `ExportSmokeTests` never click that segment, so they would not have caught a sixth entry rendering unusably, and this is the test that actually closes that question rather than the one first assumed to.
-- **M21–M26 (planned):** none of the six has landed yet, so nothing below is a finding – it is the standard of proof each milestone must meet before its commit lands, stated in advance so the mutation run has a target. **M21:** `TransformSmokeTests`' pattern extended to a CVD swatch and a palette tile, plus a unit test that the authored-text initializer never re-derives a spelling. **M22:** `webFriendly` asserted as a subset of `catalog`; each of the three enumeration sites filtered; a harmony's disagreement between `gamut: .srgb` and the unclamped default asserted explicitly; three named mutations (deriving the table from `if case .color`, dropping the `spelling` change, restricting rather than hiding the mix picker) each required to fail a specific test; the P3-display sample is a manual check. **M23:** `recentLimit` honoured and truncating when lowered; a UI test that a recent appears after a submit and restores the authored spelling on click. **M24:** the header swatch hittable, the popover revealing `pickerPlane`, dragging changing `colorInput` – waited on hittability, not existence. **M25:** every exportable format round-trips the active color when chosen from the menu (or gamut-maps where `cannotRepresentOutOfGamut`); the control queried as a `menuButton`. **M26:** shape detection for every shape and ambiguous inputs, the `primary`/`primar` segment-wise extraction case, the export round trip at both cardinalities, a malformed value skipped without losing its neighbours, the fourth `savePalette` overload's pasted text surviving a re-parse, and the sheet's controls queried through `app.sheets`.
+- **M21 (done):** met as stated – `TransformSmokeTests`' pattern extended to a CVD swatch (`CVDSmokeTests.testClickingTheSimulatedSwatchAdoptsIt`) and a palette tile (an extension to `ProjectsSmokeTests.testSavingASelectionMakesAPalette`); the authored-text claim was already covered store-side by the pre-existing `usingARecentRestoresItsText`, so no duplicate was added, and the new `adoptBackgroundWritesBackground` covers the one genuinely new store seam, `adoptBackground(_:preferring:)`. Two regressions were caught against the *running app*, not by a written test predicting them in advance – see the M21 retrospective above.
+- **M22–M26 (planned):** none of the five has landed yet, so nothing below is a finding – it is the standard of proof each milestone must meet before its commit lands, stated in advance so the mutation run has a target. **M22:** `webFriendly` asserted as a subset of `catalog`; each of the three enumeration sites filtered; a harmony's disagreement between `gamut: .srgb` and the unclamped default asserted explicitly; three named mutations (deriving the table from `if case .color`, dropping the `spelling` change, restricting rather than hiding the mix picker) each required to fail a specific test; the P3-display sample is a manual check. **M23:** `recentLimit` honoured and truncating when lowered; a UI test that a recent appears after a submit and restores the authored spelling on click. **M24:** the header swatch hittable, the popover revealing `pickerPlane`, dragging changing `colorInput` – waited on hittability, not existence. **M25:** every exportable format round-trips the active color when chosen from the menu (or gamut-maps where `cannotRepresentOutOfGamut`); the control queried as a `menuButton`. **M26:** shape detection for every shape and ambiguous inputs, the `primary`/`primar` segment-wise extraction case, the export round trip at both cardinalities, a malformed value skipped without losing its neighbours, the fourth `savePalette` overload's pasted text surviving a re-parse, and the sheet's controls queried through `app.sheets`.
 - **M3/M4 (UI):** run the app and verify interactively. Spot-check conversions against a browser's DevTools color picker, which implements the same spec – a fast, honest end-to-end sanity check.
 
 The scheme is shared and works from the command line:

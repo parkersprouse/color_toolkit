@@ -128,7 +128,7 @@ final class ExportSmokeTests: XCTestCase {
     // Eleven swatches, and the eleventh proves the row is the ramp rather than the
     // single color it was showing a moment ago.
     XCTAssertTrue(
-      app.otherElements["exportSwatch-10"].waitForExistence(timeout: 15),
+      app.buttons["exportSwatch-10"].waitForExistence(timeout: 15),
       "Expected eleven ramp swatches. Tree:\n\(app.debugDescription)",
     )
     capture("export-ramp")
