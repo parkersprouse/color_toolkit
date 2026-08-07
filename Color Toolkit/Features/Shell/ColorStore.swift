@@ -255,20 +255,6 @@ final class ColorStore {
   /// never uses it, not a way to clear the list — ``recents`` keeps filling either way.
   var showsRecents = true
 
-  /// How many colors ``recents`` keeps. Settable — was `private static let recentLimit
-  /// = 12` — because M19 makes it a preference like the rest of this group rather than
-  /// a constant. "Enough to be useful, few enough to stay scannable" no longer fixes the
-  /// number at 12, only supplies the default.
-  ///
-  /// A `didSet` (M23) so lowering this in Settings trims an already-full list right
-  /// away, rather than waiting for the next ``remember()`` to notice — the Stepper's
-  /// label would otherwise keep reading a count the list hasn't caught up to yet.
-  /// Skipped during `init` the same way ``ColorField/text`` skips its first `reparse`
-  /// — ``recents`` is always empty then, so there is nothing to trim.
-  var recentLimit = 12 {
-    didSet { trimRecents() }
-  }
-
   /// Which project the Projects panel is showing.
   ///
   /// A `UUID` rather than SwiftData's own `PersistentIdentifier`, and that is the point:
@@ -313,6 +299,20 @@ final class ColorStore {
   /// Whether the system accepted the sampling hot key. Shown in the menu bar panel,
   /// because a shortcut advertised but not registered is worse than none offered.
   private(set) var globalShortcutIsActive = false
+
+  /// How many colors ``recents`` keeps. Settable — was `private static let recentLimit
+  /// = 12` — because M19 makes it a preference like the rest of this group rather than
+  /// a constant. "Enough to be useful, few enough to stay scannable" no longer fixes the
+  /// number at 12, only supplies the default.
+  ///
+  /// A `didSet` (M23) so lowering this in Settings trims an already-full list right
+  /// away, rather than waiting for the next ``remember()`` to notice — the Stepper's
+  /// label would otherwise keep reading a count the list hasn't caught up to yet.
+  /// Skipped during `init` the same way ``ColorField/text`` skips its first `reparse`
+  /// — ``recents`` is always empty then, so there is nothing to trim.
+  var recentLimit = 12 {
+    didSet { trimRecents() }
+  }
 
   /// ``harmonyOptions``, with ``HarmonyOptions/gamut`` forced to `.srgb` under
   /// ``webFriendly``.
