@@ -91,7 +91,12 @@ struct ExportPanel: View {
       // where a sixth *tool* is what swept the switcher into an overflow menu.
       LabeledContent("Shape") {
         Picker("Shape", selection: $store.exportOptions.shape) {
-          ForEach(ExportShape.allCases) { shape in
+          // `p3WithFallback` is wide-gamut by definition — its whole job is a
+          // `@media` block in `color(display-p3 …)` — so it is hidden under
+          // web-friendly mode (M22) rather than restricted. Hiding the control
+          // does not touch the stored `shape`, which is why `store.exportDocument`
+          // separately reads `ExportOptions.effective(webFriendly:)`.
+          ForEach(ExportShape.allCases.filter { store.webFriendly ? $0.isWebFriendly : true }) { shape in
             Text(shape.title).tag(shape)
           }
         }
@@ -143,7 +148,10 @@ struct ExportPanel: View {
           // It names 148 colors, so a palette would come back part keywords and part
           // something else with nothing in the file to say so.
           Picker("Format", selection: $store.exportOptions.format) {
-            ForEach(CSSOutputFormat.exportable, id: \.self) { format in
+            ForEach(
+              store.webFriendly ? CSSOutputFormat.webFriendlyExportable : CSSOutputFormat.exportable,
+              id: \.self,
+            ) { format in
               Text(format.title).tag(format)
             }
           }

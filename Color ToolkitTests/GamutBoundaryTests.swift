@@ -246,4 +246,46 @@ struct GamutBoundaryTests {
     // And bulges in between, or the picker would have nothing to draw.
     #expect(curve.max() ?? 0 > 0.2)
   }
+
+  // MARK: - pulledInto
+
+  /// The M22 extraction from ``ShadeRamp``'s own clamp: a color that already fits
+  /// comes back **unchanged**, not merely close. Not an optimization to skip — a
+  /// caller relying on this (``ShadeRamp`` chief among them) needs its own base color
+  /// to survive the round trip bit-for-bit, or the chosen color would not appear in
+  /// its own ramp.
+  @Test("A color already inside the gamut is returned untouched")
+  func pulledIntoLeavesAFittingColorAlone() {
+    let inGamut = ColorValue(space: .oklch, 0.6, 0.05, 30)
+    #expect(inGamut.inGamut(of: .srgb))
+    #expect(inGamut.pulledInto(.srgb) == inGamut)
+  }
+
+  /// A color outside the gamut comes back on the boundary — the same chroma
+  /// ``maxChroma`` reports at that lightness and hue — with its hue and lightness
+  /// untouched. That last part is the whole difference between this and gamut
+  /// *mapping*, which is free to move lightness too.
+  @Test("An out-of-gamut color is pulled to the boundary chroma, hue and lightness held")
+  func pulledIntoReachesTheBoundary() {
+    let wide = ColorValue(space: .oklch, 0.65, 0.3, 30)
+    #expect(!wide.inGamut(of: .srgb))
+
+    let pulled = wide.pulledInto(.srgb)
+    let boundary = GamutBoundary.maxChroma(lightness: 0.65, hue: 30, in: .srgb)
+
+    #expect(pulled.inGamut(of: .srgb))
+    #expect(abs(pulled.oklchComponents.chroma - boundary) < 1e-9)
+    #expect(abs(pulled.oklchComponents.lightness - 0.65) < 1e-12)
+    #expect(abs(pulled.oklchComponents.hue - 30) < 1e-9)
+  }
+
+  /// An unbounded space has no boundary to pull toward — ``maxChroma`` answers
+  /// `.infinity` there — so `pulledInto` must take the early "already fits" exit
+  /// rather than setting the chroma to it.
+  @Test("An unbounded gamut leaves every color alone")
+  func pulledIntoUnboundedGamutIsANoOp() {
+    let wide = ColorValue(space: .oklch, 0.65, 0.4, 30)
+    let pulled = wide.pulledInto(.oklch)
+    #expect(pulled == wide)
+  }
 }

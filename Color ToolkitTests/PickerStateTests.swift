@@ -76,6 +76,19 @@ struct PickerStateTests {
     #expect(abs(returned.components.y - 0.35) < 1e-9)
   }
 
+  /// The counterpart to ``wideChromaIsNotClampedAway`` — with wide gamut disallowed
+  /// (M22's `store.webFriendly`), the same pick is pulled inside sRGB before it is
+  /// written, rather than surviving intact.
+  @Test("allowingWideGamut: false pulls the write inside sRGB")
+  func wideChromaIsClampedWhenWideGamutIsDisallowed() throws {
+    var state = oklchState(lightness: 0.7, chroma: 0.35, hue: 140)
+    let text = state.cssToWrite(allowingWideGamut: false)
+    let returned = try CSSColorParser.parse(text).color
+
+    #expect(!returned.exceedsSRGB, "leaked past sRGB: \(text)")
+    #expect(!text.contains("color("), "promoted to color() despite wide gamut being disallowed")
+  }
+
   @Test("Alpha reaches the written value")
   func alphaIsWritten() throws {
     var state = oklchState()

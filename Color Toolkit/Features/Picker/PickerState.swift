@@ -158,10 +158,18 @@ nonisolated struct PickerState: Sendable {
   // MARK: - Talking to the store
 
   /// The CSS to write, remembered so the write can be recognized coming back.
-  mutating func cssToWrite() -> String {
-    let color = color
+  ///
+  /// - Parameter allowingWideGamut: `false` under ``ColorStore/webFriendly`` (M22).
+  ///   Defensive rather than load-bearing on the usual path: the plane already
+  ///   clamps chroma to the sRGB edge on every drag under the flag (see
+  ///   `PickerPanel.apply(_:)`), so `color` normally already fits. This is what
+  ///   still keeps the promise for the one case that arrives unclamped — seeding
+  ///   from a typed, wide `oklch()` value, since seeding carries input across
+  ///   rather than rejecting it.
+  mutating func cssToWrite(allowingWideGamut: Bool = true) -> String {
+    let color = allowingWideGamut ? color : color.pulledInto(.srgb)
     let text = color.cssStringOrHex(
-      as: color.spelling(preferring: mode.preferredFormat),
+      as: color.spelling(preferring: mode.preferredFormat, allowingWideGamut: allowingWideGamut),
       // Storage precision, not display precision. The field is re-parsed into
       // the color every other panel sees, so anything rounded here is rounded
       // permanently — the same reason the eyedropper does not use the user's

@@ -1186,3 +1186,83 @@ struct PaletteNamingTests {
     #expect(keys[baseIndex] == "base", "\(harmony) marks \(keys[baseIndex]) as its base")
   }
 }
+
+@Suite("Web-friendly export (M22)")
+struct WebFriendlyExportTests {
+  static let palette = [
+    PaletteEntry(key: "500", color: ColorValue.srgb8(0x3B, 0x82, 0xF6)),
+    PaletteEntry(key: "600", color: ColorValue.srgb8(0xEF, 0x44, 0x44)),
+  ]
+
+  @Test("Only p3WithFallback is excluded from the shape list")
+  func onlyP3WithFallbackIsExcluded() {
+    for shape in ExportShape.allCases {
+      #expect(shape.isWebFriendly == (shape != .p3WithFallback))
+    }
+  }
+
+  @Test("webFriendlyExportable is exportable minus every color() format")
+  func webFriendlyExportableExcludesColorFamily() {
+    #expect(Set(CSSOutputFormat.webFriendlyExportable).isSubset(of: Set(CSSOutputFormat.exportable)))
+    #expect(!CSSOutputFormat.webFriendlyExportable.contains { if case .color = $0 { true } else { false } })
+    // Nothing lost besides the color() family: exportable already excludes keyword.
+    #expect(CSSOutputFormat.exportable.count - CSSOutputFormat.webFriendlyExportable.count == 8)
+  }
+
+  @Test("effective(webFriendly: false) returns self, unchanged")
+  func effectiveIsANoOpWhenOff() {
+    var options = ExportOptions.default
+    options.shape = .p3WithFallback
+    options.format = .color(.rec2020)
+    #expect(options.effective(webFriendly: false) == options)
+  }
+
+  /// The gap the plan's own review named after M19 landed: `shape` and `format` are
+  /// *persisted* preferences, so the mode can be turned on with `p3WithFallback`
+  /// already chosen from an earlier session. Hiding the picker does not change the
+  /// stored value — only `effective` does, which is why ``ColorStore/exportDocument``
+  /// has to read it rather than ``ExportOptions`` directly.
+  @Test("effective(webFriendly: true) replaces p3WithFallback")
+  func effectiveReplacesP3WithFallback() {
+    var options = ExportOptions.default
+    options.shape = .p3WithFallback
+    let effective = options.effective(webFriendly: true)
+
+    #expect(effective.shape != .p3WithFallback)
+    #expect(effective.shape.isWebFriendly)
+    // The stored preference is untouched — turning the mode back off restores it,
+    // the same promise `mixSpace`/`mixHueMethod` make.
+    #expect(options.shape == .p3WithFallback)
+  }
+
+  @Test("effective(webFriendly: true) replaces a color() format")
+  func effectiveReplacesColorFormat() {
+    var options = ExportOptions.default
+    options.format = .color(.displayP3)
+    let effective = options.effective(webFriendly: true)
+
+    #expect(CSSOutputFormat.webFriendly.contains(effective.format))
+    #expect(options.format == .color(.displayP3))
+  }
+
+  @Test("effective(webFriendly: true) leaves an already-web-friendly choice alone")
+  func effectiveIsANoOpWhenAlreadySafe() {
+    var options = ExportOptions.default
+    options.shape = .customProperties
+    options.format = .oklch
+    #expect(options.effective(webFriendly: true) == options)
+  }
+
+  /// The document itself, not just the picker's underlying value: rendering through
+  /// `effective` never produces the wide-gamut block `p3WithFallback` exists for.
+  @Test("A document rendered through effective(webFriendly:) never writes @media or color()")
+  func renderedDocumentNeverEscapes() {
+    var options = ExportOptions.default
+    options.shape = .p3WithFallback
+    options.name = "brand"
+
+    let rendered = options.effective(webFriendly: true).render(Self.palette)
+    #expect(!rendered.contains("@media"))
+    #expect(!rendered.contains("color("))
+  }
+}

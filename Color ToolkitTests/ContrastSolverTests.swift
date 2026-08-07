@@ -556,4 +556,71 @@ struct ContrastSolverTests {
       #expect(solution.ratio >= 1)
     }
   }
+
+  // MARK: - Web-friendly mode (M22)
+
+  /// Chroma `0.35` fits nowhere in sRGB, at any lightness or hue — sRGB's own peak is
+  /// close to `0.32`, at the most saturated blue. Chosen deliberately so
+  /// ``candidate(at:)`` needs pulling at every step of the search, not merely near
+  /// the edges of the lightness range.
+  static let unreachablyVivid = ColorValue(space: .oklch, 0.5, 0.35, 250)
+
+  /// Without a `gamut`, today's behavior: the solution keeps the origin's chroma
+  /// exactly, wherever that leaves it relative to sRGB. Asserted first so the next
+  /// test's "now it stays inside" is a real change, not two tests that happen to
+  /// agree.
+  @Test("With no gamut, a solution keeps chroma the search cannot express in sRGB")
+  func noGamutKeepsChromaAsGiven() throws {
+    let solution = try #require(
+      ContrastSolver.solutions(for: Self.unreachablyVivid, on: Self.white, target: 4.5).first,
+    )
+    #expect(abs(solution.color.oklchComponents.chroma - 0.35) < 1e-12)
+    #expect(!solution.color.inGamut(of: .srgb))
+  }
+
+  /// **The correctness property M22 depends on**: every solution found under a
+  /// `gamut` both meets the target *and* fits inside it — never one without the
+  /// other. This is what requires the clamp to sit inside the bisection rather than
+  /// be applied to its answer afterward: pulling chroma in changes relative
+  /// luminance, so a color clamped only at the end could fall back under the target
+  /// the search thought it had reached.
+  @Test(
+    "Under a gamut, every solution both meets the target and fits inside it",
+    arguments: [3.0, 4.5, 7.0],
+  )
+  func gamutClampedSolutionsStillMeetTheTarget(target: Double) {
+    let solutions = ContrastSolver.solutions(
+      for: Self.unreachablyVivid, on: Self.white, target: target, gamut: .srgb,
+    )
+    #expect(!solutions.isEmpty)
+    for solution in solutions {
+      #expect(solution.color.inGamut(of: .srgb), "\(solution.direction) escaped sRGB")
+      #expect(
+        solution.color.contrastRatio(with: Self.white) >= target,
+        "\(solution.direction) reached only \(solution.ratio) after clamping",
+      )
+      // The reported ratio is the clamped color's own, not the unclamped search's.
+      #expect(abs(solution.ratio - solution.color.contrastRatio(with: Self.white)) < 1e-9)
+    }
+  }
+
+  /// ``pushed(_:on:by:gamut:)`` takes the same parameter, for the manual half of the
+  /// tool — no bisection here, so no matching correctness trap, but the result
+  /// should still land inside the gamut it was given.
+  @Test("A gamut on `pushed` pulls the result inside it")
+  func pushedHonorsGamut() {
+    let pushed = ContrastSolver.pushed(
+      Self.unreachablyVivid, on: Self.white, by: -0.2, gamut: .srgb,
+    )
+    #expect(pushed.inGamut(of: .srgb))
+  }
+
+  /// `gamut: nil` is the default, so every existing call site — and every other test
+  /// in this file — keeps behaving exactly as before M22.
+  @Test("A nil gamut changes nothing")
+  func nilGamutIsANoOp() {
+    let without = ContrastSolver.solutions(for: Self.blue, on: Self.white, target: 4.5)
+    let withNil = ContrastSolver.solutions(for: Self.blue, on: Self.white, target: 4.5, gamut: nil)
+    #expect(without.map(\.color.oklchComponents) == withNil.map(\.color.oklchComponents))
+  }
 }

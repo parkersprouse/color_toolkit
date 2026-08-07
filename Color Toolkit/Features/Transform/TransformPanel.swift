@@ -30,8 +30,15 @@ struct TransformPanel: View {
           harmonySection(color)
           Divider()
           rampSection(color)
-          Divider()
-          mixSection(color)
+          // Hidden rather than restricted under web-friendly (M22): CSS Color 4 §12
+          // has no gamut-mapping step, so a mix has no honest sRGB-only answer —
+          // restricting the interpolation space would only guarantee an in-gamut
+          // result for in-gamut endpoints, and the field still accepts a typed
+          // out-of-gamut one even under the flag. See PLAN.md.
+          if !store.webFriendly {
+            Divider()
+            mixSection(color)
+          }
           Divider()
           legibilitySection(color)
         } else {
@@ -170,8 +177,13 @@ struct TransformPanel: View {
 
   private func harmonySection(_ color: ColorValue) -> some View {
     @Bindable var store = store
-    let members = color.harmony(store.harmony, options: store.harmonyOptions)
-    let baseIndex = store.harmony.baseIndex(options: store.harmonyOptions)
+    // `store.effectiveHarmonyOptions` rather than `store.harmonyOptions` directly —
+    // the same options `entries(for: .harmony)` reads, so this preview and an
+    // exported harmony can never disagree about whether web-friendly mode (M22)
+    // pulled a member back inside sRGB.
+    let options = store.effectiveHarmonyOptions
+    let members = color.harmony(store.harmony, options: options)
+    let baseIndex = store.harmony.baseIndex(options: options)
 
     return VStack(alignment: .leading, spacing: 12) {
       sectionHeading(
@@ -426,7 +438,12 @@ struct TransformPanel: View {
     let target = store.contrastTarget.minimumRatio
     let current = color.contrastRatio(with: background)
     let ceiling = ContrastSolver.ceiling(against: background)
-    let solutions = ContrastSolver.solutions(for: color, on: background, target: target)
+    let solutions = ContrastSolver.solutions(
+      for: color,
+      on: background,
+      target: target,
+      gamut: store.webFriendly ? .srgb : nil,
+    )
 
     return VStack(alignment: .leading, spacing: 12) {
       HStack(spacing: 8) {
@@ -509,7 +526,12 @@ struct TransformPanel: View {
   /// the ratio climbs again, which is the V in person and the reason the number beside
   /// the slider is live rather than derived from the slider's sign.
   private func pushControl(color: ColorValue, background: ColorValue) -> some View {
-    let pushed = ContrastSolver.pushed(color, on: background, by: push)
+    let pushed = ContrastSolver.pushed(
+      color,
+      on: background,
+      by: push,
+      gamut: store.webFriendly ? .srgb : nil,
+    )
     let ratio = pushed.contrastRatio(with: background)
     let direction = ContrastSolver.awayFromBackground(for: color, on: background)
 
@@ -744,8 +766,15 @@ struct TransformPanel: View {
   /// The color as the sliders currently describe it. Curve after adjustment, because
   /// the curve is about where a lightness sits on the scale and the adjustment is what
   /// decides that.
+  ///
+  /// Pulled into sRGB under web-friendly (M22) — at the call site rather than as a
+  /// field on `OKLCHAdjustment`/`LightnessCurve` themselves, since both are transient
+  /// per-drag state (not a persisted preference like `HarmonyOptions`), and a stored
+  /// `gamut` would change their `Equatable` conformance and light up "Apply"/"Reset"
+  /// with nothing actually pending the moment the mode is on.
   private func adjusted(_ color: ColorValue) -> ColorValue {
-    curve.applied(to: adjustment.applied(to: color))
+    let result = curve.applied(to: adjustment.applied(to: color))
+    return store.webFriendly ? result.pulledInto(.srgb) : result
   }
 
   // MARK: - Output

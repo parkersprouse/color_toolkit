@@ -58,10 +58,10 @@ nonisolated enum PickerPlaneRenderer {
 
   // MARK: - Planes
 
-  static func plane(mode: PickerMode, state: PickerState) -> PickerPlane? {
+  static func plane(mode: PickerMode, state: PickerState, webFriendly: Bool) -> PickerPlane? {
     switch mode {
     case .hsv: hsvPlane(hue: state.hsvHue)
-    case .oklch: oklchPlane(hue: state.oklchHue)
+    case .oklch: oklchPlane(hue: state.oklchHue, webFriendly: webFriendly)
     }
   }
 
@@ -73,7 +73,7 @@ nonisolated enum PickerPlaneRenderer {
   /// In OKLCH that is the honest version and also the useful one: at high lightness
   /// the strip visibly runs out of chroma in the blues long before the greens, which
   /// is a real fact about the gamut rather than a rendering shortfall.
-  static func hueStrip(mode: PickerMode, state: PickerState) -> CGImage? {
+  static func hueStrip(mode: PickerMode, state: PickerState, webFriendly: Bool) -> CGImage? {
     let steps = stripResolution
     var pixels = [UInt8](repeating: 255, count: steps * 4)
 
@@ -93,8 +93,10 @@ nonisolated enum PickerPlaneRenderer {
           to: .displayP3,
         )
       case .oklch:
+        // The plane's own edge under web-friendly mode (M22): a strip that still
+        // offered hues past sRGB would be a boundary the plane refuses to draw.
         let limit = GamutBoundary.maxChroma(
-          lightness: state.lightness, hue: hue, in: .displayP3,
+          lightness: state.lightness, hue: hue, in: webFriendly ? .srgb : .displayP3,
         )
         displayP3 = Conversion.convert(
           SIMD3(state.lightness, min(state.chroma, limit), hue),
@@ -153,7 +155,7 @@ nonisolated enum PickerPlaneRenderer {
   /// right in the same direction the real map moves — it just stops looking for the
   /// last percent. The user is never misled about it, because the sRGB edge is
   /// stroked on top and the value they picked is reported exactly.
-  private static func oklchPlane(hue: Double) -> PickerPlane? {
+  private static func oklchPlane(hue: Double, webFriendly: Bool) -> PickerPlane? {
     let size = resolution
     var pixels = [UInt8](repeating: 255, count: size * size * 4)
     var srgbEdge = [Double](repeating: 0, count: size)
@@ -168,10 +170,14 @@ nonisolated enum PickerPlaneRenderer {
       let displayMax = GamutBoundary.maxChroma(lightness: lightness, hue: hue, in: .displayP3)
       srgbEdge[row] = srgbMax
       displayEdge[row] = displayMax
+      // Under web-friendly mode (M22) the pixels themselves stop at the sRGB edge
+      // rather than the display's — a color past it is not merely undrawn, it is
+      // unreachable by dragging, which is the mode's whole promise for the picker.
+      let pixelLimit = webFriendly ? srgbMax : displayMax
 
       for column in 0 ..< size {
         let chroma = Double(column) / Double(size - 1) * PickerState.chromaAxisMaximum
-        let oklch = SIMD3(lightness, min(chroma, displayMax), hue)
+        let oklch = SIMD3(lightness, min(chroma, pixelLimit), hue)
         write(
           Conversion.convert(oklch, from: .oklch, to: .displayP3),
           into: &pixels,

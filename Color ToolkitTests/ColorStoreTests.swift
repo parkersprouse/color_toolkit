@@ -192,6 +192,56 @@ struct ColorStoreTests {
     #expect(abs(readBack.alpha - 0.4) < 1e-9)
   }
 
+  // MARK: - Web-friendly mode (M22)
+
+  /// The counterpart to ``adoptPreservesWideGamut`` above, with the flag on: now the
+  /// mode's whole promise is that the field receives an sRGB spelling instead. Hex
+  /// alone would prove nothing here — hex `cannotRepresentOutOfGamut`, so it maps a
+  /// wide sample regardless of the flag — so this checks the `.oklch` preferred
+  /// format too, which is unbounded and would otherwise carry the wide value straight
+  /// through untouched.
+  @Test(
+    "Under webFriendly, adopting a wide-gamut color writes an sRGB spelling",
+    arguments: [CSSOutputFormat.hex, .oklch],
+  )
+  func adoptClampsWideGamutUnderWebFriendly(format: CSSOutputFormat) throws {
+    let store = ColorStore(initialInput: "")
+    store.webFriendly = true
+    let p3Red = ColorValue(space: .displayP3, 1, 0, 0)
+    store.adopt(p3Red, preferring: format)
+
+    #expect(!store.inputText.contains("color("), "leaked the color() family: \(store.inputText)")
+    let readBack = try #require(store.color)
+    #expect(!readBack.exceedsSRGB, "the mode's whole promise: \(store.inputText)")
+  }
+
+  /// `adoptBackground` is the same derivation aimed at a different field (M21), so
+  /// it needs the identical guard — a wide "Use as background" swatch is just as
+  /// real a leak as a wide foreground adopt.
+  @Test("Under webFriendly, adoptBackground also writes an sRGB spelling")
+  func adoptBackgroundClampsWideGamutUnderWebFriendly() throws {
+    let store = ColorStore(initialInput: "", initialBackground: "")
+    store.webFriendly = true
+    store.adoptBackground(ColorValue(space: .displayP3, 1, 0, 0), preferring: .oklch)
+
+    #expect(!store.backgroundText.contains("color("))
+    let readBack = try #require(store.backgroundColor)
+    #expect(!readBack.exceedsSRGB)
+  }
+
+  /// Off is the default, and off must stay exactly what ``adoptPreservesWideGamut``
+  /// already pins — the flag changes nothing about ordinary adoption.
+  @Test("webFriendly false leaves adopt exactly as before M22")
+  func adoptUnaffectedWhenWebFriendlyIsOff() throws {
+    let store = ColorStore(initialInput: "")
+    store.webFriendly = false
+    let p3Red = ColorValue(space: .displayP3, 1, 0, 0)
+    store.adopt(p3Red)
+
+    let readBack = try #require(store.color)
+    #expect(readBack.exceedsSRGB)
+  }
+
   // MARK: - Background
 
   /// The point of extracting `ColorField`: the background gets live parsing and the

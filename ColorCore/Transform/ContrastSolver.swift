@@ -124,26 +124,32 @@ nonisolated enum ContrastSolver {
   /// the color and watch the ratio. Both move lightness alone and neither touches hue or
   /// chroma, so a color pushed to legibility is still recognizably itself.
   ///
-  /// - Parameter amount: Lightness to move, positive *away* from the background and
-  ///   negative toward it. Pushing far enough toward the background crosses it and the
-  ///   contrast starts climbing again — the V described above. That is the honest
-  ///   behavior and the reason a caller should show the live ratio rather than assume
-  ///   the slider's sign is the answer.
+  /// - Parameters:
+  ///   - amount: Lightness to move, positive *away* from the background and negative
+  ///     toward it. Pushing far enough toward the background crosses it and the
+  ///     contrast starts climbing again — the V described above. That is the honest
+  ///     behavior and the reason a caller should show the live ratio rather than
+  ///     assume the slider's sign is the answer.
+  ///   - gamut: When set, the result is pulled inside it. `nil` by default — see the
+  ///     note on the ``solutions(for:on:target:resolution:gamut:)`` overload below,
+  ///     which recalibrates the same way for the same reason (M22).
   static func pushed(
     _ color: ColorValue,
     on background: ColorValue,
     by amount: Double,
+    gamut: ColorSpace? = nil,
   ) -> ColorValue {
     guard amount != 0 else { return color }
     let origin = color.oklchComponents
     let sign: Double = awayFromBackground(for: color, on: background) == .lighter ? 1 : -1
-    return color.derivedOKLCH(
+    let pushed = color.derivedOKLCH(
       OKLCHComponents(
         lightness: min(max(origin.lightness + sign * amount, 0), 1),
         chroma: origin.chroma,
         hue: origin.hue,
       ),
     )
+    return gamut.map(pushed.pulledInto) ?? pushed
   }
 
   /// Every direction in which `color` can reach `target` against `background`.
@@ -156,24 +162,45 @@ nonisolated enum ContrastSolver {
   ///   - target: The ratio to reach, as WCAG writes it (4.5 for AA body text).
   ///   - resolution: How finely the lightness search converges. `1e-5` is far below
   ///     any visible step and well above the gamut mapper's own noise.
+  ///   - gamut: When set, every lightness the search considers — and the color it
+  ///     finally returns — is pulled inside it first (M22, web-friendly mode). `nil`
+  ///     by default, leaving today's behavior untouched.
+  ///
+  ///     **The clamp has to sit inside the search, not be applied to its answer
+  ///     afterward.** Pulling chroma in changes ``ColorValue/wcagRelativeLuminance``,
+  ///     so a color clamped only after bisecting could fall back under the target —
+  ///     the whole reason this solver keeps its bracket's *passing* end is that the
+  ///     result provably satisfies ``ColorValue/meets(_:on:)``, and that proof only
+  ///     holds if the color measured at each step is the color the caller receives.
+  ///     Applying the same transform inside ``ColorValue/pulledInto(_:)`` to both the
+  ///     lightness the bisection tests and the lightness it returns is what keeps
+  ///     that guarantee under the flag too.
   static func solutions(
     for color: ColorValue,
     on background: ColorValue,
     target: Double,
     resolution: Double = 1e-5,
+    gamut: ColorSpace? = nil,
   ) -> [ContrastSolution] {
     let origin = color.oklchComponents
     let backgroundLuminance = background.wcagRelativeLuminance
 
-    /// The luminance at `lightness`, holding the original's chroma and hue.
-    func luminance(at lightness: Double) -> Double {
-      color.derivedOKLCH(
+    /// The color at `lightness`, holding the original's chroma and hue — pulled
+    /// inside `gamut` when one is given, exactly as ``candidate(at:)`` is measured.
+    func candidate(at lightness: Double) -> ColorValue {
+      let color = color.derivedOKLCH(
         OKLCHComponents(
           lightness: lightness,
           chroma: origin.chroma,
           hue: origin.hue,
         ),
-      ).wcagRelativeLuminance
+      )
+      return gamut.map(color.pulledInto) ?? color
+    }
+
+    /// The luminance at `lightness`, holding the original's chroma and hue.
+    func luminance(at lightness: Double) -> Double {
+      candidate(at: lightness).wcagRelativeLuminance
     }
 
     func solution(_ direction: ContrastSolution.Direction) -> ContrastSolution? {
@@ -210,13 +237,7 @@ nonisolated enum ContrastSolver {
         }
       }
 
-      let solved = color.derivedOKLCH(
-        OKLCHComponents(
-          lightness: passing,
-          chroma: origin.chroma,
-          hue: origin.hue,
-        ),
-      )
+      let solved = candidate(at: passing)
       return ContrastSolution(
         color: solved,
         ratio: solved.contrastRatio(with: background),
@@ -237,8 +258,9 @@ nonisolated enum ContrastSolver {
     on background: ColorValue,
     target: Double,
     resolution: Double = 1e-5,
+    gamut: ColorSpace? = nil,
   ) -> ContrastSolution? {
-    solutions(for: color, on: background, target: target, resolution: resolution)
+    solutions(for: color, on: background, target: target, resolution: resolution, gamut: gamut)
       .min { abs($0.lightnessDelta) < abs($1.lightnessDelta) }
   }
 
@@ -248,12 +270,14 @@ nonisolated enum ContrastSolver {
     on background: ColorValue,
     meeting requirement: ContrastRequirement,
     resolution: Double = 1e-5,
+    gamut: ColorSpace? = nil,
   ) -> [ContrastSolution] {
     solutions(
       for: color,
       on: background,
       target: requirement.minimumRatio,
       resolution: resolution,
+      gamut: gamut,
     )
   }
 

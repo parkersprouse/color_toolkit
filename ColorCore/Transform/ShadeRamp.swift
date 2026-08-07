@@ -113,19 +113,11 @@ nonisolated struct ShadeRamp: Sendable, Equatable {
         hue: origin.hue,
       )
 
-      let stop = base.derivedOKLCH(candidate)
-      // Asking first, and only searching when the answer is no. Exact for the
-      // common case — an in-gamut stop is returned untouched rather than moved to
-      // within a search step of itself — and it skips ~20 conversions per stop.
-      guard !stop.inGamut(of: gamut) else { return stop }
-
-      var pulled = candidate
-      pulled.chroma = GamutBoundary.maxChroma(
-        lightness: lightness,
-        hue: origin.hue,
-        in: gamut,
-      )
-      return base.derivedOKLCH(pulled)
+      // `pulledInto` asks first, and only searches when the answer is no — exact
+      // for the common case, where an in-gamut stop is returned untouched rather
+      // than moved to within a search step of itself, and it skips ~20 conversions
+      // per stop that already fits.
+      return base.derivedOKLCH(candidate).pulledInto(gamut)
     }
   }
 }

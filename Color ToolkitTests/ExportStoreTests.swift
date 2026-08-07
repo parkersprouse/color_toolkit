@@ -401,3 +401,56 @@ struct ExportPresentationTests {
     #expect(Tool.allCases.last == .export, "Export is terminal and belongs last")
   }
 }
+
+@MainActor
+@Suite("Web-friendly export (M22)")
+struct WebFriendlyExportStoreTests {
+  /// A vivid enough base that its complement provably leaves sRGB by default — the
+  /// same premise ``HarmonyTests/harmoniesAreNotGamutMapped`` establishes.
+  static let vivid = "oklch(0.65 0.2 30)"
+
+  /// A harmony's exported entries and its `TransformPanel` preview read the same
+  /// `effectiveHarmonyOptions`, so this is really pinning that seam rather than
+  /// re-testing ``ColorValue/harmony(_:options:)`` itself.
+  @Test("Under webFriendly, exported harmony entries stay inside sRGB")
+  func harmonyEntriesStayInGamutUnderWebFriendly() {
+    let store = ColorStore(initialInput: Self.vivid)
+    store.exportSource = .harmony
+    store.harmony = .complementary
+    store.webFriendly = true
+
+    #expect(store.exportEntries.allSatisfy { $0.color.inGamut(of: .srgb) })
+  }
+
+  /// Off is the default and must leave the escaping member exactly as
+  /// ``HarmonyTests/harmoniesAreNotGamutMapped`` pins it — the flag is what makes the
+  /// difference, not merely calling through `effectiveHarmonyOptions`.
+  @Test("Off, the same harmony still escapes sRGB")
+  func harmonyEntriesEscapeWhenWebFriendlyIsOff() {
+    let store = ColorStore(initialInput: Self.vivid)
+    store.exportSource = .harmony
+    store.harmony = .complementary
+    store.webFriendly = false
+
+    #expect(!store.exportEntries.allSatisfy { $0.color.inGamut(of: .srgb) })
+  }
+
+  /// The integration version of ``WebFriendlyExportTests/renderedDocumentNeverEscapes``:
+  /// a *stored* `p3WithFallback` preference (M19 persists it) plus the flag turned on
+  /// must not reach the clipboard as a wide-gamut document, even though nothing here
+  /// touches `store.exportOptions.shape` to work around it.
+  @Test("exportDocument never writes @media or color() while webFriendly is on")
+  func exportDocumentNeverEscapesUnderWebFriendly() {
+    let store = ColorStore(initialInput: "#3b82f6")
+    store.exportSource = .color
+    store.exportOptions.shape = .p3WithFallback
+    store.webFriendly = true
+
+    let document = store.exportDocument
+    #expect(!document.contains("@media"))
+    #expect(!document.contains("color("))
+    // The stored preference itself is untouched — turning the flag back off
+    // restores the shape the panel showed before.
+    #expect(store.exportOptions.shape == .p3WithFallback)
+  }
+}

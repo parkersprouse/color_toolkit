@@ -251,6 +251,21 @@ final class ColorStore {
   /// Hides exotic formats and keeps every value inside sRGB. See M22 in PLAN.md.
   var webFriendly = false
 
+  /// ``harmonyOptions``, with ``HarmonyOptions/gamut`` forced to `.srgb` under
+  /// ``webFriendly``.
+  ///
+  /// Read by both ``TransformPanel``'s preview and ``entries(for:)``'s export path, so
+  /// a harmony's swatches and its exported values can never disagree about whether
+  /// they left the gamut — the same reason ``ExportOptions/mappedCountFormat`` exists,
+  /// one seam rather than two copies of the same decision.
+  var effectiveHarmonyOptions: HarmonyOptions {
+    var options = harmonyOptions
+    if webFriendly {
+      options.gamut = .srgb
+    }
+    return options
+  }
+
   /// Whether the recents row is shown. Off is a legitimate preference for someone who
   /// never uses it, not a way to clear the list — ``recents`` keeps filling either way.
   var showsRecents = true
@@ -410,11 +425,19 @@ final class ColorStore {
   /// that property flattens ``stagedProject`` into one list for callers that only need
   /// colors (the badge, the swatch strip), and flattening loses the per-palette family
   /// names the grouped document is the whole point of keeping.
+  ///
+  /// Reads ``ExportOptions/effective(webFriendly:)`` rather than ``exportOptions``
+  /// directly (M22). `shape` and `format` are persisted preferences, so the mode can
+  /// come up with `p3WithFallback` or a `color()` format already chosen from before
+  /// the flag existed — hiding the picker for those does not change the stored value,
+  /// only what a control offers, so the document itself has to be the one place that
+  /// cannot emit what the mode promised to hide.
   var exportDocument: String {
+    let options = exportOptions.effective(webFriendly: webFriendly)
     if exportSource == .project {
-      exportOptions.render(stagedProject, formatting: formatOptions)
+      return options.render(stagedProject, formatting: formatOptions)
     } else {
-      exportOptions.render(exportEntries, formatting: formatOptions)
+      return options.render(exportEntries, formatting: formatOptions)
     }
   }
 
@@ -429,9 +452,10 @@ final class ColorStore {
   /// spelling and the *fallback* for the one that writes two. See that property for why
   /// the fallback is the honest half to count.
   var exportGamutMappedCount: Int {
-    exportEntries.count {
+    let options = exportOptions.effective(webFriendly: webFriendly)
+    return exportEntries.count {
       $0.color.isGamutMapped(
-        as: exportOptions.mappedCountFormat,
+        as: options.mappedCountFormat,
         options: formatOptions,
         epsilon: ColorValue.gamutNoiseTolerance,
       )
@@ -462,8 +486,9 @@ final class ColorStore {
     case .color:
       return [PaletteEntry(color: color)]
     case .harmony:
-      let members = color.harmony(harmony, options: harmonyOptions)
-      let keys = PaletteNaming.harmonyKeys(harmony, options: harmonyOptions)
+      let options = effectiveHarmonyOptions
+      let members = color.harmony(harmony, options: options)
+      let keys = PaletteNaming.harmonyKeys(harmony, options: options)
       return zip(keys, members).map { PaletteEntry(key: $0, color: $1) }
     case .ramp:
       let stops = shadeRamp.generated(from: color)
@@ -548,18 +573,36 @@ final class ColorStore {
   /// ``CSSFormatOptions/lossless`` to choose the digits — neither of which is the
   /// user's display precision, which governs only what panels show.
   func adopt(_ newColor: ColorValue, preferring format: CSSOutputFormat = .hex) {
-    inputText = newColor.cssStringOrHex(
-      as: newColor.spelling(preferring: format),
-      options: .lossless,
-    )
+    inputText = Self.spelled(newColor, preferring: format, webFriendly: webFriendly)
   }
 
   /// The same derivation ``adopt(_:preferring:)`` makes, aimed at the background field
   /// instead of the input — a `SwatchButton`'s "Use as background" menu item needs a
   /// value-only color spelled the same lossless way an eyedropper sample is.
   func adoptBackground(_ newColor: ColorValue, preferring format: CSSOutputFormat = .hex) {
-    backgroundText = newColor.cssStringOrHex(
-      as: newColor.spelling(preferring: format),
+    backgroundText = Self.spelled(newColor, preferring: format, webFriendly: webFriendly)
+  }
+
+  /// The lossless string ``adopt(_:preferring:)`` and ``adoptBackground(_:preferring:)``
+  /// write, shared so the two cannot spell the same color two different ways.
+  ///
+  /// Under ``webFriendly`` (M22) this does more than decline the `color(display-p3 …)`
+  /// promotion. Declining alone is not enough: `oklch()` is unbounded and `.lossless`
+  /// does not gamut-map, so a color merely spelled in its *preferred* format — the
+  /// `.oklch` path `TransformPanel` and the OKLCH picker mode both adopt through —
+  /// would still carry values past sRGB's edge even with the promotion turned off. So
+  /// the color itself is pulled inside sRGB **before** it is asked for a spelling; once
+  /// it already fits, nothing needs promoting and ``allowingWideGamut`` is there mainly
+  /// as the belt to that suspenders. This is the mode's whole promise for adopted
+  /// colors, and it is lossy on purpose — see M22 in PLAN.md.
+  private static func spelled(
+    _ color: ColorValue,
+    preferring format: CSSOutputFormat,
+    webFriendly: Bool,
+  ) -> String {
+    let color = webFriendly ? color.pulledInto(.srgb) : color
+    return color.cssStringOrHex(
+      as: color.spelling(preferring: format, allowingWideGamut: !webFriendly),
       options: .lossless,
     )
   }

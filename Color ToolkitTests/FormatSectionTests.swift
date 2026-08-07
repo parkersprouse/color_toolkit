@@ -41,4 +41,22 @@ struct FormatSectionTests {
     }
     #expect(CSSOutputFormat.color(.displayP3).title == "color(display-p3)")
   }
+
+  // MARK: - Web-friendly mode (M22)
+
+  @Test("The filtered sections partition webFriendly exactly")
+  func webFriendlySectionsPartitionWebFriendlyFormats() {
+    let sectioned = FormatSection.webFriendly.flatMap(\.formats)
+    #expect(Set(sectioned) == Set(CSSOutputFormat.webFriendly))
+    #expect(sectioned.count == CSSOutputFormat.webFriendly.count)
+  }
+
+  /// Wide gamut and Exact lose every one of their entries under the filter, which is
+  /// the case the empty-section guard exists for — an empty "Wide gamut" header would
+  /// be exactly the negative feedback the mode is built to avoid.
+  @Test("Wide gamut and Exact are absent entirely, not merely emptied")
+  func emptiedSectionsAreDropped() {
+    let titles = Set(FormatSection.webFriendly.map(\.title))
+    #expect(titles == ["Web", "Perceptual"])
+  }
 }

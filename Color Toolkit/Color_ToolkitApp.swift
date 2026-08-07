@@ -78,6 +78,13 @@ struct Color_ToolkitApp: App {
   @State private var store: ColorStore = {
     let store = ColorStore()
     store.preferences = PreferenceStore.load()
+    // A bare launch argument, like `UITestEphemeralPreferences` beside it — a UI test
+    // has no way to reach the Settings scene's Toggle (M22, and no test drives that
+    // window yet), so this is the seam that lets a suite start with web-friendly mode
+    // already on without going through it.
+    if ProcessInfo.processInfo.arguments.contains("UITestWebFriendly") {
+      store.webFriendly = true
+    }
     return store
   }()
 

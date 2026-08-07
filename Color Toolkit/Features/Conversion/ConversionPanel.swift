@@ -16,7 +16,9 @@ struct ConversionPanel: View {
   var body: some View {
     ScrollView {
       LazyVStack(alignment: .leading, spacing: 18) {
-        ForEach(FormatSection.all) { section in
+        // Filtered under M22's web-friendly mode, whose whole promise is that the
+        // formats shown here stay hand-authorable sRGB.
+        ForEach(store.webFriendly ? FormatSection.webFriendly : FormatSection.all) { section in
           sectionView(section)
         }
       }

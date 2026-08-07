@@ -41,6 +41,21 @@ nonisolated extension CSSOutputFormat {
     .color(.srgb), .color(.srgbLinear), .color(.xyzD65), .color(.xyzD50),
   ]
 
+  /// The formats offered under ``ColorStore/webFriendly`` (M22) — every hand-authored
+  /// sRGB spelling plus the four perceptual functions, none of which can express
+  /// anything past sRGB's edge without an explicit clamp.
+  ///
+  /// A table, not a predicate derived from `catalog` — the same reason
+  /// ``ColorSpace/componentRoles`` and ``ColorSpace/channelKeywords`` are transcribed
+  /// rather than computed. The criterion is a judgment about authoring practice, not a
+  /// fact the enum carries: `color(srgb …)` is fully inside sRGB, so any gamut-derived
+  /// rule would include it, and it is excluded anyway because nobody hand-authors the
+  /// `color()` family. A derived `if case .color` rule would agree by accident today and
+  /// disagree the moment a bounded non-`color()` format is added.
+  static let webFriendly: [CSSOutputFormat] = [
+    .hex, .keyword, .rgb, .hsl, .hwb, .oklch, .oklab, .lch, .lab,
+  ]
+
   /// The format that writes a color in the space it is already in.
   ///
   /// The inverse of ``space``, and useful wherever the space a color arrived in is
@@ -105,8 +120,21 @@ nonisolated extension ColorValue {
   /// predicate that decides whether a row wears a "mapped" badge — rather than a
   /// second rule of its own. One predicate means the badge and this can never
   /// disagree about whether a format is lossy for a given color.
-  func spelling(preferring format: CSSOutputFormat) -> CSSOutputFormat {
-    isGamutMapped(as: format, options: .lossless, epsilon: Self.gamutNoiseTolerance)
+  ///
+  /// - Parameter allowingWideGamut: `false` under ``ColorStore/webFriendly`` (M22).
+  ///   The promotion this function exists to make is itself a `color()` spelling, and
+  ///   that family is exactly what the mode hides — so declining it and returning
+  ///   `format` unchanged is not merely "no preference", it is required. This alone
+  ///   does not pull an out-of-sRGB *value* in; callers under the flag additionally
+  ///   move the color itself with ``pulledInto(_:)`` before asking for a spelling, and
+  ///   this parameter is what stops that already-safe color from being promoted right
+  ///   back out on the way to the field.
+  func spelling(
+    preferring format: CSSOutputFormat,
+    allowingWideGamut: Bool = true,
+  ) -> CSSOutputFormat {
+    guard allowingWideGamut else { return format }
+    return isGamutMapped(as: format, options: .lossless, epsilon: Self.gamutNoiseTolerance)
       // Display P3 rather than the sampler's own `srgb-linear`: it is what a web
       // author actually writes for wide colors, its components stay inside 0–1
       // for anything a P3 screen can show, and `preserve` keeps even the rare

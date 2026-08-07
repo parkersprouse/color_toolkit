@@ -202,6 +202,58 @@ struct FormatCatalogTests {
     #expect(hex.isGamutMapped)
   }
 
+  // MARK: - Web-friendly mode (M22)
+
+  @Test("webFriendly is a subset of the full catalog")
+  func webFriendlyIsASubsetOfCatalog() {
+    #expect(Set(CSSOutputFormat.webFriendly).isSubset(of: Set(CSSOutputFormat.catalog)))
+  }
+
+  /// Every web-friendly format can hold any in-gamut sRGB color exactly — the
+  /// property "hand-authorable and sRGB-safe" actually cashes out to.
+  @Test("Every web-friendly format holds an sRGB color without mapping it")
+  func webFriendlyFormatsAreSRGBExpressible() {
+    let blue = ColorValue.srgb8(59, 130, 246)
+    for format in CSSOutputFormat.webFriendly {
+      #expect(
+        !blue.isGamutMapped(as: format),
+        "\(format) mapped an ordinary sRGB color, so it cannot be sRGB-safe",
+      )
+    }
+  }
+
+  /// The discriminating case the table exists for. `color(srgb …)` is fully inside
+  /// sRGB, so a rule derived from gamut membership (`if case .color` excluded, say)
+  /// would let it through by accident; it stays excluded because nobody hand-authors
+  /// the `color()` family, which a table can say and a predicate cannot.
+  @Test("color(srgb …) is excluded despite being fully inside sRGB")
+  func colorSRGBIsExcludedDespiteFittingSRGB() {
+    let blue = ColorValue.srgb8(59, 130, 246)
+    #expect(!blue.isGamutMapped(as: .color(.srgb)), "premise: color(srgb) really does hold it")
+    #expect(!CSSOutputFormat.webFriendly.contains(.color(.srgb)))
+  }
+
+  // MARK: - spelling(preferring:allowingWideGamut:) (M22)
+
+  @Test("allowingWideGamut defaults to true, unchanged from before M22")
+  func allowingWideGamutDefaultsTrue() {
+    let p3Green = ColorValue(space: .displayP3, 0, 1, 0)
+    #expect(p3Green.spelling(preferring: .hex) == p3Green.spelling(preferring: .hex, allowingWideGamut: true))
+  }
+
+  /// The mutation the plan names by hand: drop this guard, and a color that would
+  /// have promoted to `color(display-p3 …)` does so regardless of the flag — putting
+  /// exactly the family web-friendly mode hides back into the adopted string.
+  @Test("allowingWideGamut: false never promotes to color(display-p3 …)")
+  func disallowingWideGamutNeverPromotes() {
+    let p3Green = ColorValue(space: .displayP3, 0, 1, 0)
+    // Premise: with wide gamut allowed, hex really would promote for this color.
+    #expect(p3Green.spelling(preferring: .hex) == .color(.displayP3))
+
+    #expect(p3Green.spelling(preferring: .hex, allowingWideGamut: false) == .hex)
+    #expect(p3Green.spelling(preferring: .oklch, allowingWideGamut: false) == .oklch)
+  }
+
   // MARK: Private
 
   /// How far a round trip may drift before it counts as a defect.

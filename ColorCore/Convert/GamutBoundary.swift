@@ -135,3 +135,24 @@ nonisolated enum GamutBoundary {
     }
   }
 }
+
+nonisolated extension ColorValue {
+  /// This color, chroma pulled straight in to fit `gamut` — untouched if it already
+  /// fits.
+  ///
+  /// Extracted from ``ShadeRamp``'s own clamp (M22), which is where this rule was
+  /// first written and proved: a stop is asked whether it fits *before* it is moved,
+  /// so the common case — an in-gamut color — returns unchanged rather than nudged to
+  /// within a search step of itself, and a constant-chroma family (a harmony, a pushed
+  /// contrast solution) is only ever pulled at the members that actually need it.
+  ///
+  /// Unconditional clamping would be wrong twice over: it moves an already-fitting
+  /// color off itself, and at an unbounded `gamut` ``GamutBoundary/maxChroma`` returns
+  /// `.infinity`, which would set every chroma to it.
+  func pulledInto(_ gamut: ColorSpace) -> ColorValue {
+    guard !inGamut(of: gamut) else { return self }
+    var pulled = oklchComponents
+    pulled.chroma = GamutBoundary.maxChroma(lightness: pulled.lightness, hue: pulled.hue, in: gamut)
+    return derivedOKLCH(pulled)
+  }
+}

@@ -72,6 +72,17 @@ nonisolated struct FormatSection: Identifiable, Sendable {
     ),
   ]
 
+  /// ``all``, narrowed to ``CSSOutputFormat/webFriendly`` and dropping any section the
+  /// filter leaves empty — Wide gamut and Exact lose every entry under M22, and an
+  /// empty section header would be exactly the negative feedback the mode exists to
+  /// avoid. Web and Perceptual pass through whole: `CSSOutputFormat.webFriendly` is
+  /// precisely their union.
+  static let webFriendly: [FormatSection] = all.compactMap { section in
+    let formats = section.formats.filter { CSSOutputFormat.webFriendly.contains($0) }
+    guard !formats.isEmpty else { return nil }
+    return FormatSection(title: section.title, subtitle: section.subtitle, formats: formats)
+  }
+
   let title: String
   let subtitle: String
   let formats: [CSSOutputFormat]

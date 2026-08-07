@@ -93,6 +93,15 @@ nonisolated struct HarmonyOptions: Sendable, Equatable {
   /// because this one sits in a row beside the other harmonies and has to stay
   /// comparable to a triad rather than dominate them.
   var monochromaticStops: Int = 5
+
+  /// When set, every member is pulled inside this gamut before being returned.
+  ///
+  /// `nil` by default — a harmony is normally returned exactly as the rotation
+  /// produces it, honestly reporting when a vivid hue leaves sRGB, and the app's
+  /// gamut badge is what says so. Set to `.srgb` under ``ColorStore/webFriendly``
+  /// (M22), where a tool that cannot stay in sRGB is recalibrated rather than left to
+  /// escape it.
+  var gamut: ColorSpace?
 }
 
 nonisolated extension ColorValue {
@@ -113,18 +122,22 @@ nonisolated extension ColorValue {
     guard let offsets = harmony.hueOffsets(options: options) else {
       var ramp = ShadeRamp.default
       ramp.stops = options.monochromaticStops
+      if let gamut = options.gamut {
+        ramp.gamut = gamut
+      }
       return ramp.generated(from: self)
     }
 
     let origin = oklchComponents
     return offsets.map { offset in
-      derivedOKLCH(
+      let member = derivedOKLCH(
         OKLCHComponents(
           lightness: origin.lightness,
           chroma: origin.chroma,
           hue: origin.hue + offset,
         ),
       )
+      return options.gamut.map(member.pulledInto) ?? member
     }
   }
 }

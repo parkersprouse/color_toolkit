@@ -22,7 +22,11 @@ plus every loose color — writes as one document instead of one palette at a ti
 **M21 is done too**: `SwatchButton`, so every color-producing swatch in the app — not
 only the ones already wrapped in a `Button` — is a live handle with a context menu and
 an accessibility label, not a dumb rectangle.
-**M22–M26 are planned and not yet built**; see PLAN.md.
+**M22 is done too**: a `webFriendly` mode that hides every format and shape that isn't
+hand-authorable sRGB and recalibrates every tool that can honestly stay inside it —
+harmony, adjustment, the contrast solver, the picker — while `color-mix()` is hidden
+outright, because CSS Color 4 §12 has no gamut-mapping step to recalibrate it with.
+**M23–M26 are planned and not yet built**; see PLAN.md.
 
 **[PLAN.md](PLAN.md) is the source of truth** for milestone status, what is deferred
 and why, and the reasoning behind every decision recorded below. This file is the
@@ -557,6 +561,40 @@ Layered so the numeric core stays independently testable and UI-free:
   unconditionally moves the base off itself by up to a search step (so it no longer
   comes out of its own ramp), and for an unbounded gamut `maxChroma` returns `.infinity`
   and every chroma becomes infinite.
+- **`ColorValue.pulledInto(_:)` (`Convert/GamutBoundary.swift`) is `ShadeRamp`'s clamp,
+  extracted for M22's web-friendly mode** — same "ask first, only search when the
+  answer is no" shape, same reason. `HarmonyOptions.gamut` and `ContrastSolver`'s
+  `gamut:` parameter both go through it rather than reimplementing the guard.
+- **Web-friendly mode (M22) recalibrates a tool by pulling its *output* into sRGB; it
+  never restricts what a tool can be asked to compute.** `color-mix()` is the tool that
+  cannot be recalibrated and is therefore hidden outright, not half-restricted — CSS
+  Color 4 §12 has no gamut-mapping step, so clamping a mix's *result* would make this
+  app disagree with browsers about what `color-mix()` means, and restricting the
+  *interpolation space* to the sRGB family would not help either, since the mode still
+  accepts a typed out-of-gamut endpoint (it hides things, it does not reject input).
+  Do not add a `ColorSpace.allCases` filter to `TransformPanel`'s mix-space picker —
+  the section is hidden instead, and a filter there would be dead code sitting behind
+  code that never renders.
+- **Declining the `color(display-p3 …)` promotion is not the same as pulling a color
+  into sRGB, and conflating the two is the M22 bug to watch for.**
+  `ColorValue.spelling(preferring:allowingWideGamut:)` only ever decides *which format*
+  a value is spelled in; `oklch()` is unbounded and `CSSFormatOptions.lossless` does
+  not gamut-map, so asking for `oklch()` with `allowingWideGamut: false` still writes
+  the wide value verbatim unless the *color itself* was pulled into `.srgb` first.
+  `ColorStore.adopt`/`adoptBackground` and `PickerState.cssToWrite(allowingWideGamut:)`
+  therefore call `ColorValue.pulledInto(.srgb)` before asking for a spelling at all;
+  `allowingWideGamut: false` is what stops that already-safe color being promoted back
+  out, not what does the clamping. A regression test that only exercises the `.hex`
+  preferred format cannot catch this — hex `cannotRepresentOutOfGamut` and maps
+  regardless of the flag, so `.oklch` is the path that actually discriminates.
+- **`ExportOptions.shape` and `.format` are persisted preferences (M19), which predates
+  web-friendly mode (M22) — so the mode can be turned on with `p3WithFallback` or a
+  `color()` format already chosen from an earlier session.** Hiding those choices from
+  the picker does not touch the stored value underneath it.
+  `ColorStore.exportDocument`/`exportGamutMappedCount` read
+  `ExportOptions.effective(webFriendly:)` rather than `exportOptions` directly, and
+  `effective` never mutates the stored preference — turning the mode back off restores
+  exactly what was chosen before, the same promise `mixSpace`/`mixHueMethod` keep.
 - **Transforms return OKLCH, never the input's space.** A round trip through hex
   quantizes onto the 8-bit grid, so a sub-1/255 nudge returns the original; and results
   that leave sRGB have no honest spelling in a bounded format. `TransformPanel` therefore
@@ -567,6 +605,15 @@ Layered so the numeric core stays independently testable and UI-free:
   whichever the bracket straddled. `ContrastSolver` inverts the ratio into a target
   *luminance* (which is monotone in lightness) and bisects that, keeping the passing end
   so the result provably satisfies `meets`. Do not "simplify" this.
+- **`ContrastSolver`'s M22 gamut clamp sits *inside* the bisection, never applied to
+  its answer afterward.** Pulling chroma in with `pulledInto(_:)` changes
+  `wcagRelativeLuminance`, so a color clamped only after the search finishes could fall
+  back under the target the unclamped search thought it had reached — silently
+  breaking the one guarantee this solver exists to make. `luminance(at:)` and the
+  returned `solved` color both go through the same `candidate(at:)` closure, so the
+  color the bisection measures at every step is the color it hands back.
+  `gamutClampedSolutionsStillMeetTheTarget` is built around a chroma (`0.35`) that fits
+  nowhere in sRGB specifically so an after-the-fact clamp cannot pass by accident.
 - **The contrast ceiling's floor is `√21 ≈ 4.5826`**, so AA body text is reachable
   against every background and only AAA can be impossible. The worst-case background
   falls between 8-bit grays 117 and 118, so a hex sweep cannot find it — the test

@@ -60,6 +60,15 @@ nonisolated enum ExportShape: String, CaseIterable, Sendable, Hashable, Identifi
     self != .p3WithFallback
   }
 
+  /// Whether this shape belongs in the picker under ``ColorStore/webFriendly`` (M22).
+  ///
+  /// Only ``p3WithFallback`` is excluded, and structurally so rather than by a
+  /// gamut check: its whole reason to exist is a wide-gamut `@media` block, so it is
+  /// wide by definition regardless of what any particular export happens to contain.
+  var isWebFriendly: Bool {
+    self != .p3WithFallback
+  }
+
   /// The file extension a saved document of this shape should carry.
   ///
   /// A fact about the shape rather than editorial copy, which is why it lives here beside
@@ -93,6 +102,11 @@ nonisolated extension CSSOutputFormat {
   /// ``ExportOptions/value(for:formatting:)`` use `cssStringOrHex` without that
   /// fallback ever firing. A test pins it.
   static let exportable: [CSSOutputFormat] = catalog.filter { $0 != .keyword }
+
+  /// ``exportable``, further narrowed to ``webFriendly`` — the export panel's Format
+  /// picker under ``ColorStore/webFriendly`` (M22). `keyword` was already excluded
+  /// from `exportable`, so this is exactly `webFriendly` minus it.
+  static let webFriendlyExportable: [CSSOutputFormat] = exportable.filter { webFriendly.contains($0) }
 }
 
 /// Everything about *how* an export is written, minus the numbers.
@@ -161,6 +175,30 @@ nonisolated struct ExportOptions: Sendable, Equatable {
   /// not for the ones outside P3. See `ExportShape.mappedNote(count:format:)`.
   var mappedCountFormat: CSSOutputFormat {
     shape.usesFormat ? format : Self.fallbackFormat
+  }
+
+  /// `self`, with any hidden-under-``ColorStore/webFriendly`` choice replaced by a
+  /// safe one (M22).
+  ///
+  /// `shape` and `format` are persisted preferences (M19), so the mode can be turned
+  /// on with `p3WithFallback` or a `color()` format already selected from an earlier
+  /// session — before this existed, that combination was merely offered; now it is
+  /// stored. **Hiding the picker does not change the stored value underneath it**, so
+  /// ``ColorStore/exportDocument`` must read this rather than ``self`` directly, or
+  /// the document keeps writing the wide-gamut spelling the panel no longer shows a
+  /// control for. The stored preference itself is left untouched — exactly the
+  /// `mixSpace`/`mixHueMethod` precedent — so turning the mode back off restores
+  /// whatever was chosen before it went on.
+  func effective(webFriendly: Bool) -> ExportOptions {
+    guard webFriendly else { return self }
+    var options = self
+    if options.shape == .p3WithFallback {
+      options.shape = .customProperties
+    }
+    if !CSSOutputFormat.webFriendly.contains(options.format) {
+      options.format = .oklch
+    }
+    return options
   }
 
   /// What a save panel should propose calling this document.

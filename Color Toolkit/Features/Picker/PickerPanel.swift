@@ -48,6 +48,10 @@ struct PickerPanel: View {
   private struct PlaneKey: Equatable {
     let mode: PickerMode
     let hue: Double
+    /// Included so toggling ``ColorStore/webFriendly`` (M22) mid-session re-renders
+    /// the plane against the new edge rather than leaving the old one on screen —
+    /// `.task(id:)` only restarts when the key itself changes.
+    let webFriendly: Bool
   }
 
   /// The strip shows hues *at the current position*, so it follows the cursor. It is
@@ -56,6 +60,7 @@ struct PickerPanel: View {
     let mode: PickerMode
     let first: Double
     let second: Double
+    let webFriendly: Bool
   }
 
   @Environment(ColorStore.self) private var store
@@ -69,13 +74,19 @@ struct PickerPanel: View {
   @State private var rememberSoon: Task<Void, Never>?
 
   private var planeKey: PlaneKey {
-    PlaneKey(mode: state.mode, hue: state.mode == .hsv ? state.hsvHue : state.oklchHue)
+    PlaneKey(
+      mode: state.mode,
+      hue: state.mode == .hsv ? state.hsvHue : state.oklchHue,
+      webFriendly: store.webFriendly,
+    )
   }
 
   private var stripKey: StripKey {
     switch state.mode {
-    case .hsv: StripKey(mode: .hsv, first: state.saturation, second: state.value)
-    case .oklch: StripKey(mode: .oklch, first: state.lightness, second: state.chroma)
+    case .hsv:
+      StripKey(mode: .hsv, first: state.saturation, second: state.value, webFriendly: store.webFriendly)
+    case .oklch:
+      StripKey(mode: .oklch, first: state.lightness, second: state.chroma, webFriendly: store.webFriendly)
     }
   }
 
@@ -152,12 +163,17 @@ struct PickerPanel: View {
 
         Canvas { context, canvasSize in
           if state.mode == .oklch, let plane, plane.rows > 1 {
-            // Dashed first so the solid sRGB line wins where they overlap
-            // at the pinched ends.
-            strokeEdge(
-              plane.displayEdge, in: canvasSize, context: &context,
-              dash: [4, 3], width: 1,
-            )
+            // The display edge is not drawn under web-friendly mode (M22): the
+            // plane's pixels already stop at the sRGB line, so a dashed curve past
+            // it would be a boundary this square cannot actually reach.
+            if !store.webFriendly {
+              // Dashed first so the solid sRGB line wins where they overlap
+              // at the pinched ends.
+              strokeEdge(
+                plane.displayEdge, in: canvasSize, context: &context,
+                dash: [4, 3], width: 1,
+              )
+            }
             strokeEdge(plane.srgbEdge, in: canvasSize, context: &context, width: 1.5)
           }
           drawCursor(in: canvasSize, context: &context)
@@ -330,7 +346,13 @@ struct PickerPanel: View {
           figure("A", String(format: "%.2f", state.alpha), id: "readoutAlpha")
           Spacer()
         }
-        gamutLine
+        // Unreachable rather than wrong under web-friendly (M22): the cursor's
+        // chroma is clamped to the sRGB edge on every drag (see `apply(_:)`), so
+        // this line would only ever report "no headroom used" — hidden, the same
+        // way every other exotic control in this mode is.
+        if !store.webFriendly {
+          gamutLine
+        }
       }
     }
   }
@@ -448,9 +470,20 @@ struct PickerPanel: View {
   // MARK: - Plumbing
 
   /// Every axis change goes through here: mutate, then push the result to the field.
+  ///
+  /// Clamps chroma to the sRGB edge under web-friendly mode (M22) — in `apply`
+  /// rather than only in `moveCursor`, because a hue-strip drag can leave a chroma
+  /// that fit the old hue past the new one's boundary, and this is the one place
+  /// every kind of change (plane, hue, alpha) already funnels through. Never in
+  /// `seed(from:)`: the mode hides output, it does not reject input, so a typed
+  /// `oklch(0.9 0.3 140)` must still arrive on the panel unclamped.
   private func apply(_ change: (inout PickerState) -> Void) {
     change(&state)
-    store.inputText = state.cssToWrite()
+    if store.webFriendly, state.mode == .oklch {
+      let limit = GamutBoundary.maxChroma(lightness: state.lightness, hue: state.oklchHue, in: .srgb)
+      state.chroma = min(state.chroma, limit)
+    }
+    store.inputText = state.cssToWrite(allowingWideGamut: !store.webFriendly)
   }
 
   /// Re-entering the tool rebuilds this panel's `@State` from scratch, which is right
@@ -478,9 +511,10 @@ struct PickerPanel: View {
   /// burn a full plane's worth of conversions per frame of a hue drag.
   private func renderPlane() async {
     let snapshot = state
+    let webFriendly = store.webFriendly
     planeRender?.cancel()
     let render = Task.detached(priority: .userInitiated) {
-      PickerPlaneRenderer.plane(mode: snapshot.mode, state: snapshot)
+      PickerPlaneRenderer.plane(mode: snapshot.mode, state: snapshot, webFriendly: webFriendly)
     }
     planeRender = render
 
@@ -491,9 +525,10 @@ struct PickerPanel: View {
 
   private func renderStrip() async {
     let snapshot = state
+    let webFriendly = store.webFriendly
     stripRender?.cancel()
     let render = Task.detached(priority: .userInitiated) {
-      PickerPlaneRenderer.hueStrip(mode: snapshot.mode, state: snapshot)
+      PickerPlaneRenderer.hueStrip(mode: snapshot.mode, state: snapshot, webFriendly: webFriendly)
     }
     stripRender = render
 

@@ -2206,7 +2206,7 @@ a palette swatch back, both against the specific claim the plan named. 443 unit 
 CLI tests, and all 33 XCUITests (two panel-menu regressions caught and fixed against the
 running app before either shipped, as recorded above) pass.
 
-### ⬜ M22 – Web-friendly mode
+### ✅ M22 – Web-friendly mode
 
 A single `store.webFriendly` flag (M19) with two halves: **hide formats**, and
 **recalibrate values into sRGB**. No errors, no disabled controls, no negative feedback –
@@ -2352,6 +2352,88 @@ spelling, not a promoted `color(display-p3 …)`.
 test must fail); restrict the mix space picker instead of hiding the section, then mix
 from a typed out-of-gamut endpoint (the result must still escape sRGB – this is the
 mutation that proves hiding was necessary rather than cautious).
+
+Built as planned, plus four things the plan's own text did not settle and one gap it
+could not have anticipated:
+
+**The plan contradicts itself about `ColorSpace.allCases`, and the later text wins.**
+The "three enumeration paths" survey names `TransformPanel.swift:277` – the mix
+interpolation-space picker – as needing the `webFriendly` filter, and the very next
+section says mixing is **hidden, not restricted**, naming a mutation
+("restrict the mix space picker instead of hiding the section") as proof filtering
+there is the wrong call. Filtering the picker while the section is hidden would also be
+dead code no test could distinguish from doing nothing. Resolved in favor of the later,
+mutation-tested text: `ColorSpace.allCases` is untouched, and the whole mix section is
+wrapped in `if !store.webFriendly`.
+
+**`ContrastSolver`'s clamp has to sit inside the bisection, not on its answer.** The
+plan says "the same optional clamp on its returned color," which reads as clamping
+after the search. That is unsound: pulling chroma in changes
+`wcagRelativeLuminance`, so a color clamped only at the end could fall back under the
+target the unclamped search thought it had reached – silently breaking the invariant
+the solver exists to guarantee, that the returned color provably `meets` the
+requirement. `solutions(for:on:target:resolution:gamut:)` instead clamps inside
+`luminance(at:)` and builds the returned `solved` color through the identical
+`candidate(at:)` closure, so the color the bisection measures at every step is the
+color it hands back.
+`gamutClampedSolutionsStillMeetTheTarget` is built specifically to catch a regression
+to the after-the-fact version: it solves for a chroma (`0.35`) that fits nowhere in
+sRGB, so an end-clamp would corrupt the ratio at every candidate lightness.
+
+**Declining the `color(display-p3 …)` promotion does not by itself keep a value inside
+sRGB, and the plan's wording ("the color is mapped into sRGB on the way in") undersold
+what that takes.** `oklch()` is unbounded and `.lossless` does not gamut-map, so
+`adopt`ing a wide sample and merely asking `spelling(preferring: .oklch,
+allowingWideGamut: false)` would still write the wide `oklch()` string – the promotion
+guard alone stops the *format* from becoming `color()`, not the *value* from leaving
+sRGB. `ColorStore.adopt`/`adoptBackground` therefore call `ColorValue.pulledInto(.srgb)`
+before asking for a spelling at all; `allowingWideGamut` is what stops that
+already-safe color being promoted back out, not what does the clamping.
+`adoptClampsWideGamutUnderWebFriendly` is parameterized over both `.hex` and `.oklch`
+specifically because the `.hex` path alone cannot tell the two mechanisms apart – hex
+`cannotRepresentOutOfGamut`, so it maps regardless of the flag, and only the unbounded
+`.oklch` path proves the pre-clamp is doing the work.
+
+**M19 landed after this plan was written, and persisted export preferences are a gap
+neither text anticipated.** `ExportOptions.shape` and `.format` persist across a
+launch (M19), so web-friendly mode can be turned on with `p3WithFallback` or a
+`color()` format already chosen from an earlier session – hiding those choices from
+the picker does not touch the stored value underneath it.
+`ExportOptions.effective(webFriendly:)` computes a safe substitute (never mutating the
+stored preference, so turning the mode back off restores exactly what was chosen
+before – the same promise `mixSpace`/`mixHueMethod` keep) and
+`ColorStore.exportDocument`/`exportGamutMappedCount` read it instead of `exportOptions`
+directly. `exportDocumentNeverEscapesUnderWebFriendly` pins the document side of this
+without ever touching `store.exportOptions.shape`, which is the point – a test that
+set the shape back to something safe first would not catch the bug this exists for.
+
+**`HarmonyOptions.gamut` and `ContrastSolver`'s `gamut:` parameter are read from one
+computed property, `ColorStore.effectiveHarmonyOptions`, by both `TransformPanel`'s
+preview and `entries(for: .harmony)`'s export path** – the same one-seam rule
+`ExportOptions.mappedCountFormat` already follows, so a harmony's swatches and its
+exported values cannot come to disagree about whether a member left the gamut.
+
+**Testing.** `pulledInto(_:)` gained its own suite in `GamutBoundaryTests` (already
+fitting is untouched, out-of-gamut reaches the boundary at the same lightness and hue,
+an unbounded gamut is a no-op); `HarmonyTests.gamutOptionPullsMemberIn` re-uses
+`harmoniesAreNotGamutMapped`'s exact base color so the two cannot silently agree by
+testing different inputs; `ContrastSolverTests` gained a "Web-friendly mode" section
+built around a chroma no lightness can hold in sRGB; `FormatCatalogTests` and
+`FormatSectionTests` cover the table, the exclusion of `color(srgb …)`, and the
+promotion guard; `ExportTests` and `ExportStoreTests` cover `effective(webFriendly:)`
+at both the pure-value and the live-store level; `ColorStoreTests` and
+`PickerStateTests` cover the adopt/picker clamp paths. One UI test,
+`WebFriendlyModeSmokeTests`, confirms the mix section is actually absent in the
+running app – launched with a new bare argument, `UITestWebFriendly`, read once in
+`Color_ToolkitApp`, because nothing in the app wires an accessibility identifier to
+the Settings scene's Toggle and no UI test anywhere drives that window yet.
+**The live round trip — flip the Toggle in Settings and watch the mix section and the
+conversion panel's sections react, on a P3 display sampling a wide color and watching
+the field receive an sRGB spelling — is a recorded manual check**, the same way the
+file panels are; an agent cannot drive `NSOpenPanel`/`NSSavePanel` or a second scene's
+window from here and should say so rather than infer it from a green suite. 473 unit
+tests (443 before M22, 30 new), 59 CLI tests, and the full XCUITest suite (33 before
+M22, plus `WebFriendlyModeSmokeTests`) pass.
 
 ### ⬜ M23 – Recents row, and committing a pick on release
 
@@ -2579,7 +2661,27 @@ Per milestone:
 - **M19:** [PreferencesTests](Color%20ToolkitTests/PreferencesTests.swift) – every field round-trips through encode/decode with each field changed from its default (including `exportFormat: .color(.displayP3)`, the one case that exercises `CSSOutputFormat`'s hand-written conformance rather than a plain raw value), decoding garbage yields defaults, and the negative-`recentLimit` crash is pinned as a regression after being reproduced directly (`Fatal error: Can't remove more items from a collection than it contains`, with the clamp removed). `withObservationTracking` confirms `ColorStore.preferences`'s getter reaches through both `formatOptions` and `exportOptions` rather than only the top level. **Confirmed the mutation directly**: dropping `webFriendly` from `CodingKeys` failed exactly the two tests that could tell. The quit-and-relaunch check is manual, in the shape of M8b's write and M17's read – see the M19 section above for what was found.
 - **M20:** [GroupedExportTests](Color%20ToolkitTests/ExportTests.swift) and [StagedProjectTests](Color%20ToolkitTests/ExportStoreTests.swift). The single-group case is not re-pinned as a new assertion – it would be true by construction, since the one-list `render` is now a one-line call into the grouped renderer – so the discriminating check is that every exact string in the *pre-existing* `ExportShapeTests` and `ExportRoundTripTests` still passes unchanged. **That check turned out to be uneven across shapes**: `declaration` and the three shapes sharing `groupedPropertyLines` each guard their own header independently, and `tailwindTheme`'s pre-existing test (`.contains`/`.hasPrefix`/`.hasSuffix`) does not notice an extra comment appearing, so a dedicated single-group `tailwindTheme` test was added before that shape's byte-identity claim had anywhere to fail. Two-group documents are pinned exactly for `declaration`, `customProperties`, `tailwindTheme`, `json` and `tailwindConfig` (the latter two at both per-group cardinalities in one document – a lone-color group beside a scale), plus a multi-group round trip through `CSSColorParser`, `p3WithFallback` covering every group in both blocks, and a test that `options.name` moves a grouped document's filename and never its content. **Six mutations, all six caught by the intended test and no other**: uniquing against the raw name instead of the sanitized one fails `collidingGroupNamesStaySeparate`; deleting the suffix loop's `while` (always appending a bare `-2`) fails only `thirdCollisionSkipsTakenSuffix`, not the simpler two-way collision test – proof the loop itself is exercised, not just the branch that enters it; truncating `p3WithFallback`'s wide block to the first group fails `p3WithFallbackCoversEveryGroup`; forcing `groupedPropertyLines`'s header unconditionally fails three pre-existing tests and the new single-group `tailwindTheme` one, none of the new two-group ones; and both directions of `declaration`'s separate header guard were checked, one against a new two-group test and the other against two pre-existing single-group ones. [ProjectsSmokeTests](Color%20ToolkitUITests/ProjectsSmokeTests.swift) adds the end-to-end run – a ramp and a loose color, saved separately, exported together under the project's own groups – **and asserts the Source picker's "Project" segment is itself hittable**, not merely that the right document reached the field; the pre-existing `ExportSmokeTests` never click that segment, so they would not have caught a sixth entry rendering unusably, and this is the test that actually closes that question rather than the one first assumed to.
 - **M21 (done):** met as stated – `TransformSmokeTests`' pattern extended to a CVD swatch (`CVDSmokeTests.testClickingTheSimulatedSwatchAdoptsIt`) and a palette tile (an extension to `ProjectsSmokeTests.testSavingASelectionMakesAPalette`); the authored-text claim was already covered store-side by the pre-existing `usingARecentRestoresItsText`, so no duplicate was added, and the new `adoptBackgroundWritesBackground` covers the one genuinely new store seam, `adoptBackground(_:preferring:)`. Two regressions were caught against the *running app*, not by a written test predicting them in advance – see the M21 retrospective above.
-- **M22–M26 (planned):** none of the five has landed yet, so nothing below is a finding – it is the standard of proof each milestone must meet before its commit lands, stated in advance so the mutation run has a target. **M22:** `webFriendly` asserted as a subset of `catalog`; each of the three enumeration sites filtered; a harmony's disagreement between `gamut: .srgb` and the unclamped default asserted explicitly; three named mutations (deriving the table from `if case .color`, dropping the `spelling` change, restricting rather than hiding the mix picker) each required to fail a specific test; the P3-display sample is a manual check. **M23:** `recentLimit` honoured and truncating when lowered; a UI test that a recent appears after a submit and restores the authored spelling on click. **M24:** the header swatch hittable, the popover revealing `pickerPlane`, dragging changing `colorInput` – waited on hittability, not existence. **M25:** every exportable format round-trips the active color when chosen from the menu (or gamut-maps where `cannotRepresentOutOfGamut`); the control queried as a `menuButton`. **M26:** shape detection for every shape and ambiguous inputs, the `primary`/`primar` segment-wise extraction case, the export round trip at both cardinalities, a malformed value skipped without losing its neighbours, the fourth `savePalette` overload's pasted text surviving a re-parse, and the sheet's controls queried through `app.sheets`.
+- **M22 (done):** `webFriendly` asserted as a subset of `catalog`, plus that every
+  member is sRGB-expressible and that `color(srgb …)` is excluded despite fitting –
+  the discriminating case the table exists for. Both filtered enumeration sites
+  (`FormatSection.webFriendly`, `CSSOutputFormat.webFriendlyExportable`) assert they
+  partition/subset correctly and that emptied sections are dropped, not merely hidden
+  empty. The third named in the plan, `ColorSpace.allCases`, was **not** filtered –
+  see the retrospective above for why the plan's own two sections disagree and which
+  one won. A harmony's disagreement between `gamut: .srgb` and the unclamped default
+  is asserted explicitly, re-using the same base color as the pre-existing
+  never-gamut-mapped test. All three named mutations hold: the `color(srgb …)` test
+  fails if the table is derived from `if case .color`; `adoptClampsWideGamutUnderWebFriendly`
+  fails if the `spelling(preferring:)` guard is dropped; and there is no mix-picker
+  restriction to mutate, because M22 hides the section instead (the plan's own
+  reasoning for why that mutation matters is what settled the contradiction). One
+  mutation risk the plan did not name and testing caught by construction:
+  `ContrastSolver`'s gamut clamp, if applied to the bisection's answer instead of
+  inside the search, would make `gamutClampedSolutionsStillMeetTheTarget` fail –
+  built around a chroma (`0.35`) no sRGB lightness can hold, specifically so an
+  after-the-fact clamp cannot pass by accident. The P3-display sample and the
+  Settings Toggle round trip are recorded manual checks – see the M22 retrospective.
+- **M23–M26 (planned):** none of the four has landed yet, so nothing below is a finding – it is the standard of proof each milestone must meet before its commit lands, stated in advance so the mutation run has a target. **M23:** `recentLimit` honoured and truncating when lowered; a UI test that a recent appears after a submit and restores the authored spelling on click. **M24:** the header swatch hittable, the popover revealing `pickerPlane`, dragging changing `colorInput` – waited on hittability, not existence. **M25:** every exportable format round-trips the active color when chosen from the menu (or gamut-maps where `cannotRepresentOutOfGamut`); the control queried as a `menuButton`. **M26:** shape detection for every shape and ambiguous inputs, the `primary`/`primar` segment-wise extraction case, the export round trip at both cardinalities, a malformed value skipped without losing its neighbours, the fourth `savePalette` overload's pasted text surviving a re-parse, and the sheet's controls queried through `app.sheets`.
 - **M3/M4 (UI):** run the app and verify interactively. Spot-check conversions against a browser's DevTools color picker, which implements the same spec – a fast, honest end-to-end sanity check.
 
 The scheme is shared and works from the command line:

@@ -339,6 +339,25 @@ struct HarmonyTests {
     #expect(abs(members[0].oklchComponents.hue - 235) < 1e-9)
     #expect(abs(members[2].oklchComponents.hue - 265) < 1e-9)
   }
+
+  /// The disagreement M22's web-friendly mode exists to produce: the same vivid base
+  /// as ``harmoniesAreNotGamutMapped``, with only `options.gamut` changed. The default
+  /// still escapes sRGB — pinned above, and re-asserted here so the two tests cannot
+  /// silently agree by testing different colors — while `.srgb` pulls the complement
+  /// back in rather than dropping it or reporting a wrong hue.
+  @Test("HarmonyOptions.gamut pulls an escaping member back in, on request")
+  func gamutOptionPullsMemberIn() {
+    let vivid = ColorValue(space: .oklch, 0.65, 0.2, 30)
+    #expect(!vivid.harmony(.complementary)[1].inGamut(of: .srgb), "default should still escape")
+
+    var options = HarmonyOptions.default
+    options.gamut = .srgb
+    let pulled = vivid.harmony(.complementary, options: options)[1]
+
+    #expect(pulled.inGamut(of: .srgb))
+    // Pulled by chroma alone — the hue that defines "complement" is untouched.
+    #expect(abs(pulled.oklchComponents.hue - 210) < 1e-9)
+  }
 }
 
 @Suite("Shade ramp")
