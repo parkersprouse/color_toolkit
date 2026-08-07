@@ -901,7 +901,13 @@ Layered so the numeric core stays independently testable and UI-free:
   binding's own write-back, leaving `lastWritten` stale in the source of truth at the
   moment the store's observers fire. `store.inputText = state.committing(…)` keeps this
   picker's own state — `lastWritten` included — fully settled before the store, and
-  therefore `syncing(with:color:)`, ever sees the write.
+  therefore `syncing(with:color:)`, ever sees the write. **This is a reasoned
+  justification for the calling convention, not a claim any unit test pins** — a plain
+  local `var` has no `@Binding` indirection to race, so a test built that way (the
+  first draft of `PickerStateTests.committingRoundTripsThroughTheStoreWithoutMisreadingItsOwnWrite`
+  among them) cannot fail on this no matter how `committing` is ordered internally.
+  Keep the reasoning in mind when touching this method; do not go looking for the test
+  that is supposed to catch a regression in it, because there is not one to find.
 - **The three shared picker views take an `identifier` parameter, defaulted to
   `PickerPanel`'s own strings, because the popover and the Pick tab can be on screen at
   once.** The header swatch that opens `CompactPicker` sits above the tool switcher
@@ -919,6 +925,17 @@ Layered so the numeric core stays independently testable and UI-free:
   needs no such fix because its `Rectangle().fill(...)` already gives SwiftUI something
   to hit-test. Confirmed by mutation: removing the modifier fails
   `CompactPickerSmokeTests.testTheEmptyStateSwatchOpensThePopoverToo` and nothing else.
+- **`CompactPicker`'s "seeded from the store on appear" promise was measured, not
+  assumed — and macOS turned out to already guarantee more than the code trusts it
+  for.** `ColorInputField` gives the popover's content a fresh view identity on every
+  open (`.id(pickerSession)`) rather than relying on `.popover` to discard its
+  content's `@State` between presentations — `.popover` documents no such guarantee.
+  Checked directly: `CompactPickerSmokeTests
+  .testReopeningThePopoverSeedsFromWhateverIsInTheFieldNow` passes identically with
+  `.id(pickerSession)` removed, because macOS already tears a popover's content view
+  down the moment it closes, so `.task { seedFromStore() }` re-runs on every open
+  regardless. `.id(_:)` stays anyway, as insurance against a future OS where that
+  stops holding — kept deliberately rather than as dead code found and left alone.
 - New tool panels: add a `Tool` case, a folder under `Features/`, and a branch in
   `ContentView`. Keep spec facts in ColorCore and wording in the panel — see
   `RequirementPresentation`.

@@ -2584,12 +2584,25 @@ owns its own `@State` image cache and cancels the render it replaces, exactly as
 `committing(_:in:)`, and that turned it from a recorded manual check into a unit test.**
 It was private to `PickerPanel.apply(_:)` before M24, reachable only through a running
 app. `committing` **returns** the text to write rather than assigning `store.inputText`
-from inside its own body – every caller now reaches `self` through a `@Binding`, and
+from inside its own body – every real caller reaches `self` through a `@Binding`, and
 writing the store ahead of the binding's own write-back would leave `lastWritten` stale
-in the source of truth at the exact moment the store's observers fire, which
-`committingOrdersItsOwnWriteBeforeTheStores` pins directly. Three new
-`PickerStateTests` cover the clamp on, the clamp off, and this ordering; the first was
-confirmed to fail against the clamp removed (`state.chroma → 0.35`, not clamped).
+in the source of truth at the exact moment the store's observers fire. Two new
+`PickerStateTests` cover the clamp on and the clamp off; the first was confirmed to fail
+against the clamp removed (`state.chroma → 0.35`, not clamped).
+
+**The `@Binding` write-ordering argument above is a reasoned justification for
+`committing`'s calling convention, not a claim any unit test pins, and a third
+`PickerStateTests` case was written first as if it were one before that held up under
+its own scrutiny.** `committingRoundTripsThroughTheStoreWithoutMisreadingItsOwnWrite`
+(named `committingOrdersItsOwnWriteBeforeTheStores` in an earlier draft) calls
+`committing` on a plain local `var`, which has no `@Binding` indirection to race –
+`self` mutates in place with no copy-back step, so no ordering bug inside `committing`
+could make that particular assertion fail either way, whatever the method's internal
+implementation. What the test *does* pin, honestly: a committed change round-trips
+through the store without `syncing(with:color:)` misreading it as an outside edit,
+which is real and worth keeping. Caught on the advisor's second pass, not the first –
+recorded per this file's own rule about a mutation that survives being a finding to
+chase rather than a rule to trust.
 
 **`PickerPlaneView`'s side became an explicit `.frame(width:height:)`, not a byte-for-byte
 preservation of the implicit leftover-`HStack`-space layout.** The pre-M24 plane had no
@@ -2607,13 +2620,27 @@ dead center on the 58×58 square would land on nothing without it – the filled
 SwiftUI a shape to hit-test. Confirmed by mutation: removing the modifier fails
 `CompactPickerSmokeTests.testTheEmptyStateSwatchOpensThePopoverToo` and nothing else.
 
-**Testing, final.** Three new `PickerStateTests` cases (the clamp on, the clamp off,
-the write-ordering guarantee), all three confirmed against a mutation of the rule they
-cover; one new UI file, `CompactPickerSmokeTests` (the popover opens and a drag inside
-it reaches the field; the plane and its popover copy coexist without an ambiguous
-query; the empty-state swatch is clickable). 477 unit tests (474 before M24, 3 new), 59
-CLI tests unchanged, 40 XCUITests (37 before M24, 3 new) – all passing in one
-`** TEST SUCCEEDED **` run, 576 tests total.
+**`CompactPicker`'s "seeded from the store on appear" claim was checked, not assumed –
+and the check found the underlying platform behavior more forgiving than the code
+defends against.** `ColorInputField` gives the popover's content a fresh view identity
+on every open (`.id(pickerSession)`) rather than trusting `.popover` to discard its
+content's `@State` on dismiss, since `.popover` documents no such guarantee. Measured
+with `.id(pickerSession)` removed: `testReopeningThePopoverSeedsFromWhateverIsInTheFieldNow`
+passes identically, because macOS already tears the content view down on close, `@State`
+included, so `.task { seedFromStore() }` re-runs on every open regardless. `.id(_:)`
+stays in as insurance against a future OS where that stops being true, and the test's
+own doc comment says plainly that nothing here can discriminate it – the same honesty
+the write-ordering finding above asked for.
+
+**Testing, final.** Two new `PickerStateTests` cases pin the clamp (on and off); a third
+was rewritten mid-milestone once its original claim did not survive scrutiny – see
+above. One new UI file, `CompactPickerSmokeTests`: the popover opens and a drag inside
+it reaches the field; the plane and its popover copy coexist without an ambiguous query;
+the empty-state swatch is clickable; and reopening the popover reseeds from whatever is
+currently in the field. 477 unit tests (474 before M24, 3 new – two clamp cases plus the
+rewritten round-trip case, same count as the original three), 59 CLI tests unchanged, 41
+XCUITests (37 before M24, 4 new) – all passing in one `** TEST SUCCEEDED **` run, 577
+tests total.
 
 ### ⬜ M25 – Click the notation to re-spell the active color
 
@@ -2825,11 +2852,18 @@ Per milestone:
   from what this section originally said to check), and dragging inside it changes
   `colorInput`, waited on hittability rather than existence. Extended past the
   standard stated in advance: the plane and its popover copy coexist on screen without
-  an ambiguous query, and the empty-state swatch's `.contentShape` fix is pinned by a
-  mutation (`CompactPickerSmokeTests.testTheEmptyStateSwatchOpensThePopoverToo` fails
-  without it). The web-friendly clamp, previously a recorded manual check, is now three
+  an ambiguous query, reopening the popover reseeds from whatever the field currently
+  holds, and the empty-state swatch's `.contentShape` fix is pinned by a mutation
+  (`CompactPickerSmokeTests.testTheEmptyStateSwatchOpensThePopoverToo` fails without
+  it). The web-friendly clamp, previously a recorded manual check, is now two
   `PickerStateTests` cases on `PickerState.committing(_:in:)`, each confirmed against a
-  mutation of the rule it covers.
+  mutation of the rule it covers – a third case, aimed at the method's write-ordering
+  *rationale* rather than its clamp, was found on review to be unable to fail no
+  matter the ordering (a plain local `var` has no `@Binding` indirection to race) and
+  was rewritten to pin the real, narrower claim it can actually observe. Same
+  discipline applied to `.id(pickerSession)`: measured with it removed rather than
+  assumed necessary, and the reopen-reseed test passes either way, because macOS
+  already tears a popover's content down on dismiss.
 - **M25–M26 (planned):** neither has landed yet, so nothing below is a finding – it is
   the standard of proof each milestone must meet before its commit lands, stated in
   advance so the mutation run has a target. **M25:** every exportable format round-trips

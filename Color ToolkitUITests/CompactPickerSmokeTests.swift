@@ -124,6 +124,66 @@ final class CompactPickerSmokeTests: XCTestCase {
     )
   }
 
+  /// The claim `CompactPicker`'s own doc comment makes: "seeded from the store on
+  /// appear." Open on blue, close by clicking the field (which is outside the
+  /// popover), retype red, reopen, and a fresh alpha-only drag – which touches
+  /// nothing but alpha – has to come back red, not the stale blue.
+  ///
+  /// Passes with `ColorInputField`'s `.id(pickerSession)` removed too – measured,
+  /// not assumed away: macOS already discards a popover's content view, `@State`
+  /// included, the moment it closes, so `.task { seedFromStore() }` re-runs on
+  /// every open regardless. `.id(pickerSession)` is kept anyway as insurance
+  /// against a future OS where that stops being true, not because this test
+  /// discriminates it – nothing here can, since the behavior it would guard
+  /// against isn't reproducible on this platform to begin with.
+  func testReopeningThePopoverSeedsFromWhateverIsInTheFieldNow() {
+    setField("#3b82f6")
+
+    let swatch = app.buttons["headerSwatch"]
+    guard waitUntilHittable(swatch) else {
+      XCTFail("Header swatch never became hittable. Tree was:\n\(app.debugDescription)")
+      return
+    }
+    swatch.click()
+    guard app.otherElements["compactPickerPlane"].waitForExistence(timeout: 15) else {
+      XCTFail("Popover never opened. Tree was:\n\(app.debugDescription)")
+      return
+    }
+
+    // Clicking the field is a click outside the popover, which dismisses it – then
+    // types the color the *next* open has to seed from.
+    setField("#ff0000")
+    XCTAssertFalse(
+      app.otherElements["compactPickerPlane"].exists,
+      "the popover should have closed when the field was clicked",
+    )
+
+    guard waitUntilHittable(swatch) else {
+      XCTFail("Header swatch never became hittable a second time. Tree was:\n\(app.debugDescription)")
+      return
+    }
+    swatch.click()
+
+    let alpha = app.otherElements["compactPickerAlpha"]
+    guard alpha.waitForExistence(timeout: 15) else {
+      XCTFail("Popover did not reopen. Tree was:\n\(app.debugDescription)")
+      return
+    }
+
+    // Alpha alone, so hue/saturation/value come through untouched from whatever
+    // this open actually seeded from.
+    alpha.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5))
+      .press(forDuration: 0.1,
+             thenDragTo: alpha.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)))
+
+    let field = app.textFields["colorInput"]
+    let after = (field.value as? String ?? "").lowercased()
+    XCTAssertTrue(
+      after.hasPrefix("#ff0000"),
+      "the reopened popover seeded from the stale blue instead of the retyped red: \(after)",
+    )
+  }
+
   // MARK: Private
 
   private var app: XCUIApplication!

@@ -297,16 +297,24 @@ struct PickerStateTests {
     #expect(returned.exceedsSRGB)
   }
 
-  /// `committing` returns the text rather than writing `store.inputText` itself, so
-  /// this picker's own state — `lastWritten` included — is fully settled before the
-  /// store, and therefore ``syncing(with:color:)``, ever sees the write. Getting the
-  /// order backwards (writing the store from inside the mutating body, ahead of the
-  /// `@Binding` write-back every caller reaches this through) would leave
-  /// `lastWritten` stale at the moment this runs, and the commit below would read as
-  /// an outside edit — re-seeding the axes and undoing the very change just made.
+  /// `committing`'s round trip: the text it hands back is exactly what
+  /// ``syncing(with:color:)`` recognizes as this picker's own write, so calling the
+  /// two back to back does not re-seed the axes and undo the change just made.
+  ///
+  /// This is *not* a test of `committing`'s calling convention — why it returns the
+  /// text rather than assigning `store.inputText` from inside its own body. That
+  /// choice matters only through the `@Binding` indirection every real caller
+  /// (`PickerPlaneView` and its siblings) reaches `self` through: reading a binding's
+  /// property, mutating it, and writing it back are three separate steps, and writing
+  /// the store ahead of the last one would observe a stale `lastWritten`. A plain
+  /// local `var`, as used here, has no such indirection — `self` mutates in place
+  /// with no copy-back to race — so no ordering bug in `committing` could make this
+  /// particular assertion fail either way. The claim below is real and worth pinning;
+  /// the `@Binding` race is a reasoned justification for the calling convention, not
+  /// something a unit test can observe.
   @MainActor
-  @Test("committing settles its own state before the caller writes the store")
-  func committingOrdersItsOwnWriteBeforeTheStores() {
+  @Test("A committed change round-trips through the store without misreading its own write")
+  func committingRoundTripsThroughTheStoreWithoutMisreadingItsOwnWrite() {
     let store = ColorStore(initialInput: "#3b82f6")
     var state = oklchState()
 

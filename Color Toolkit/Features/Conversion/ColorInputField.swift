@@ -41,6 +41,18 @@ struct ColorInputField: View {
   @Environment(ColorStore.self) private var store
 
   @State private var showsPicker = false
+  /// Forces a fresh ``CompactPicker`` — and so a fresh ``PickerState`` — on every
+  /// open, rather than leaning on `.popover`'s own behavior on dismiss.
+  ///
+  /// Measured rather than assumed:
+  /// `testReopeningThePopoverSeedsFromWhateverIsInTheFieldNow` passes identically
+  /// with `.id(pickerSession)` removed, because macOS already discards a popover's
+  /// content view — `@State` included — the moment it closes, so
+  /// `.task { seedFromStore() }` re-runs on every open with or without this. Kept
+  /// anyway as deliberate insurance rather than reverted as dead code: `.popover`
+  /// documents no such teardown guarantee, so this is what keeps the reseed correct
+  /// if that stops being true on a future OS rather than relying on it silently.
+  @State private var pickerSession = 0
 
   // MARK: - Eyedropper
 
@@ -74,6 +86,7 @@ struct ColorInputField: View {
   /// dashed empty state is a button too.
   private var swatch: some View {
     Button {
+      pickerSession += 1
       showsPicker = true
     } label: {
       swatchContent
@@ -83,6 +96,7 @@ struct ColorInputField: View {
     .accessibilityLabel("Color picker")
     .popover(isPresented: $showsPicker, arrowEdge: .bottom) {
       CompactPicker()
+        .id(pickerSession)
     }
   }
 
