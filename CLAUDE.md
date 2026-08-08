@@ -62,6 +62,13 @@ preferences file can never register a chord that would swallow ordinary typing.
 **M28 is done too**: a Developer ID release/export path — see *Release build* under
 Commands below for what was actually run and verified versus documented and left for a
 credentialed step only the person distributing the app can perform.
+**M29 is done too**: `colorkit` is embedded in the app bundle (`Contents/MacOS/`, not
+`Contents/Executables/` despite the Copy Files phase's own name — see the M28 section
+above for the measured reason) and Settings gained a "Command Line Tool" section that
+symlinks it onto a directory the user picks, entirely inside the sandbox — no
+privileged helper, no admin authentication, and no persisted "installed" status, since
+the sandbox gives the app no honest way to re-verify a symlink still exists on a later
+launch. See `CommandLineToolInstaller` and the M29 entry in PLAN.md.
 
 **[PLAN.md](PLAN.md) is the source of truth** for milestone status, what is deferred
 and why, and the reasoning behind every decision recorded below. This file is the
@@ -298,17 +305,29 @@ password or an API key stored in the keychain profile named above
 honesty this file already extends to `NSOpenPanel`/`NSSavePanel`: nobody has run them
 against this project, agent or otherwise.
 
-**`colorkit` is in the raw archive and not in the exported app, and that is a fact worth
-knowing before assuming otherwise.** The scheme builds both targets, and `colorkit` has
-no explicit `SKIP_INSTALL`, so `xcodebuild archive` installs it at
-`ColorToolkit.xcarchive/Products/usr/local/bin/colorkit` — confirmed by listing the
-archive, not inferred from the scheme. But `-exportArchive` only pulls
-`Products/Applications/*.app` out of an archive; it has no notion of an installed Unix
-binary sitting elsewhere in the same tree. So today's Developer ID distribution story
-covers the **app only** — `colorkit` has a real, signed build sitting in the archive with
-nowhere the export step will carry it. Shipping it alongside the app (a Copy Files phase
-embedding it in `Contents/MacOS/`, the way apps that also ship a CLI usually do) is a
-product decision nobody has made yet, not an oversight this section quietly papers over.
+**`colorkit` is embedded in the exported app now (M29), and also still sitting at the
+old loose archive path.** At M28 time, `-exportArchive` only pulled
+`Products/Applications/*.app` out of an archive, and `colorkit` had no explicit
+`SKIP_INSTALL`, so it landed only at the raw archive's
+`Products/usr/local/bin/colorkit` — nowhere the export step carried it. M29 added a
+`PBXCopyFilesBuildPhase` ("Embed Executables", `dstSubfolderSpec = 6`) to the app
+target with a `PBXTargetDependency` on `colorkit` and a `CodeSignOnCopy` `PBXBuildFile`
+wrapping its existing product reference, so the app target now builds `colorkit` first
+and copies + independently re-signs it into the bundle. `colorkit` still has no
+`SKIP_INSTALL`, so an archive today has it in *both* places — confirmed by listing a
+built archive, not inferred from the phase — until that flag is added, which M29 left
+as a cosmetic follow-up rather than folding it in unverified (see the M29 entry in
+PLAN.md).
+
+**The embedded binary lands in `Contents/MacOS/`, not `Contents/Executables/` — measured
+against a real archive, not assumed from the phase's name.** Xcode's Copy Files
+destination popup calls `dstSubfolderSpec = 6` "Executables", and it was planned on the
+assumption that this meant a bundle subfolder of that name. It does not, for a macOS
+application product specifically: inspecting both a Debug build's `Contents/` and a
+Release archive's `Contents/` after adding the phase shows `colorkit` sitting beside the
+app's own executable, `Contents/MacOS/Color Toolkit`. `CommandLineToolInstaller
+.embeddedBinaryURL(inBundleAt:)` is written against the measured path, and its own doc
+comment records the discrepancy so nobody "corrects" it back to the name on the tin.
 
 **Two settings were left as found, on purpose, because changing either is a product call
 this milestone did not make:** `MACOSX_DEPLOYMENT_TARGET = 26.5` means the shipped app
@@ -419,25 +438,35 @@ Layered so the numeric core stays independently testable and UI-free:
   reason it is for ramp stops. So the command checks the text with the same predicate a
   caller would and says on stderr when it fell short. Do not "simplify" this away — the
   test asserts a disjunction, not that the printed value always passes.
-- **The app touches the file system in exactly two places, and one build setting grants
-  both.** `ENABLE_USER_SELECTED_FILES = readwrite` — in *both* the Debug and Release
-  blocks, with no `.entitlements` file anywhere — covers the token import's read *and*
-  M8b's export write. It is only consulted at runtime, so a Release-only omission is
-  invisible from a Debug build; verify in the built binary with
-  `codesign -d --entitlements -`, which should report
+- **The app touches the file system in exactly three places, and one build setting
+  grants all three.** `ENABLE_USER_SELECTED_FILES = readwrite` — in *both* the Debug
+  and Release blocks, with no `.entitlements` file anywhere — covers the token import's
+  read, M8b's export write, and M29's `colorkit` install write. It is only consulted at
+  runtime, so a Release-only omission is invisible from a Debug build; verify in the
+  built binary with `codesign -d --entitlements -`, which should report
   `com.apple.security.files.user-selected.read-write`.
   - **Reading** (`ProjectsPanel`, token import) additionally claims the URL with
     `startAccessingSecurityScopedResource()` and stops on the way out only `if scoped`,
     which is correct whether or not a powerbox URL turns out to need the claim.
   - **Writing** (`ExportPanel`, `.fileExporter` + `ExportDocument`) needs no such claim:
     `FileDocument` hands the system a `FileWrapper` and the system does the write.
-  - **Neither is testable and both are recorded manual checks — and both have now been
-    run.** `NSOpenPanel` and `NSSavePanel` are separate processes XCUITest cannot drive,
-    and driving them from outside needs assistive access that `osascript` does not have
-    here. So an agent cannot verify either one and should say so rather than infer it from
-    a green suite. M17's read passed on the built app; M8b's write passed across 34 saves,
-    whose 352 exported values all re-parse, with the panel proposing the filename
-    `suggestedFilename` builds. See the M8b and M17 entries in PLAN.md.
+  - **Installing** (`CommandLineToolInstaller`, M29) picks its destination directory
+    through `NSOpenPanel` rather than `.fileImporter` — a second, independent precedent
+    for reaching the powerbox, not an extension of `ProjectsPanel`'s — and claims that
+    URL the identical `if scoped` way reading does, because it is a *write* into a
+    user-chosen directory rather than a `FileDocument` handoff.
+  - **None of the three is testable, and all are recorded manual checks — and two of
+    the three have now been run.** `NSOpenPanel` and `NSSavePanel` are separate
+    processes XCUITest cannot drive, and driving them from outside needs assistive
+    access that `osascript` does not have here. So an agent cannot verify any of the
+    three and should say so rather than infer it from a green suite. M17's read passed
+    on the built app; M8b's write passed across 34 saves, whose 352 exported values all
+    re-parse, with the panel proposing the filename `suggestedFilename` builds. M29's
+    install has not yet been run by hand — see its PLAN.md entry for what is and is not
+    covered by `CommandLineToolInstallerTests` instead, since that target carries no
+    sandbox of its own and can exercise the real `createSymbolicLink` write, just not
+    the panel or a genuine security-scoped bookmark. See the M8b and M17 entries in
+    PLAN.md for the other two.
   - **A file the user hands you may itself be the manual check.** M8b's write was
     confirmed twice over by export files sent for review, and was still asked for a third
     time. If a `.css` in the repo's own export shapes arrives, ask where it came from

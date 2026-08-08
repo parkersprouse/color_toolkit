@@ -7,11 +7,17 @@ import SwiftUI
 
 /// The app's `Settings` scene (⌘,).
 ///
-/// Four sections: General, Shortcuts, Output, and a reset. **Output duplicates
-/// `OutputOptionsMenu`'s seven controls rather than replacing them** — the same
-/// precedent the export panel's own Precision picker already set, documented at
+/// Five sections: General, Shortcuts, Command Line Tool, Output, and a reset. **Output
+/// duplicates `OutputOptionsMenu`'s seven controls rather than replacing them** — the
+/// same precedent the export panel's own Precision picker already set, documented at
 /// ``ColorStore/formatOptions``. Both are surfaces onto the one set of bindings, so
 /// changing precision here and in the toolbar menu can never disagree.
+///
+/// **Command Line Tool (M29) never shows "Installed ✓."** `installOutcome` is plain
+/// `@State` — an ephemeral, this-click-only confirmation, not a persisted preference —
+/// because the sandbox gives the app no honest way to re-verify on a later launch that
+/// a symlink it created earlier still exists. See ``CommandLineToolInstaller`` and the
+/// M29 entry in PLAN.md.
 struct SettingsView: View {
   // MARK: Internal
 
@@ -35,6 +41,22 @@ struct SettingsView: View {
           ShortcutRecorderField()
         }
         .help("Works from any app, not only while Color Toolkit is frontmost.")
+      }
+
+      Section("Command Line Tool") {
+        LabeledContent("colorkit") {
+          Button("Install…") { runInstall() }
+            .accessibilityIdentifier("installColorkit")
+        }
+        .help("Adds a colorkit command you can run from Terminal.")
+
+        if let installOutcome {
+          Text(installOutcome.message)
+            .font(.caption)
+            .foregroundStyle(installOutcome.isSuccess ? Color.secondary : Color.orange)
+            .textSelection(.enabled)
+            .accessibilityIdentifier("installOutcome")
+        }
       }
 
       Section("Output") {
@@ -80,6 +102,26 @@ struct SettingsView: View {
   // MARK: Private
 
   @Environment(ColorStore.self) private var store
+  @State private var installOutcome: CommandLineToolInstaller.InstallOutcome?
+
+  /// Defaults the picker to `/usr/local/bin` — settled with Parker rather than left to
+  /// whatever `NSOpenPanel` would otherwise propose.
+  private func runInstall() {
+    // Cleared on every click, not just a successful one — a stale message from a
+    // previous attempt is not "ongoing truth" this click has anything to do with.
+    installOutcome = nil
+
+    guard let chosen = CommandLineToolInstaller.presentDestinationPicker(
+      startingAt: URL(fileURLWithPath: "/usr/local/bin"),
+    ) else {
+      return // Canceled: nothing to say.
+    }
+
+    installOutcome = CommandLineToolInstaller.install(
+      embeddedBinary: CommandLineToolInstaller.embeddedBinaryURL(inBundleAt: Bundle.main.bundleURL),
+      into: chosen,
+    )
+  }
 }
 
 #Preview {

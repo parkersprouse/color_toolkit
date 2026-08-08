@@ -3040,29 +3040,26 @@ call this milestone was not asked to make.
 `Color Toolkit.xcodeproj/project.pbxproj` (`INFOPLIST_KEY_NSHumanReadableCopyright` in
 both the app target's Debug and Release configurations).
 
-## Planned: M29 – Install colorkit command
+### ✅ M29 – Install colorkit command
 
-Not part of the M19–M26 series and not requested alongside M27/M28 — raised afterward,
-once M28 had already flagged `colorkit`'s missing distribution story as an open
-decision rather than settling it. Full plan approved with Parker on 2026-08-08 and
-recorded verbatim at the time in `/Users/parker/.claude/plans/i-certainly-don-t-mind-merry-lamport.md`;
-this section is that plan transcribed into PLAN.md's own record rather than left to
-live only in a Claude Code plan file. Not yet built.
+Not part of the M19–M26 series and not requested alongside M27/M28 — raised
+afterward, once M28 had already flagged `colorkit`'s missing distribution story as an
+open decision rather than settling it. Full plan approved with Parker on 2026-08-08 and
+recorded verbatim at the time in
+`/Users/parker/.claude/plans/i-certainly-don-t-mind-merry-lamport.md`.
 
-**The problem.** `xcodebuild archive` deposits `colorkit` at
-`Products/usr/local/bin/colorkit` in the raw archive (Xcode's default for a
-`com.apple.product-type.tool` with no `INSTALL_PATH`/`SKIP_INSTALL` override), but
-`-exportArchive` only pulls `Products/Applications/*.app` out — so the exported,
-notarizable `.app` never carries it, and the CLI has no distribution story of its own.
-Parker wants a Homebrew-independent convenience: embed `colorkit` in the `.app`, and
-let Settings install a `colorkit` command onto the user's `$PATH` — explicitly without
-a privileged helper tool or admin authentication, the constraint that shapes everything
-below.
+**The problem, recapped from M28.** `xcodebuild archive` deposits `colorkit` at
+`Products/usr/local/bin/colorkit` in the raw archive, but `-exportArchive` only pulls
+`Products/Applications/*.app` out — so the exported, notarizable `.app` never carried
+it, and the CLI had no distribution story of its own. Parker wanted a
+Homebrew-independent convenience: embed `colorkit` in the `.app`, and let Settings
+install a `colorkit` command onto the user's `$PATH` — explicitly without a privileged
+helper tool or admin authentication.
 
-**Three decisions settled with Parker before planning, not to be re-litigated when
-implementing:** default the install panel to `/usr/local/bin`; ship **neither**
-Reveal-in-Finder nor Uninstall in this first version; **refuse** rather than overwrite
-if something already exists at the chosen destination.
+**Three decisions settled with Parker before building, not re-litigated during it:**
+default the install panel to `/usr/local/bin`; ship **neither** Reveal-in-Finder nor
+Uninstall in this first version; **refuse** rather than overwrite if something already
+exists at the chosen destination.
 
 **Why this needs a panel at all, and why nothing can be persisted afterward.** The app
 is sandboxed (`ENABLE_APP_SANDBOX = YES`), with exactly one file-access entitlement,
@@ -3074,109 +3071,127 @@ that a symlink it created earlier still exists. That is what rules out a persist
 "installed ✓" status, not a stylistic preference: there is nothing honest to persist,
 the same reasoning that already keeps `ColorStore.globalShortcut`'s two write paths
 (M27) from claiming more certainty than the sandbox can back up. Confirmed genuinely
-greenfield before any of this was designed: no `Process`/`NSTask`/`osascript`/
-`Authorization*`/`SMJobBless`/`SMAppService` exists anywhere in this codebase today,
-and the plan introduces none of them — the whole feature stays inside the sandbox.
+greenfield before any of this was built: no `Process`/`NSTask`/`osascript`/
+`Authorization*`/`SMJobBless`/`SMAppService` existed anywhere in this codebase, and
+none was introduced — the whole feature stays inside the sandbox.
 
-**1. Embedding `colorkit`** needs `project.pbxproj` surgery the file-system-synchronized
-groups can't cover: a new `PBXBuildFile` (this project's first — every other source
-compiles through the synchronized-group mechanism, never an explicit build file) with
-`ATTRIBUTES = (CodeSignOnCopy, )` wrapping the *existing* `colorkit` product reference,
-a new `PBXCopyFilesBuildPhase` with `dstSubfolderSpec = 6` (destination "Executables" —
-`Contents/Executables/colorkit`, not the `Contents/MacOS/` this file and CLAUDE.md
-previously speculated, back when embedding was still hypothetical), and a
-`PBXContainerItemProxy`/`PBXTargetDependency` pair so `colorkit` builds before the
-app's new copy phase runs (the app target's `dependencies` list is empty today). Every
-object ID this needs was checked directly against the live file before the plan was
-written, not assumed: the highest `2CB180xx…` ID in use is `…17`, so `…18` through
-`…1B` are free, to be re-confirmed immediately before editing. `CodeSignOnCopy` is
-required because Hardened Runtime + notarization needs every embedded executable
-independently signed, or the whole app fails notarization — and whether that flag
-alone is sufficient, or `colorkit` additionally needs `ENABLE_HARDENED_RUNTIME = YES`
-of its own, is explicitly a **verify, don't assume** item (see Verification). Also
-flagged, not folded in unverified: `SKIP_INSTALL = YES` on `colorkit` would remove the
-now-redundant loose archive copy, cosmetic to the archive tree rather than required.
+**1. Embedding `colorkit`** needed `project.pbxproj` surgery the file-system-
+synchronized groups can't cover: a new `PBXBuildFile` (this project's first — every
+other source compiles through the synchronized-group mechanism, never an explicit
+build file) with `ATTRIBUTES = (CodeSignOnCopy, )` wrapping the *existing* `colorkit`
+product reference, a new `PBXCopyFilesBuildPhase` with `dstSubfolderSpec = 6`
+("Embed Executables"), and a `PBXContainerItemProxy`/`PBXTargetDependency` pair so
+`colorkit` builds before the app's new copy phase runs (the app target's
+`dependencies` list was empty before this). Every object ID was checked directly
+against the live file immediately before editing: the highest existing `2CB180xx…`
+ID in use was `…17`, so `…18` through `…1B` were free and are what this milestone
+used.
+
+**The plan's own destination assumption was wrong, and the correction is worth
+recording precisely — this is the milestone's one genuine "verify, don't assume"
+finding.** The plan, written before any of this was built, predicted the copy phase
+would land `colorkit` at `Contents/Executables/colorkit` — reasoning from
+`dstSubfolderSpec = 6`'s label, "Executables" — and said in so many words that this
+was *not* `Contents/MacOS/`, contradicting what this file's own M28 entry and
+CLAUDE.md's Release-build section had separately speculated. Measured after actually
+building both a Debug build and a Release archive: `colorkit` lands in
+**`Contents/MacOS/`**, right beside the app's own executable. Xcode's "Executables"
+destination resolves, for a macOS *application* product specifically, to the same
+folder the main executable occupies — the build-phase name describes Xcode's internal
+enum case, not the folder it maps to on this product type. So the pre-M29 hypothetical
+guess in CLAUDE.md/PLAN.md turned out to be the correct one after all, and the plan
+document that was supposed to correct it was itself the thing that needed correcting.
+`CommandLineToolInstaller.embeddedBinaryURL(inBundleAt:)` is written against the
+measured path, with the discrepancy recorded in its own doc comment.
+
+`CodeSignOnCopy` was required for the embedded binary to pass notarization
+independently of the app — confirmed via `codesign -d --verbose=2` on the archived
+`colorkit`, which reports `flags=…(runtime)`. **The Hardened Runtime question was
+resolved in `colorkit`'s favor without changing its build settings**: `colorkit` has
+no `ENABLE_HARDENED_RUNTIME` of its own, Debug or Release, and the embedded copy still
+signs with the runtime flag set — `CodeSignOnCopy` alone is sufficient, confirmed by
+reading the signature rather than assumed from the attribute's name. No build setting
+was added.
+
+`colorkit` still has no `SKIP_INSTALL`, so today's archive has it in *two* places —
+the new embedded copy and the old loose `Products/usr/local/bin/colorkit`. Flagged as
+a cosmetic follow-up, deliberately not folded into this change unverified, the same
+discipline M28 already modeled for `-exportArchive`/`notarytool`.
 
 **2. New service, `Color Toolkit/Services/CommandLineToolInstaller.swift`**, split pure
-from impure the same way `GlobalShortcut`/`GlobalHotKeyCenter` (M27) already do.
-**Pure, nonisolated, unit-testable:** `embeddedBinaryURL(inBundleAt:)` and
-`destinationURL(in:)` (both take a `URL` parameter, never read `Bundle.main`
-internally, the same discipline `PersistenceStack(inMemory:)` already established);
-`isTranslocated(bundlePath:)`, a **pre-flight refusal** for macOS App Translocation — an
-app launched straight from a quarantined `~/Downloads` copy runs from a
-`/private/var/folders/.../AppTranslocation/<uuid>/…` path that re-randomizes every
-launch, so a symlink created during a translocated run silently dangles the next time
-the app opens with nothing anywhere explaining why. Detected as a path-substring check
-for `/AppTranslocation/` rather than a real API call — there is no `SecTranslocate.h` in
-the installed SDK, confirmed by an SDK search, so this is a recorded,
-deliberate heuristic-over-undocumented-shape trade-off, the same class of decision as
-`ColorSpace.componentRoles` being transcribed rather than derived, just facing an
-absent header instead of an editorial one; `InstallOutcome`, one case per terminal
-state with its own sentence (canceled, translocated, binary missing, security-scoped
-claim failed, destination occupied, POSIX write denied, success-likely-on-PATH,
-success-needs-profile-line) — the same "every failure mode gets its own sentence"
-discipline `ProjectsPanel.importTokens` already follows; `PathAdvice`, a **transcribed**
-table of well-known `$PATH` directories (`/usr/local/bin`, `/opt/homebrew/bin`) versus
-everything else, table-driven rather than derived from the path's shape for the same
-reason `componentRoles` is transcribed — a plausible derivation like "contains `/bin`"
-gets `~/bin` wrong. The generated profile-line is `$HOME`-relative where applicable and
-correctly quotes a directory containing spaces, and the UI copy has to say plainly that
-this is a best-effort guess: `ProcessInfo.processInfo.environment["PATH"]` reflects the
-sandboxed GUI app's launchd-provided PATH, not the user's interactive shell PATH, so
-there is no way to actually know. **Impure:** `presentDestinationPicker(startingAt:)`
-wraps `NSOpenPanel` directly rather than SwiftUI's `.fileImporter` — deliberately a
-second, `NSOpenPanel`-based precedent alongside `ProjectsPanel`'s `.fileImporter` one,
-not an extension of it, because this is a *write*-destination directory picker
-(`canChooseDirectories`, `canCreateDirectories`) rather than a file-read picker, and
-because `NSOpenPanel` hands a URL back to a caller rather than living inside a View's
-inline completion closure, keeping the flow testable up to that one seam; and
-`install(embeddedBinary:into:)`, pre-flight checks then
-`startAccessingSecurityScopedResource()`/`defer { if scoped { … } }` — the exact idiom
-`ProjectsPanel.importTokens` already uses, `if scoped` rather than treating a `false`
-claim as failure, since a plain powerbox URL commonly returns `false` while access
-still works.
+from impure the way `GlobalShortcut`/`GlobalHotKeyCenter` (M27) already do. Pure,
+`nonisolated`, unit-tested directly: `embeddedBinaryURL(inBundleAt:)` and
+`destinationURL(in:)` (both take a `URL` parameter rather than reading `Bundle.main`);
+`isTranslocated(bundlePath:)`, a path-substring pre-flight refusal for macOS App
+Translocation (there is no `SecTranslocate.h` in the installed SDK, confirmed by an
+SDK search, so this is a recorded heuristic rather than a real API call); `PathAdvice`,
+a transcribed table of well-known `$PATH` directories versus everything else, the same
+"transcribe, don't derive" rule `ColorSpace.componentRoles` follows; `InstallOutcome`,
+one case per terminal state with its own sentence — `.translocated`, `.binaryMissing`,
+`.destinationOccupied(String)`, `.securityScopeFailed`, `.writeDenied`,
+`.success(PathAdvice)` — and `outcome(for:at:scoped:)`, the function that maps a
+thrown `createSymbolicLink` `NSError` onto one of them, split out specifically so the
+discrimination is testable with a synthetic error and no real write. Cancellation is
+not a case of `InstallOutcome` at all: the picker returning `nil` is handled entirely
+by the Settings view not calling `install(embeddedBinary:into:)`, so there is nothing
+to construct and nothing to say. Impure:
+`presentDestinationPicker(startingAt:)` wraps `NSOpenPanel` directly — a second,
+independent precedent alongside `ProjectsPanel`'s `.fileImporter`, not an extension of
+it, because this is a write-destination directory picker
+(`canChooseDirectories`/`canCreateDirectories`) rather than a file-read picker — and
+`install(embeddedBinary:into:)`, which runs the pre-flight checks, then
+`startAccessingSecurityScopedResource()`/`defer { if scoped { … } }` (the exact idiom
+`ProjectsPanel.importTokens` already uses), then `createSymbolicLink`.
 
-**3. `SettingsView.swift`** gains a "Command Line Tool" section after "Shortcuts" (both
-are one-time setup actions, unlike "Output"'s per-preference toggles), an "Install…"
-button that never becomes "Installed ✓", and an ephemeral `@State` outcome message —
-not a persisted preference — cleared on the next click rather than claimed as ongoing
-truth.
+**3. `SettingsView.swift`** gained a "Command Line Tool" section after "Shortcuts," an
+"Install…" button that never becomes "Installed ✓," and an ephemeral `@State
+installOutcome` — cleared at the start of every click, not only a successful one, so a
+stale message from a previous attempt is never mistaken for ongoing truth.
 
-**Three CLAUDE.md/PLAN.md statements this falsifies and must correct in place, not
-leave to quietly contradict the new copy phase, once built:** the file-access
-invariant ("exactly two places … one build setting grants both") becomes three places
-under the same grant; the Release-build section's "in `Contents/MacOS/`" (this
-milestone's actual destination is `Contents/Executables/`) stops being hypothetical
-and gets the right path; and "`colorkit` is in the raw archive and not in the exported
-app" becomes actively wrong rather than merely dated, since after this lands it *is* in
-the exported app and, until `SKIP_INSTALL` is set, still also sitting at the old loose
-path.
+**What this did not build, recorded rather than left implicit:** no privileged helper
+tool, no persisted install status, no Reveal-in-Finder, no Uninstall — all deliberate
+scope decisions from the approved plan, not gaps found afterward.
 
-**Verification, planned.** Unit-testable without a panel or a real app:
-`embeddedBinaryURL`/`destinationURL` (pure, fake URLs); `isTranslocated` (a real
-`/Applications/…` path against a synthetic `AppTranslocation` one);
-`adviceForInstalling` (`/usr/local/bin`/`/opt/homebrew/bin` → `.likelyOnPath`; a custom
-or home directory → `.needsProfileLine`, including `$HOME`-relative spelling and
-correct quoting for a directory containing a space); `InstallOutcome`'s message
-mapping, parameterized over every case for distinct non-empty strings, the cheap
-`allCases`-style check `ExportShape`'s own tests already use;
-`install(embeddedBinary:into:)`'s dispatch logic up to, but not including, the actual
-`createSymbolicLink` call and the security-scoped claim — the genuinely impure
-boundary. **Recorded manual check**, the same limitation this file already documents
-for `NSOpenPanel`/`.fileImporter` elsewhere: clicking Install, the panel appearing,
-choosing `/usr/local/bin`, confirming, the symlink landing correctly, `colorkit --help`
-working from a fresh Terminal afterward; the translocation guard firing on a genuinely
-translocated launch; the "already exists" refusal exercised once by hand.
-**Code-signing verification** extends M28's own `xcodebuild archive` +
-`codesign -d --entitlements -` checks with `ls .../Contents/Executables/`,
-`codesign --verify --deep --strict --verbose=2` on the whole bundle, and
-`codesign -d --verbose=2` on the embedded `colorkit` specifically — reading for
-`flags=…(runtime)` is the discriminating check for whether `ENABLE_HARDENED_RUNTIME`
-needs adding to `colorkit`'s own build settings or `CodeSignOnCopy` alone already
-supplies it, run and recorded whichever way it actually comes out, not assumed either
-way — the same discipline M28's `get-task-allow` check already models. Actual
-notarization stays unverifiable in this environment, same as M28: no "Developer ID
-Application" certificate here.
+**Verification.** Unit-tested without a panel or a real app, in
+`CommandLineToolInstallerTests`: `embeddedBinaryURL`/`destinationURL` (pure, fake
+URLs); `isTranslocated` (a real `/Applications/…` path against a synthetic
+`AppTranslocation` one — both directions confirmed to actually discriminate by
+mutation, not merely asserted); `adviceForInstalling` (`/usr/local/bin`/
+`/opt/homebrew/bin` → `.likelyOnPath`; a home-relative or arbitrary directory →
+`.needsProfileLine`, including `$HOME`-relative spelling, that the literal expanded
+home path never leaks into the line, and correct quoting for a directory containing a
+space); `InstallOutcome`'s message mapping, parameterized over one representative
+instance per case (it carries associated values, so it cannot get `CaseIterable` for
+free the way `ExportShape` does) for distinct non-empty strings; `outcome(for:at:
+scoped:)`'s discrimination — already-exists vs. permission-denied, and
+`.securityScopeFailed` vs. `.writeDenied` depending on whether the scope claim had
+already failed — confirmed by mutation to actually depend on the `scoped` flag, not
+merely to compile.
+
+**One thing the plan assumed untestable turned out not to be, and it was worth
+checking rather than assuming.** `Color ToolkitTests` carries no `ENABLE_APP_SANDBOX`
+of its own — only the app target does — so unlike `NSOpenPanel`/`.fileImporter`
+themselves, `install(embeddedBinary:into:)`'s real filesystem write **is** reachable
+from a unit test, against a plain temp directory rather than a security-scoped
+bookmark. Two tests exercise the genuine `createSymbolicLink` call end to end: one
+confirms a real install actually creates a symlink pointing at the embedded binary,
+and one confirms the "refuse rather than overwrite" decision holds against a real
+pre-existing file, byte for byte. What remains a recorded manual check is narrower
+than the plan first assumed: the panel itself (`NSOpenPanel` is a separate process,
+same limitation as `NSSavePanel`/`.fileImporter` elsewhere in this file), and what a
+*genuinely sandboxed* security-scoped claim does — this test target's `false`-returning,
+still-working claim on a plain URL is not proof of what a real powerbox bookmark does
+under `ENABLE_APP_SANDBOX`. Also unchecked by hand: the translocation guard firing on
+a real translocated launch, and running `colorkit --help` from a fresh Terminal after
+a real install.
+
+**Code-signing verification, extending M28's own checks.** Both a Debug build and a
+Release archive were built after adding the copy phase.
+`codesign --verify --deep --strict --verbose=2` passes on the whole archived bundle;
+`codesign -d --verbose=2` on the archived `colorkit` shows
+`flags=0x10000(runtime)` — the Hardened Runtime finding above. Actual notarization
+stays unverifiable in this environment, same as M28: no "Developer ID Application"
+certificate here.
 
 **Critical files.** `Color Toolkit.xcodeproj/project.pbxproj`; new
 `Color Toolkit/Services/CommandLineToolInstaller.swift`;
@@ -3353,6 +3368,28 @@ Per milestone:
   "Developer ID Application" identity in this environment, only the "Apple Development"
   one ordinary builds use – and are recorded as unverified, needing the app's own
   credentialed step.
+- **M29:** [CommandLineToolInstallerTests](Color%20ToolkitTests/CommandLineToolInstallerTests.swift),
+  and unlike M28 this target *is* reachable past the "recorded manual check" boundary
+  most sandboxed I/O gets in this file – `Color ToolkitTests` carries no
+  `ENABLE_APP_SANDBOX` of its own, so `install(embeddedBinary:into:)`'s real
+  `createSymbolicLink` write is exercised end to end against a plain temp directory,
+  not merely its guard clauses. Every pure helper is mutation-confirmed rather than
+  merely asserted: flipping `isTranslocated`'s substring check to always return `false`
+  fails exactly the two tests built to catch it (the direct predicate test and
+  `install`'s own translocation guard), and flipping the `scoped ? .writeDenied :
+  .securityScopeFailed` discrimination fails exactly the two permission-error tests
+  that read the `scoped` flag – both confirmed by actually mutating the source and
+  re-running, not assumed from the tests' shape. What remains a recorded manual check
+  is narrower than a first read of "sandboxed I/O" would suggest: the panel itself
+  (`NSOpenPanel`, the same limitation as `NSSavePanel`/`.fileImporter` elsewhere here),
+  a real translocated launch, `colorkit --help` from a fresh Terminal after an actual
+  install, and what a *genuinely sandboxed* security-scoped claim does – this target's
+  own claim on a plain, non-powerbox URL returning `false`-yet-still-working is not
+  proof of what a real bookmark does under `ENABLE_APP_SANDBOX`. Code-signing was
+  verified the M28 way: a Release archive's embedded `colorkit` reads
+  `flags=0x10000(runtime)` under `codesign -d --verbose=2`, settling – by reading the
+  signature, not the attribute's name – that `CodeSignOnCopy` alone is sufficient and
+  no `ENABLE_HARDENED_RUNTIME` needed adding to `colorkit`'s own build settings.
 - **M3/M4 (UI):** run the app and verify interactively. Spot-check conversions against a browser's DevTools color picker, which implements the same spec – a fast, honest end-to-end sanity check.
 
 The scheme is shared and works from the command line:

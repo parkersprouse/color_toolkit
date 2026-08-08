@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		2CB1801830125A0000F6925E /* colorkit in Embed Executables */ = {isa = PBXBuildFile; fileRef = 2CB1800030125A0000F6925E /* colorkit */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		2C6D6B543012599D00F6925E /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -21,7 +25,28 @@
 			remoteGlobalIDString = 2C6D6B433012599C00F6925E;
 			remoteInfo = "Color Toolkit";
 		};
+		2CB1801A30125A0000F6925E /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 2C6D6B3C3012599C00F6925E /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 2CB1800530125A0000F6925E;
+			remoteInfo = colorkit;
+		};
 /* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		2CB1801930125A0000F6925E /* Embed Executables */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 6;
+			files = (
+				2CB1801830125A0000F6925E /* colorkit in Embed Executables */,
+			);
+			name = "Embed Executables";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		2C6D6B443012599C00F6925E /* Color Toolkit.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Color Toolkit.app"; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -144,10 +169,12 @@
 				2C6D6B403012599C00F6925E /* Sources */,
 				2C6D6B413012599C00F6925E /* Frameworks */,
 				2C6D6B423012599C00F6925E /* Resources */,
+				2CB1801930125A0000F6925E /* Embed Executables */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				2CB1801B30125A0000F6925E /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				2C6D6B463012599C00F6925E /* Color Toolkit */,
@@ -376,6 +403,11 @@
 			isa = PBXTargetDependency;
 			target = 2C6D6B433012599C00F6925E /* Color Toolkit */;
 			targetProxy = 2C6D6B5E3012599D00F6925E /* PBXContainerItemProxy */;
+		};
+		2CB1801B30125A0000F6925E /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 2CB1800530125A0000F6925E /* colorkit */;
+			targetProxy = 2CB1801A30125A0000F6925E /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
