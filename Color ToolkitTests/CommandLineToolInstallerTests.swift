@@ -127,6 +127,24 @@ struct CommandLineToolInstallerTests {
     #expect(outcome.message.contains("~/.local/bin"))
   }
 
+  /// The bug this test guards against was also real, and reported by hand: a user
+  /// whose `~/.local/bin` was already on their shell `$PATH` (`.writeDenied`'s own
+  /// message suggests it) still got told the folder wasn't. `needsProfileLine`'s
+  /// message must not *assert* the folder is missing — it can only honestly suggest
+  /// trying `colorkit --help` first, since this app has no way to read the user's
+  /// real shell `$PATH` from inside the sandbox.
+  @Test(".needsProfileLine suggests trying colorkit first, not that PATH is missing it")
+  func needsProfileLineMessageDoesNotAssertPathIsMissing() {
+    let line = "export PATH=\"$HOME/.local/bin:$PATH\""
+    let outcome = CommandLineToolInstaller.InstallOutcome.success(.needsProfileLine(line))
+
+    #expect(outcome.message.contains("colorkit --help"))
+    #expect(outcome.message.contains(line))
+    // The old wording stated flatly that the folder was missing from PATH — wrong
+    // whenever it happened to already be there, which is exactly what was reported.
+    #expect(!outcome.message.contains("isn't on your PATH by default. Add"))
+  }
+
   // MARK: - NSError → InstallOutcome mapping
 
   @Test("An already-exists error reports destinationOccupied, describing what's there")

@@ -30,13 +30,32 @@ enum CommandLineToolInstaller {
   /// path's shape — the same "transcribe, don't derive" rule
   /// `ColorSpace.componentRoles` follows, and for the identical reason: a
   /// plausible-looking rule like "contains `/bin`" gets `~/bin` wrong.
+  ///
+  /// `~/.local/bin` is deliberately **not** in the table, and that took a real report
+  /// to settle rather than reasoning alone: a user whose `~/.local/bin` was already on
+  /// their shell `$PATH` (this feature's own `.writeDenied` message suggests it as a
+  /// no-`sudo` alternative to `/usr/local/bin`) still got told to add a profile line
+  /// they didn't need. The tempting fix — add it to `wellKnownPathDirectories` — would
+  /// have traded one wrong answer for another: unlike `/usr/local/bin` (on macOS's
+  /// default `/etc/paths`) and `/opt/homebrew/bin` (added by Homebrew's own installer
+  /// for every user of it), nothing puts `~/.local/bin` on `$PATH` by default on
+  /// macOS — a user has it only if they, or some other tool, added it themselves, and
+  /// the app cannot tell "this user already has it" from "this user does not" any
+  /// better than it could tell `~/bin` from a made-up path. So the actual fix was
+  /// downstream, in ``InstallOutcome/message``: ``needsProfileLine(_:)``'s message no
+  /// longer *asserts* the folder is missing from `$PATH` — it says to try
+  /// `colorkit --help` first and only offers the line if that actually fails. That
+  /// framing is correct regardless of which way this case turns out to be wrong, where
+  /// a table entry could only ever be correct for some users and confidently wrong for
+  /// the rest.
   nonisolated enum PathAdvice: Equatable {
     /// The directory is one of the well-known ones a shell's default `$PATH` already
     /// includes.
     case likelyOnPath
-    /// The directory is not, so the user needs a line added to their shell's profile
-    /// to actually reach `colorkit` from a fresh Terminal. The associated string is
-    /// that line, `$HOME`-relative where applicable and always quoted.
+    /// The directory is not one of the well-known ones — not proof it is actually
+    /// missing from the user's `$PATH`, just that this app has no way to know either
+    /// way. The associated string is the profile line to add *if* `colorkit` turns out
+    /// not to be reachable, `$HOME`-relative where applicable and always quoted.
     case needsProfileLine(String)
   }
 
@@ -105,8 +124,10 @@ enum CommandLineToolInstaller {
         case .likelyOnPath:
           "Installed. Open a new Terminal window and run colorkit --help to try it."
         case let .needsProfileLine(line):
-          "Installed, but that folder isn't on your PATH by default. Add this line to "
-            + "your shell profile, then open a new Terminal window:\n\(line)"
+          "Installed. Open a new Terminal window and run colorkit --help. If that "
+            + "says \"command not found,\" that folder isn't on your PATH by "
+            + "default — add this line to your shell profile and open a new "
+            + "Terminal window again:\n\(line)"
         }
       }
     }

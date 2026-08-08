@@ -3229,6 +3229,30 @@ test and nothing else. `outcome(for:at:scoped:)`'s three `.writeDenied` call sit
 is what caught every site that needed updating — the compiler found the same set a
 hand search would have needed to find by eye.
 
+**Second addendum, same day: the `.writeDenied` fix's own suggestion exposed the next
+gap.** Parker picked `~/.local/bin` — the very folder the fix above suggests as a
+no-`sudo` alternative — and it was already on his shell `$PATH`. The install still
+reported "Installed, but that folder isn't on your PATH by default," a flatly wrong
+claim for exactly the folder the app had just recommended. **The tempting fix — add
+`~/.local/bin` to `wellKnownPathDirectories` — was rejected, and the reasoning is worth
+keeping rather than just the outcome.** `/usr/local/bin` earns its spot from macOS's
+own default `/etc/paths`, and `/opt/homebrew/bin` from Homebrew's installer adding it
+for every user of it; nothing puts `~/.local/bin` on `$PATH` by default on macOS, so a
+user has it only if they, or some other tool (`pipx ensurepath`, a personal dotfile),
+added it themselves. Adding it to the table would not have fixed the report so much as
+moved it — right for users like Parker, confidently wrong for anyone who picks that
+folder without having configured it, the identical "plausible-looking rule gets `~/bin`
+wrong" trap `PathAdvice`'s own doc comment already named for a different path shape.
+**The actual fix was in the message, not the table**: `PathAdvice.needsProfileLine`'s
+case doc was rewritten to say plainly that it means "not one of the well-known ones,"
+not "confirmed missing," and `InstallOutcome.message`'s `.needsProfileLine` case no
+longer asserts the folder is missing from `$PATH` at all — it says to run
+`colorkit --help` first and only offers the profile line if that actually fails. That
+framing is correct regardless of which way any given folder turns out to be wrong,
+which a table entry never can be. `needsProfileLineMessageDoesNotAssertPathIsMissing`
+pins it, confirmed by mutation: reverting to the old assertive wording fails both of
+its assertions, not zero and not one.
+
 ## Verification
 
 **A feature reached through a system loupe or a global chord has links no test can touch**, and they fail independently – so check them separately rather than as one gesture. For M4 that was: (1) does the menu bar show the chord, proving the OS accepted the registration and a scene's `.task` fired; (2) does the chord raise the loupe from *another* app, proving the key is captured and the C callback reaches the main actor; (3) does the picked color reach the field and the clipboard, proving the sandbox and the bridge. All three passed. Everything either side of them is covered by [ScreenSamplerTests](Color%20ToolkitTests/ScreenSamplerTests.swift) and [GlobalHotKeyTests](Color%20ToolkitTests/GlobalHotKeyTests.swift).
