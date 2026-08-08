@@ -3198,6 +3198,37 @@ certificate here.
 `Color Toolkit/Features/Settings/SettingsView.swift`; `CLAUDE.md`; this file; new
 `Color ToolkitTests/CommandLineToolInstallerTests.swift`.
 
+**Addendum, same day: the recorded manual check found a real bug on first actual use,
+and it was the default destination itself.** Parker ran the feature against the real
+panel — exactly the check this section had just finished calling unverified — and
+`/usr/local/bin`, the settled default, failed with `.writeDenied` every time, both
+launched from `/Applications` and from elsewhere, ruling out translocation as the
+cause. Confirmed directly rather than guessed at: `stat -f "%Su:%Sg %A" /usr/local/bin`
+reports `root:wheel 755` on this Mac, and `/opt/homebrew/bin` (Homebrew's own, on
+Apple Silicon) reports `parker:admin 775` — Homebrew here never touches `/usr/local`
+at all, so nothing had ever made the settled default writable. **This is the common
+case, not an edge case**: any Mac without an Intel-era Homebrew install (which does
+chown `/usr/local`) has this exact permission on this exact directory out of the box,
+which means the feature's own default destination was one it could not itself write
+to, and the pre-fix message — "You don't have permission to write to that folder.
+Choose a different one." — was true and useless, naming no folder and no fix, on the
+one path most users would hit first.
+
+**The fix, confirmed with Parker rather than decided unilaterally**, since it touches
+a decision already settled once: keep `/usr/local/bin` as the picker's starting point
+unchanged (re-litigating *that* was explicitly not wanted), and make `.writeDenied`
+carry the directory that failed so its message can be genuinely actionable — the exact
+`sudo chown "$(whoami)" "<path>"` line for a user who wants that folder specifically,
+*and* a suggestion of `~/.local/bin` as a folder nobody needs a password to own, which
+the picker's `canCreateDirectories = true` can already create on the spot. A dedicated
+test (`writeDeniedMessageIsActionable`) pins that the message names the failed
+directory, the `sudo chown` line, and `~/.local/bin` together — confirmed to actually
+matter by mutation: softening the alternative-folder sentence alone fails exactly that
+test and nothing else. `outcome(for:at:scoped:)`'s three `.writeDenied` call sites and
+`InstallOutcome`'s own `Equatable` synthesis all needed the new associated `URL`, which
+is what caught every site that needed updating — the compiler found the same set a
+hand search would have needed to find by eye.
+
 ## Verification
 
 **A feature reached through a system loupe or a global chord has links no test can touch**, and they fail independently – so check them separately rather than as one gesture. For M4 that was: (1) does the menu bar show the chord, proving the OS accepted the registration and a scene's `.task` fired; (2) does the chord raise the loupe from *another* app, proving the key is captured and the C callback reaches the main actor; (3) does the picked color reach the field and the clipboard, proving the sandbox and the bridge. All three passed. Everything either side of them is covered by [ScreenSamplerTests](Color%20ToolkitTests/ScreenSamplerTests.swift) and [GlobalHotKeyTests](Color%20ToolkitTests/GlobalHotKeyTests.swift).

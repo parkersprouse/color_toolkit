@@ -111,6 +111,22 @@ struct CommandLineToolInstallerTests {
     }
   }
 
+  /// The bug this test guards against was real, not hypothetical: `/usr/local/bin`
+  /// — this feature's own default destination — is `root:wheel 755` on a stock Mac
+  /// and stays that way even with Homebrew installed on Apple Silicon, which lives
+  /// under `/opt/homebrew` instead. A first version of this message said only "You
+  /// don't have permission to write to that folder. Choose a different one." — true,
+  /// but useless against the one destination the panel actually opens to by default.
+  @Test("writeDenied names the directory and offers an actual fix")
+  func writeDeniedMessageIsActionable() {
+    let outcome = CommandLineToolInstaller.InstallOutcome.writeDenied(
+      URL(fileURLWithPath: "/usr/local/bin"),
+    )
+    #expect(outcome.message.contains("/usr/local/bin"))
+    #expect(outcome.message.contains("sudo chown"))
+    #expect(outcome.message.contains("~/.local/bin"))
+  }
+
   // MARK: - NSError → InstallOutcome mapping
 
   @Test("An already-exists error reports destinationOccupied, describing what's there")
@@ -161,7 +177,8 @@ struct CommandLineToolInstallerTests {
     let error = NSError(domain: NSCocoaErrorDomain, code: NSFileWriteNoPermissionError)
     let destination = URL(fileURLWithPath: "/usr/local/bin/colorkit")
     #expect(
-      CommandLineToolInstaller.outcome(for: error, at: destination, scoped: true) == .writeDenied,
+      CommandLineToolInstaller.outcome(for: error, at: destination, scoped: true)
+        == .writeDenied(URL(fileURLWithPath: "/usr/local/bin")),
     )
   }
 
@@ -179,7 +196,8 @@ struct CommandLineToolInstallerTests {
     let error = NSError(domain: NSCocoaErrorDomain, code: NSFileReadNoSuchFileError)
     let destination = URL(fileURLWithPath: "/usr/local/bin/colorkit")
     #expect(
-      CommandLineToolInstaller.outcome(for: error, at: destination, scoped: true) == .writeDenied,
+      CommandLineToolInstaller.outcome(for: error, at: destination, scoped: true)
+        == .writeDenied(URL(fileURLWithPath: "/usr/local/bin")),
     )
   }
 
@@ -256,7 +274,7 @@ struct CommandLineToolInstallerTests {
     .binaryMissing,
     .destinationOccupied("a file"),
     .securityScopeFailed,
-    .writeDenied,
+    .writeDenied(URL(fileURLWithPath: "/usr/local/bin")),
     .success(.likelyOnPath),
     .success(.needsProfileLine("export PATH=\"$HOME/bin:$PATH\"")),
   ]

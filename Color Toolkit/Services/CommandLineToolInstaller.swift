@@ -58,9 +58,15 @@ enum CommandLineToolInstaller {
     /// explanation, though not a certainty; see ``install(embeddedBinary:into:)``.
     case securityScopeFailed
     /// The write failed with a permission error despite a successfully claimed
-    /// security scope — a genuine filesystem-level denial (a read-only volume, a
-    /// directory not owned by the user).
-    case writeDenied
+    /// security scope — a genuine filesystem-level denial. **The common case, not an
+    /// edge case**: `/usr/local/bin` — this feature's own default destination — is
+    /// `root:wheel 755` on a stock Mac and stays that way even with Homebrew
+    /// installed, since Homebrew on Apple Silicon lives under `/opt/homebrew`
+    /// instead and never touches it. Confirmed directly (`stat -f "%Su:%Sg %A"
+    /// /usr/local/bin`) after a real install attempt reported exactly this outcome
+    /// against exactly that directory. Carries the directory so the message can
+    /// name it and give the one-line fix.
+    case writeDenied(URL)
     /// The symlink was created. Carries ``PathAdvice`` for whether anything else is
     /// needed before `colorkit` actually runs from a fresh Terminal.
     case success(PathAdvice)
@@ -88,8 +94,12 @@ enum CommandLineToolInstaller {
           + "Remove it yourself, then try again."
       case .securityScopeFailed:
         "Color Toolkit couldn't get permission to write there. Try picking the folder again."
-      case .writeDenied:
-        "You don't have permission to write to that folder. Choose a different one."
+      case let .writeDenied(directory):
+        "Color Toolkit doesn't have permission to write to \(directory.path). If you "
+          + "own this Mac, run this once in Terminal, then try again:\n"
+          + "sudo chown \"$(whoami)\" \"\(directory.path)\"\n"
+          + "Or choose a folder you already own instead — ~/.local/bin works well, "
+          + "and this panel can create it for you."
       case let .success(advice):
         switch advice {
         case .likelyOnPath:
@@ -180,10 +190,11 @@ enum CommandLineToolInstaller {
     let permissionDenied =
       (error.domain == NSCocoaErrorDomain && error.code == NSFileWriteNoPermissionError)
         || (error.domain == NSPOSIXErrorDomain && (error.code == Int(EACCES) || error.code == Int(EPERM)))
+    let directory = destination.deletingLastPathComponent()
     guard permissionDenied else {
-      return .writeDenied
+      return .writeDenied(directory)
     }
-    return scoped ? .writeDenied : .securityScopeFailed
+    return scoped ? .writeDenied(directory) : .securityScopeFailed
   }
 
   /// Opens a directory-choosing panel, or `nil` if the user cancels.
@@ -237,7 +248,7 @@ enum CommandLineToolInstaller {
     } catch let error as NSError {
       return outcome(for: error, at: destination, scoped: scoped)
     } catch {
-      return .writeDenied
+      return .writeDenied(directory)
     }
 
     return .success(adviceForInstalling(at: directory))
