@@ -57,7 +57,7 @@ struct CommandLineToolInstallerTests {
   }
 
   @Test("A directory under $HOME gets a $HOME-relative profile line")
-  func homeRelativeDirectorySpellsFromHOME() throws {
+  func homeRelativeDirectorySpellsFromHOME() {
     let home = NSHomeDirectory()
     let directory = URL(fileURLWithPath: home).appending(path: "bin")
 
@@ -88,21 +88,6 @@ struct CommandLineToolInstallerTests {
     let advice = CommandLineToolInstaller.adviceForInstalling(at: URL(fileURLWithPath: "/opt/custom/bin"))
     #expect(advice == .needsProfileLine("export PATH=\"/opt/custom/bin:$PATH\""))
   }
-
-  // MARK: - InstallOutcome messages
-
-  /// One representative instance per case — `InstallOutcome` carries associated
-  /// values, so it cannot get `CaseIterable` for free the way `ExportShape` does, and
-  /// this list stands in for it the same cheap way.
-  private nonisolated static let everyOutcome: [CommandLineToolInstaller.InstallOutcome] = [
-    .translocated,
-    .binaryMissing,
-    .destinationOccupied("a file"),
-    .securityScopeFailed,
-    .writeDenied,
-    .success(.likelyOnPath),
-    .success(.needsProfileLine("export PATH=\"$HOME/bin:$PATH\"")),
-  ]
 
   @Test("Every outcome has its own non-empty message", arguments: everyOutcome)
   func everyOutcomeHasANonEmptyMessage(_ outcome: CommandLineToolInstaller.InstallOutcome) {
@@ -260,6 +245,21 @@ struct CommandLineToolInstallerTests {
   }
 
   // MARK: Private
+
+  // MARK: - InstallOutcome messages
+
+  /// One representative instance per case — `InstallOutcome` carries associated
+  /// values, so it cannot get `CaseIterable` for free the way `ExportShape` does, and
+  /// this list stands in for it the same cheap way.
+  private nonisolated static let everyOutcome: [CommandLineToolInstaller.InstallOutcome] = [
+    .translocated,
+    .binaryMissing,
+    .destinationOccupied("a file"),
+    .securityScopeFailed,
+    .writeDenied,
+    .success(.likelyOnPath),
+    .success(.needsProfileLine("export PATH=\"$HOME/bin:$PATH\"")),
+  ]
 
   private static func makeTemporaryDirectory() throws -> URL {
     let directory = FileManager.default.temporaryDirectory

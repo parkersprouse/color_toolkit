@@ -24,41 +24,6 @@ import Foundation
 enum CommandLineToolInstaller {
   // MARK: Internal
 
-  /// Where a well-formed `.app` bundle carries its embedded `colorkit`.
-  ///
-  /// `Contents/MacOS/`, not the `Contents/Executables/` this file's own copy-files
-  /// build phase is named after. Measured, not assumed: Xcode's "Executables"
-  /// destination (`dstSubfolderSpec = 6`) resolves, for a macOS application bundle
-  /// specifically, to the same folder the main executable already lives in — confirmed
-  /// by inspecting both a Debug build and a Release archive after adding the phase.
-  /// The build-phase *name* is Xcode's, this comment is the ground truth.
-  nonisolated static func embeddedBinaryURL(inBundleAt bundleURL: URL) -> URL {
-    bundleURL.appending(path: "Contents/MacOS/colorkit")
-  }
-
-  /// Where `colorkit` would land inside a directory the user picked.
-  nonisolated static func destinationURL(in directory: URL) -> URL {
-    directory.appending(path: "colorkit")
-  }
-
-  /// Whether a path sits inside macOS App Translocation's randomized quarantine copy.
-  ///
-  /// A pre-flight refusal, not a post-write warning. An app launched straight from a
-  /// quarantined `~/Downloads` copy (not yet dragged to `/Applications`) runs from
-  /// `/private/var/folders/.../AppTranslocation/<uuid>/d/…`, and that path
-  /// re-randomizes on every launch — so a symlink created during a translocated run
-  /// dangles the very next time the app opens, with nothing anywhere explaining why
-  /// `colorkit` stopped working.
-  ///
-  /// Detected as a path-substring check rather than a real API call: there is no
-  /// `SecTranslocate.h` in the installed SDK (confirmed by an SDK search), so this is a
-  /// recorded, deliberate heuristic-over-undocumented-shape trade-off — the same class
-  /// of decision as `ColorSpace.componentRoles` being transcribed rather than derived,
-  /// just facing an absent header instead of an editorial one.
-  nonisolated static func isTranslocated(bundlePath: String) -> Bool {
-    bundlePath.contains("/AppTranslocation/")
-  }
-
   /// Whether a chosen directory is likely already on the user's shell `$PATH`.
   ///
   /// A **transcribed** table of well-known directories, not a derivation from the
@@ -74,16 +39,6 @@ enum CommandLineToolInstaller {
     /// that line, `$HOME`-relative where applicable and always quoted.
     case needsProfileLine(String)
   }
-
-  /// Well-known `$PATH` directories a fresh shell already searches.
-  ///
-  /// `/usr/local/bin` is this feature's own default destination; `/opt/homebrew/bin`
-  /// is Homebrew's on Apple Silicon. Both are checked against the *standardized* path
-  /// so a trailing slash or a `//` doesn't defeat the comparison.
-  nonisolated static let wellKnownPathDirectories: Set<String> = [
-    "/usr/local/bin",
-    "/opt/homebrew/bin",
-  ]
 
   /// One terminal state of an install attempt, each with its own sentence — the
   /// "every failure mode gets its own sentence" pattern `ProjectsPanel.importTokens`
@@ -145,6 +100,51 @@ enum CommandLineToolInstaller {
         }
       }
     }
+  }
+
+  /// Well-known `$PATH` directories a fresh shell already searches.
+  ///
+  /// `/usr/local/bin` is this feature's own default destination; `/opt/homebrew/bin`
+  /// is Homebrew's on Apple Silicon. Both are checked against the *standardized* path
+  /// so a trailing slash or a `//` doesn't defeat the comparison.
+  nonisolated static let wellKnownPathDirectories: Set<String> = [
+    "/usr/local/bin",
+    "/opt/homebrew/bin",
+  ]
+
+  /// Where a well-formed `.app` bundle carries its embedded `colorkit`.
+  ///
+  /// `Contents/MacOS/`, not the `Contents/Executables/` this file's own copy-files
+  /// build phase is named after. Measured, not assumed: Xcode's "Executables"
+  /// destination (`dstSubfolderSpec = 6`) resolves, for a macOS application bundle
+  /// specifically, to the same folder the main executable already lives in — confirmed
+  /// by inspecting both a Debug build and a Release archive after adding the phase.
+  /// The build-phase *name* is Xcode's, this comment is the ground truth.
+  nonisolated static func embeddedBinaryURL(inBundleAt bundleURL: URL) -> URL {
+    bundleURL.appending(path: "Contents/MacOS/colorkit")
+  }
+
+  /// Where `colorkit` would land inside a directory the user picked.
+  nonisolated static func destinationURL(in directory: URL) -> URL {
+    directory.appending(path: "colorkit")
+  }
+
+  /// Whether a path sits inside macOS App Translocation's randomized quarantine copy.
+  ///
+  /// A pre-flight refusal, not a post-write warning. An app launched straight from a
+  /// quarantined `~/Downloads` copy (not yet dragged to `/Applications`) runs from
+  /// `/private/var/folders/.../AppTranslocation/<uuid>/d/…`, and that path
+  /// re-randomizes on every launch — so a symlink created during a translocated run
+  /// dangles the very next time the app opens, with nothing anywhere explaining why
+  /// `colorkit` stopped working.
+  ///
+  /// Detected as a path-substring check rather than a real API call: there is no
+  /// `SecTranslocate.h` in the installed SDK (confirmed by an SDK search), so this is a
+  /// recorded, deliberate heuristic-over-undocumented-shape trade-off — the same class
+  /// of decision as `ColorSpace.componentRoles` being transcribed rather than derived,
+  /// just facing an absent header instead of an editorial one.
+  nonisolated static func isTranslocated(bundlePath: String) -> Bool {
+    bundlePath.contains("/AppTranslocation/")
   }
 
   /// Best-effort advice for a chosen directory.
