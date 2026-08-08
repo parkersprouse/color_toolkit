@@ -3339,5 +3339,17 @@ What remains genuinely deferred:
   *fallback* moved, so a color outside P3 is mapped in both blocks with nothing saying
   which. Answering it properly means two counts and a badge that can show them, which is
   a UI decision rather than a missing line.
+- **~380 MainActor-isolation warnings across all 11 `Color ToolkitUITests` files**
+  (`Call to main actor-isolated … in a synchronous nonisolated context`, one per
+  `XCUIApplication`/`XCUIElement` call). See CLAUDE.md's Testing section for the full
+  diagnosis and the two fixes already tried and ruled out. The real fix is per-file:
+  `nonisolated override func setUpWithError()`/`tearDownWithError()` with their bodies
+  wrapped in `MainActor.assumeIsolated { … }`, plus `@MainActor` on every test function
+  — surgery across the same 11 files whose timing (hittability waits, frontmost-app
+  checks, the popover key-window quirk) took real debugging to get right, so it wants
+  its own pass rather than riding in on an unrelated change. Cosmetic in the meantime:
+  test-target-only, the shipped app is unaffected, and the suite passes and runs
+  correctly at runtime regardless, since XCTest genuinely does run these callbacks on
+  the main thread.
 
 *Note for later:* the APCA algorithm has carried usage/attribution terms. Irrelevant for personal use, but worth checking before ever distributing the app publicly.

@@ -1321,6 +1321,32 @@ the accessibility-tree conventions before writing UI tests.
   proposal. Size it from *width*, which is bounded.
 - Every running instance owns its own `MenuBarExtra` icon, so an orphaned process
   looks like a duplicate app. See *Running the app* in PLAN.md for the diagnosis.
+- **Every `Color ToolkitUITests` file builds with ~380 MainActor-isolation warnings
+  (`Call to main actor-isolated … in a synchronous nonisolated context`), left in
+  deliberately — see the "Deferred" entry in PLAN.md.** `XCUIApplication`/`XCUIElement`
+  now live in `XCUIAutomation.framework` (re-exported through `XCTest`) and are
+  `@MainActor` in the current SDK; the UI Tests target sets no
+  `SWIFT_DEFAULT_ACTOR_ISOLATION` of its own, so every synchronous `setUpWithError`,
+  test function and helper that touches `app` is `nonisolated` by Swift 6's default and
+  warns on every call. **Two fixes were tried and both ruled out, not merely
+  unconsidered.** Mirroring the app target's `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`
+  on the UI Tests target's Debug/Release blocks does not just silence the warnings — it
+  promotes `override func setUpWithError()`/`tearDownWithError()` and every subclass's
+  synthesized initializer to MainActor too, and those override `XCTestCase`
+  declarations that are themselves `nonisolated`; Swift requires an override's isolation
+  to match its superclass, so this is a **hard compile error** across all 11 files, not
+  a warning traded for a warning. `@preconcurrency import XCTest` and
+  `@preconcurrency import XCUIAutomation` were also tried, on the theory that these are
+  exactly the diagnostics `@preconcurrency` exists to downgrade — measured zero effect,
+  identical warning set before and after. The fix that would actually work is real but
+  invasive: `nonisolated override func setUpWithError()`/`tearDownWithError()` with
+  their bodies wrapped in `MainActor.assumeIsolated { … }` (a true assertion, not a
+  workaround — XCTest's lifecycle callbacks genuinely do run on the main thread), plus
+  `@MainActor` on every test function, across all 11 files. That is surgery on the same
+  timing-sensitive code the rest of this section documents at length (hittability waits,
+  the frontmost-app check, the popover key-window quirk), so it is not something to fold
+  into an unrelated change. Cosmetic in the meantime: test-target-only, the shipped app
+  is untouched, and the suite passes and runs correctly today regardless.
 
 ### Commits
 

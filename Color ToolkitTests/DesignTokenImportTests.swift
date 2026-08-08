@@ -98,7 +98,7 @@ struct DesignTokenImportTests {
 
     let color = try #require(document.colors.first).color
     let text = color.cssStringOrHex(as: .native(for: space), options: .lossless)
-    let reparsed = try #require(try CSSColorParser.parse(text).color)
+    let reparsed = try CSSColorParser.parse(text).color
 
     #expect(reparsed.space == space)
     for index in 0 ..< 3 {
@@ -285,7 +285,7 @@ struct DesignTokenImportTests {
       "colorSpace": "cmyk", "components": [0, 1, 1, 0], "hex": "#3b82f6" } } } }
     """#)
 
-    let expected = try #require(try CSSColorParser.parse("#3b82f6").color)
+    let expected = try CSSColorParser.parse("#3b82f6").color
     #expect(try #require(document.colors.first).color == expected)
   }
 

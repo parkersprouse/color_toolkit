@@ -50,7 +50,7 @@ struct ProjectStoreTests {
   func savedColorRoundTrips() throws {
     let library = try Self.makeLibrary()
     let project = try library.createProject(named: "Site")
-    let blue = try #require(CSSColorParser.parse("#3b82f6").color)
+    let blue = try CSSColorParser.parse("#3b82f6").color
 
     try library.saveColor(ColorRecord(blue, text: "#3b82f6"), named: "Brand", to: project)
 
@@ -67,7 +67,7 @@ struct ProjectStoreTests {
   func savedColorKeepsItsSpelling() throws {
     let library = try Self.makeLibrary()
     let project = try library.createProject(named: "Site")
-    let purple = try #require(CSSColorParser.parse("rebeccapurple").color)
+    let purple = try CSSColorParser.parse("rebeccapurple").color
 
     try library.saveColor(ColorRecord(purple, text: "rebeccapurple"), to: project)
 
@@ -82,7 +82,7 @@ struct ProjectStoreTests {
   func savedPaletteKeepsOrderAndKeys() throws {
     let library = try Self.makeLibrary()
     let project = try library.createProject(named: "Site")
-    let base = try #require(CSSColorParser.parse("#3b82f6").color)
+    let base = try CSSColorParser.parse("#3b82f6").color
     let stops = ShadeRamp.default.generated(from: base)
     let entries = zip(PaletteNaming.rampKeys(count: stops.count), stops)
       .map { PaletteEntry(key: $0, color: $1) }
@@ -104,7 +104,7 @@ struct ProjectStoreTests {
   func paletteEntriesSurvive() throws {
     let library = try Self.makeLibrary()
     let project = try library.createProject(named: "Site")
-    let base = try #require(CSSColorParser.parse("#3b82f6").color)
+    let base = try CSSColorParser.parse("#3b82f6").color
     let original = ShadeRamp.default.generated(from: base)
     let entries = zip(PaletteNaming.rampKeys(count: original.count), original)
       .map { PaletteEntry(key: $0, color: $1) }
@@ -206,10 +206,7 @@ struct ProjectStoreTests {
     let values = ExportRoundTripTests.propertyValues(in: rendered)
     #expect(values.count == 3, "Expected one value per token:\n\(rendered)")
     for (value, entry) in zip(values, palette.paletteEntries) {
-      let parsed = try #require(
-        try CSSColorParser.parse(value).color,
-        "Exported \(value), which this app's own parser rejects",
-      )
+      let parsed = try CSSColorParser.parse(value).color
       // Not the 1e-9 that `paletteEntriesSurvive` uses, and the difference is the point:
       // that test round-trips through *storage*, which is lossless, where this one goes
       // through a rendered document at the panel's display precision of four decimals.
@@ -254,7 +251,7 @@ struct ProjectStoreTests {
     let library = try Self.makeLibrary()
     let project = try library.createProject(named: "Site")
     let pasted = "oklch(0.7 0.5 140.123456789)"
-    let color = try #require(CSSColorParser.parse(pasted).color)
+    let color = try CSSColorParser.parse(pasted).color
     let entry = ImportedEntry(key: "500", color: color, text: pasted)
 
     try library.savePalette(importing: [entry], named: "Brand", to: project)
@@ -283,7 +280,7 @@ struct ProjectStoreTests {
     let palette = try #require(try library.projects().first?.orderedPalettes.first)
     #expect(palette.kind == .imported)
     for saved in palette.orderedEntries {
-      let reparsed = try #require(CSSColorParser.parse(saved.text).color)
+      let reparsed = try CSSColorParser.parse(saved.text).color
       #expect(reparsed == saved.colorValue)
     }
   }
@@ -296,7 +293,7 @@ struct ProjectStoreTests {
   func deletingAProjectCascades() throws {
     let library = try Self.makeLibrary()
     let project = try library.createProject(named: "Site")
-    let blue = try #require(CSSColorParser.parse("#3b82f6").color)
+    let blue = try CSSColorParser.parse("#3b82f6").color
     try library.saveColor(ColorRecord(blue, text: "#3b82f6"), to: project)
     try library.savePalette(
       [PaletteEntry(key: "base", color: blue), PaletteEntry(key: "alt", color: blue)],
@@ -319,7 +316,7 @@ struct ProjectStoreTests {
   func deletingAPaletteSparesLooseColors() throws {
     let library = try Self.makeLibrary()
     let project = try library.createProject(named: "Site")
-    let blue = try #require(CSSColorParser.parse("#3b82f6").color)
+    let blue = try CSSColorParser.parse("#3b82f6").color
     try library.saveColor(ColorRecord(blue, text: "#3b82f6"), to: project)
     let palette = try library.savePalette(
       [PaletteEntry(key: "base", color: blue)],
@@ -345,13 +342,13 @@ struct ProjectStoreTests {
     let project = try library.createProject(named: "Site")
     let colors = ["#ff0000", "#00ff00", "#0000ff"]
     for css in colors {
-      let color = try #require(CSSColorParser.parse(css).color)
+      let color = try CSSColorParser.parse(css).color
       try library.saveColor(ColorRecord(color, text: css), named: css, to: project)
     }
 
     let middle = try #require(project.orderedColors.dropFirst().first)
     try library.delete(middle)
-    let added = try #require(CSSColorParser.parse("#ffff00").color)
+    let added = try CSSColorParser.parse("#ffff00").color
     try library.saveColor(ColorRecord(added, text: "#ffff00"), named: "#ffff00", to: project)
 
     #expect(project.orderedColors.map(\.name) == ["#ff0000", "#0000ff", "#ffff00"])
@@ -398,7 +395,7 @@ struct ProjectStoreTests {
   func notesPersist() throws {
     let library = try Self.makeLibrary()
     let project = try library.createProject(named: "Site")
-    let blue = try #require(CSSColorParser.parse("#3b82f6").color)
+    let blue = try CSSColorParser.parse("#3b82f6").color
     let color = try library.saveColor(ColorRecord(blue, text: "#3b82f6"), named: "Brand", to: project)
 
     color.notes = "Primary call to action only"
@@ -415,7 +412,7 @@ struct ProjectStoreTests {
     let library = try Self.makeLibrary()
     let project = try library.createProject(named: "Site")
     let before = project.modifiedAt
-    let blue = try #require(CSSColorParser.parse("#3b82f6").color)
+    let blue = try CSSColorParser.parse("#3b82f6").color
 
     try library.saveColor(ColorRecord(blue, text: "#3b82f6"), to: project)
 
@@ -445,8 +442,8 @@ struct ProjectStoreTests {
     defer { try? FileManager.default.removeItem(at: directory) }
     let url = directory.appending(path: "projects.store")
 
-    let purple = try #require(CSSColorParser.parse("rebeccapurple").color)
-    let base = try #require(CSSColorParser.parse("#3b82f6").color)
+    let purple = try CSSColorParser.parse("rebeccapurple").color
+    let base = try CSSColorParser.parse("#3b82f6").color
     let stops = ShadeRamp.default.generated(from: base)
 
     // Scoped so the container is released before the second one opens the same file.
@@ -527,7 +524,7 @@ struct ProjectStoreTests {
     #expect(project.orderedColors.map(\.sortIndex) == [0, 1])
     #expect(project.orderedColors.map(\.name) == ["#0000ff", "#ff0000"])
 
-    let added = try #require(CSSColorParser.parse("#ffff00").color)
+    let added = try CSSColorParser.parse("#ffff00").color
     try library.saveColor(ColorRecord(added, text: "#ffff00"), named: "#ffff00", to: project)
     #expect(project.orderedColors.map(\.name) == ["#0000ff", "#ff0000", "#ffff00"])
   }
@@ -596,7 +593,7 @@ struct ProjectStoreTests {
     let library = try Self.makeLibrary()
     let project = try library.createProject(named: "Site")
     for css in ["#ff0000", "#00ff00", "#0000ff"] {
-      let color = try #require(CSSColorParser.parse(css).color)
+      let color = try CSSColorParser.parse(css).color
       try library.saveColor(ColorRecord(color, text: css), named: "blue", to: project)
     }
 
@@ -615,7 +612,7 @@ struct ProjectStoreTests {
     let library = try Self.makeLibrary()
     let project = try library.createProject(named: "Site")
     for css in ["#ff0000", "#00ff00"] {
-      let color = try #require(CSSColorParser.parse(css).color)
+      let color = try CSSColorParser.parse(css).color
       try library.saveColor(ColorRecord(color, text: css), to: project)
     }
 
@@ -657,7 +654,7 @@ struct ProjectStoreTests {
   ) throws -> Project {
     let project = try library.createProject(named: "Site")
     for text in css {
-      let color = try #require(CSSColorParser.parse(text).color)
+      let color = try CSSColorParser.parse(text).color
       try library.saveColor(ColorRecord(color, text: text), named: text, to: project)
     }
     return project

@@ -66,7 +66,7 @@ struct ColorRecordTests {
     arguments: ["rebeccapurple", "#3b82f6", "rgb(59 130 246)", "hsl(217.22 91.22% 59.8%)"],
   )
   func authoredTextIsVerbatim(css: String) throws {
-    let color = try #require(CSSColorParser.parse(css).color)
+    let color = try CSSColorParser.parse(css).color
     let record = ColorRecord(color, text: css)
 
     #expect(record.text == css)
@@ -82,9 +82,9 @@ struct ColorRecordTests {
     arguments: ["rebeccapurple", "#3b82f6", "rgb(59 130 246)", "oklch(0.7 0.15 250)"],
   )
   func componentsMatchSpelling(css: String) throws {
-    let record = try ColorRecord(#require(CSSColorParser.parse(css).color), text: css)
+    let record = try ColorRecord(CSSColorParser.parse(css).color, text: css)
 
-    let reparsed = try #require(CSSColorParser.parse(record.text).color)
+    let reparsed = try CSSColorParser.parse(record.text).color
     #expect(reparsed == record.colorValue)
   }
 
@@ -102,11 +102,11 @@ struct ColorRecordTests {
   /// perceptual distance it actually amounts to is ten orders of magnitude under a JND.
   @Test("A derived spelling survives the round trip it will be read back through")
   func derivedSpellingIsLossless() throws {
-    let base = try #require(CSSColorParser.parse("#3b82f6").color)
+    let base = try CSSColorParser.parse("#3b82f6").color
 
     for stop in ShadeRamp.default.generated(from: base) {
       let record = ColorRecord.derived(stop, preferring: .oklch)
-      let reparsed = try #require(CSSColorParser.parse(record.text).color)
+      let reparsed = try CSSColorParser.parse(record.text).color
 
       // `.oklch` is unbounded, so nothing was gamut-mapped on the way out and the
       // recalled color is in the space it was written in.

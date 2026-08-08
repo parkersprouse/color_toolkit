@@ -59,10 +59,7 @@ struct ExportRoundTripTests {
       "No custom property in:\n\(document)",
     )
 
-    let parsed = try #require(
-      try CSSColorParser.parse(value).color,
-      "Exported \(value), which this app's own parser rejects",
-    )
+    let parsed = try CSSColorParser.parse(value).color
 
     let original = Self.base.converted(to: .srgb).components
     let returned = parsed.converted(to: .srgb).components
@@ -405,10 +402,7 @@ struct ExportShapeTests {
     #expect(values.count == 2, "Expected one value per block:\n\(rendered)")
 
     let parsed = try values.map { value in
-      try #require(
-        try CSSColorParser.parse(value).color,
-        "Exported \(value), which this app's own parser rejects",
-      )
+      try CSSColorParser.parse(value).color
     }
     #expect(parsed.count == 2)
     guard parsed.count == 2 else { return }
@@ -475,7 +469,7 @@ struct ExportShapeTests {
       let rendered = options.render([PaletteEntry(color: wider)], formatting: formatting)
       let values = ExportRoundTripTests.propertyValues(in: rendered)
       #expect(values.count == 2, "Expected one value per block:\n\(rendered)")
-      return try #require(try CSSColorParser.parse(values[values.count - 1]).color)
+      return try CSSColorParser.parse(values[values.count - 1]).color
     }
 
     // The panel's own setting: the override is mapped, which is what the old note denied.
@@ -810,7 +804,7 @@ struct GroupedExportTests {
     #expect(values.count == 2, "Expected one value per group:\n\(rendered)")
 
     let parsed = try values.map { value in
-      try #require(try CSSColorParser.parse(value).color, "\(value) does not parse")
+      try CSSColorParser.parse(value).color
     }
     #expect(parsed.map { $0.converted(to: .srgb) } == [Self.blue, Self.red].map { $0.converted(to: .srgb) })
   }
